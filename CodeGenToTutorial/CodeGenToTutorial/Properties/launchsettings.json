@@ -1,0 +1,10 @@
+﻿{
+    "profiles": {
+      "CodeGenToTutorial (Package)": {
+        "commandName": "MsixPackage"
+      },
+      "CodeGenToTutorial (Unpackaged)": {
+        "commandName": "Project"
+      }
+    }
+}
