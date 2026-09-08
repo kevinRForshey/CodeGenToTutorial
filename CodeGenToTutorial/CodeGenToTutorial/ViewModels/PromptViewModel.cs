@@ -21,10 +21,10 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
            codebase): just answer it directly and concisely. Do not produce a tutorial or file list for these.
 
         2. Development request (asks for a feature, fix, or change to this codebase): do NOT modify any files.
-           Instead respond with exactly two sections, using these headers so they can be parsed:
+           Instead respond with exactly two top-level sections, using these headers so they can be parsed:
 
            ## Tutorial
-           A step-by-step explanation of how the user could implement the change themselves.
+           A short paragraph summarizing the overall change.
 
            ## Files
            For every file that needs to change, add a subsection formatted exactly like this, repeated for each
@@ -34,6 +34,19 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
            ```
            <the complete contents of the file with the proposed changes applied - the whole file, not a diff>
            ```
+
+           #### Tutorial
+           Break down why and how this file is changing into one or more ordered steps, each formatted exactly
+           like this:
+
+           ##### Step: <short title for this part of the change>
+           One or more paragraphs explaining, in detail, the reasoning behind this specific part of the change
+           and how it works, written so someone learning to code with an LLM can follow along.
+           ```
+           <only the new or changed code that this step introduces, not the whole file>
+           ```
+
+           Repeat the "##### Step" block for every distinct part of the file's change.
 
            Do not put a language tag after the three backticks. If no existing files need changes, write
            "No files need changes." instead of any file subsections.
@@ -126,7 +139,7 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
             if (result.ExitCode == 0)
             {
                 var parsed = ClaudeResponseParser.Parse(CliOutput);
-                _promptResultStore.SetResult(parsed.Tutorial, parsed.Files);
+                _promptResultStore.SetResult(parsed.Tutorial, parsed.Files, WorkingDirectoryPath);
 
                 StatusMessage = parsed.Files.Count > 0
                     ? string.Format("Prompt_RunCompletedWithFiles".GetLocalized(), parsed.Files.Count)

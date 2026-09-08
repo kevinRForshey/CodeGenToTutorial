@@ -1,4 +1,6 @@
-﻿using CodeGenToTutorial.ViewModels;
+using CodeGenToTutorial.ViewModels;
+
+using CommunityToolkit.WinUI.UI.Controls;
 
 using Microsoft.UI.Xaml.Controls;
 
@@ -15,5 +17,13 @@ public sealed partial class TutorialPage : Page
     {
         ViewModel = App.GetService<TutorialViewModel>();
         InitializeComponent();
+    }
+
+    private void OnViewStateChanged(object sender, ListDetailsViewState e)
+    {
+        if (e == ListDetailsViewState.Both)
+        {
+            ViewModel.EnsureItemSelected();
+        }
     }
 }

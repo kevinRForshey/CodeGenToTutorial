@@ -5,6 +5,8 @@ using CodeGenToTutorial.Models;
 namespace CodeGenToTutorial.Helpers;
 
 // Parses the "## Tutorial" / "## Files" structured response requested by PromptViewModel.TutorialInstructionPrompt.
+// Each file entry may nest its own "#### Tutorial" section made up of "##### Step:" blocks that explain the
+// reasoning behind that part of the file's change, paired with the specific code it introduces.
 public static partial class ClaudeResponseParser
 {
     private const string TutorialHeader = "## Tutorial";
@@ -34,6 +36,7 @@ public static partial class ClaudeResponseParser
             {
                 FilePath = match.Groups["path"].Value.Trim(),
                 Content = match.Groups["content"].Value,
+                TutorialSteps = ParseSteps(match.Groups["tail"].Value),
             })
             .Where(file => file.FilePath.Length > 0)
             .ToList();
@@ -41,6 +44,18 @@ public static partial class ClaudeResponseParser
         return new ClaudeParsedResponse(tutorial, files);
     }
 
-    [GeneratedRegex(@"^###\s*File:\s*(?<path>.+?)\s*\r?\n```[^\r\n]*\r?\n(?<content>.*?)\r?\n```\s*$", RegexOptions.Multiline | RegexOptions.Singleline)]
+    private static IReadOnlyList<TutorialStep> ParseSteps(string tail) =>
+        StepEntryRegex().Matches(tail)
+            .Select(match => new TutorialStep(
+                match.Groups["title"].Value.Trim(),
+                match.Groups["explanation"].Value.Trim(),
+                match.Groups["code"].Value))
+            .Where(step => step.Title.Length > 0)
+            .ToList();
+
+    [GeneratedRegex(@"^###\s*File:\s*(?<path>.+?)\s*\r?\n```[^\r\n]*\r?\n(?<content>.*?)\r?\n```(?<tail>.*?)(?=^###\s*File:|\z)", RegexOptions.Multiline | RegexOptions.Singleline)]
     private static partial Regex FileEntryRegex();
+
+    [GeneratedRegex(@"^#{4,5}\s*Step:\s*(?<title>.+?)\s*\r?\n(?<explanation>.*?)```[^\r\n]*\r?\n(?<code>.*?)\r?\n```", RegexOptions.Multiline | RegexOptions.Singleline)]
+    private static partial Regex StepEntryRegex();
 }

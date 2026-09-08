@@ -6,7 +6,9 @@ public interface IPromptResultStore
 {
     string Tutorial { get; }
 
+    string WorkingDirectoryPath { get; }
+
     IReadOnlyList<ProposedFileChange> Files { get; }
 
-    void SetResult(string tutorial, IReadOnlyList<ProposedFileChange> files);
+    void SetResult(string tutorial, IReadOnlyList<ProposedFileChange> files, string workingDirectoryPath);
 }

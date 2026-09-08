@@ -62,6 +62,7 @@ public partial class App : Application
             services.AddSingleton<IClaudeCliService, ClaudeCliService>();
             services.AddTransient<IFolderPickerService, FolderPickerService>();
             services.AddSingleton<IPromptResultStore, PromptResultStore>();
+            services.AddTransient<IFileChangeApplyService, FileChangeApplyService>();
             services.AddTransient<INavigationViewService, NavigationViewService>();
 
             services.AddSingleton<IActivationService, ActivationService>();

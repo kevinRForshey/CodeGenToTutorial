@@ -4,7 +4,13 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:models="using:CodeGenToTutorial.Models"
+    xmlns:helpers="using:CodeGenToTutorial.Helpers"
     mc:Ignorable="d">
+
+    <UserControl.Resources>
+        <helpers:DiffLineKindToBackgroundConverter x:Key="DiffLineKindToBackgroundConverter" />
+    </UserControl.Resources>
 
     <Grid RowSpacing="8">
         <Grid.RowDefinitions>
@@ -29,14 +35,34 @@
                 Click="OnCopyButtonClick" />
         </StackPanel>
 
-        <TextBox
+        <ScrollViewer
             Grid.Row="1"
-            Text="{x:Bind ProposedFileChange.Content, Mode=OneWay}"
-            IsReadOnly="True"
-            AcceptsReturn="True"
-            TextWrapping="NoWrap"
-            FontFamily="Cascadia Mono"
-            ScrollViewer.VerticalScrollBarVisibility="Auto"
-            ScrollViewer.HorizontalScrollBarVisibility="Auto" />
+            HorizontalScrollBarVisibility="Auto"
+            VerticalScrollBarVisibility="Auto">
+            <ItemsControl ItemsSource="{x:Bind ProposedFileChange.DiffLines, Mode=OneWay}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="models:DiffLine">
+                        <Grid
+                            Padding="4,0"
+                            ColumnSpacing="4"
+                            Background="{x:Bind Kind, Converter={StaticResource DiffLineKindToBackgroundConverter}}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock
+                                Grid.Column="0"
+                                FontFamily="Cascadia Mono"
+                                Text="{x:Bind Prefix}" />
+                            <TextBlock
+                                Grid.Column="1"
+                                FontFamily="Cascadia Mono"
+                                Text="{x:Bind Text}"
+                                TextWrapping="NoWrap" />
+                        </Grid>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
     </Grid>
 </UserControl>

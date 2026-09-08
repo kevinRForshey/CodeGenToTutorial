@@ -9,11 +9,14 @@ public class PromptResultStore : IPromptResultStore
 {
     public string Tutorial { get; private set; } = string.Empty;
 
+    public string WorkingDirectoryPath { get; private set; } = string.Empty;
+
     public IReadOnlyList<ProposedFileChange> Files { get; private set; } = Array.Empty<ProposedFileChange>();
 
-    public void SetResult(string tutorial, IReadOnlyList<ProposedFileChange> files)
+    public void SetResult(string tutorial, IReadOnlyList<ProposedFileChange> files, string workingDirectoryPath)
     {
         Tutorial = tutorial;
         Files = files;
+        WorkingDirectoryPath = workingDirectoryPath;
     }
 }
