@@ -1,0 +1,11 @@
+<Project>
+  <!-- Shared settings for every project in the solution. Individual .csproj files should only set
+       what's actually specific to them (TargetFramework overrides, OutputType, UI framework flags, etc.). -->
+  <PropertyGroup>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,43 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="using:FluentAvalonia.UI.Controls"
+             xmlns:conv="using:Avalonia.Data.Converters"
+             xmlns:models="using:CodeGenToTutorial.Core.Models"
+             xmlns:views="using:CodeGenToTutorial.Avalonia.Views"
+             xmlns:vm="using:CodeGenToTutorial.Avalonia.ViewModels"
+             x:Class="CodeGenToTutorial.Avalonia.Views.DiffsView"
+             x:DataType="vm:DiffsViewModel">
+
+    <Grid ColumnDefinitions="280,*">
+        <ListBox Grid.Column="0"
+                 Name="FileList"
+                 ItemsSource="{Binding Files}"
+                 SelectedItem="{Binding Selected, Mode=TwoWay}">
+            <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="models:ProposedFileChange">
+                    <Grid Height="48" ColumnDefinitions="Auto,*">
+                        <ui:SymbolIcon Grid.Column="0" Symbol="Document" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1"
+                                   Margin="8,0,0,0"
+                                   VerticalAlignment="Center"
+                                   Text="{Binding FilePath}"
+                                   TextTrimming="CharacterEllipsis" />
+                    </Grid>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <Border Grid.Column="1" Padding="16">
+            <Grid>
+                <TextBlock Text="Select a file from the list to view the proposed changes."
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           TextAlignment="Center"
+                           FontSize="18"
+                           IsVisible="{Binding #FileList.SelectedItem, Converter={x:Static conv:ObjectConverters.IsNull}}" />
+                <views:DiffsDetailControl DataContext="{Binding Selected}"
+                                          IsVisible="{Binding #FileList.SelectedItem, Converter={x:Static conv:ObjectConverters.IsNotNull}}" />
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

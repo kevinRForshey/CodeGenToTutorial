@@ -1,0 +1,39 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:styling="using:Avalonia.Styling"
+             xmlns:vm="using:CodeGenToTutorial.Avalonia.ViewModels"
+             x:Class="CodeGenToTutorial.Avalonia.Views.SettingsView"
+             x:DataType="vm:SettingsViewModel">
+
+    <StackPanel Margin="16" Spacing="8">
+        <TextBlock Text="Personalization" FontSize="20" FontWeight="SemiBold" />
+
+        <StackPanel Margin="0,8,0,0" Spacing="4">
+            <TextBlock Text="Theme" />
+
+            <StackPanel Margin="0,4,0,0" Spacing="4">
+                <RadioButton Content="Light"
+                             GroupName="AppTheme"
+                             Command="{Binding SwitchThemeCommand}"
+                             CommandParameter="{x:Static styling:ThemeVariant.Light}"
+                             IsChecked="{Binding ThemeVariant, Converter={StaticResource EnumToBooleanConverter}, ConverterParameter=Light, Mode=OneWay}" />
+                <RadioButton Content="Dark"
+                             GroupName="AppTheme"
+                             Command="{Binding SwitchThemeCommand}"
+                             CommandParameter="{x:Static styling:ThemeVariant.Dark}"
+                             IsChecked="{Binding ThemeVariant, Converter={StaticResource EnumToBooleanConverter}, ConverterParameter=Dark, Mode=OneWay}" />
+                <RadioButton Content="Default"
+                             GroupName="AppTheme"
+                             Command="{Binding SwitchThemeCommand}"
+                             CommandParameter="{x:Static styling:ThemeVariant.Default}"
+                             IsChecked="{Binding ThemeVariant, Converter={StaticResource EnumToBooleanConverter}, ConverterParameter=Default, Mode=OneWay}" />
+            </StackPanel>
+        </StackPanel>
+
+        <TextBlock Margin="0,16,0,0" Text="About this application" FontSize="20" FontWeight="SemiBold" />
+
+        <StackPanel Margin="0,4,0,0" Spacing="4">
+            <TextBlock Text="{Binding VersionDescription}" />
+        </StackPanel>
+    </StackPanel>
+</UserControl>

@@ -1,0 +1,40 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="using:FluentAvalonia.UI.Controls"
+             xmlns:helpers="using:CodeGenToTutorial.Avalonia.Helpers"
+             xmlns:vm="using:CodeGenToTutorial.Avalonia.ViewModels"
+             x:Class="CodeGenToTutorial.Avalonia.Views.ShellView"
+             x:DataType="vm:ShellViewModel">
+
+    <ui:NavigationView x:Name="NavigationViewControl"
+                        IsBackButtonVisible="True"
+                        IsBackEnabled="{Binding IsBackEnabled}"
+                        SelectedItem="{Binding Selected}"
+                        IsSettingsVisible="True"
+                        PaneDisplayMode="Left"
+                        Header="{Binding Selected, Converter={StaticResource SelectedNavigationItemToHeaderConverter}}">
+        <ui:NavigationView.MenuItems>
+            <ui:NavigationViewItem Content="Main" helpers:NavigationHelper.NavigateTo="CodeGenToTutorial.Avalonia.ViewModels.MainViewModel">
+                <ui:NavigationViewItem.IconSource>
+                    <ui:SymbolIconSource Symbol="Home" />
+                </ui:NavigationViewItem.IconSource>
+            </ui:NavigationViewItem>
+            <ui:NavigationViewItem Content="Prompt" helpers:NavigationHelper.NavigateTo="CodeGenToTutorial.Avalonia.ViewModels.PromptViewModel">
+                <ui:NavigationViewItem.IconSource>
+                    <ui:SymbolIconSource Symbol="Send" />
+                </ui:NavigationViewItem.IconSource>
+            </ui:NavigationViewItem>
+            <ui:NavigationViewItem Content="Diffs" helpers:NavigationHelper.NavigateTo="CodeGenToTutorial.Avalonia.ViewModels.DiffsViewModel">
+                <ui:NavigationViewItem.IconSource>
+                    <ui:SymbolIconSource Symbol="Code" />
+                </ui:NavigationViewItem.IconSource>
+            </ui:NavigationViewItem>
+            <ui:NavigationViewItem Content="Tutorial" helpers:NavigationHelper.NavigateTo="CodeGenToTutorial.Avalonia.ViewModels.TutorialViewModel">
+                <ui:NavigationViewItem.IconSource>
+                    <ui:SymbolIconSource Symbol="Document" />
+                </ui:NavigationViewItem.IconSource>
+            </ui:NavigationViewItem>
+        </ui:NavigationView.MenuItems>
+        <ui:Frame x:Name="NavigationFrame" />
+    </ui:NavigationView>
+</UserControl>
