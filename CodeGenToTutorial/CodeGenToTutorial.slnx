@@ -1,4 +1,6 @@
 <Solution>
   <Project Path="CodeGenToTutorial.Core/CodeGenToTutorial.Core.csproj" />
   <Project Path="CodeGenToTutorial.Avalonia/CodeGenToTutorial.Avalonia.csproj" />
+  <Project Path="CodeGenToTutorial.Core.Tests/CodeGenToTutorial.Core.Tests.csproj" />
+  <Project Path="CodeGenToTutorial.Avalonia.Tests/CodeGenToTutorial.Avalonia.Tests.csproj" />
 </Solution>

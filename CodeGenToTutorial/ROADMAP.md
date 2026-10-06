@@ -239,8 +239,10 @@ committed yet — review `git status`/`git diff` before committing.
 ### EPIC 4 — Safe, reversible file updates *(P1)*
 
 **F4.1 — Containment & validation**
-- T4.1.1 Canonicalize with `Path.GetFullPath` and reject any target outside the working directory;
-  reject absolute and rooted LLM paths. **(Security — do this early.)**
+- [x] T4.1.1 Canonicalize with `Path.GetFullPath` and reject any target outside the working directory;
+  reject absolute and rooted LLM paths. **(Security — do this early.)** — done 2026-10-02 in
+  `FileChangeApplyService.Apply`; verified traversal (`../../../etc/passwd`) and absolute-path
+  escapes are rejected with `InvalidOperationException`, normal relative paths still write.
 - T4.1.2 Reject writes to `.git/`, `bin/`, `obj/`, and anything matched by `.gitignore` unless
   explicitly confirmed.
 - T4.1.3 Preserve the file's existing encoding and line endings instead of defaulting.
@@ -352,14 +354,24 @@ committed yet — review `git status`/`git diff` before committing.
 ### EPIC 9 — Quality, testing & delivery *(P1 — required by project governance)*
 
 **F9.1 — Test foundation**
-- T9.1.1 Add an xUnit test project; wire coverage reporting toward the 90% floor.
-- T9.1.2 `DiffBuilder` tests: empty/identical/insert/delete/move, CRLF vs LF, the `MaxLcsCells`
-  fallback.
-- T9.1.3 `ClaudeResponseParser` tests: happy path, no-files response, unstructured response,
-  language tags on fences, nested fences, multiple files, multiple steps, truncated input.
-- T9.1.4 `FileChangeApplyService` tests: new file, nested directory creation, **path-traversal
-  rejection**, permission failure.
-- T9.1.5 ViewModel tests with a faked `ILlmRunner`.
+- [x] T9.1.1 Add an xUnit test project; wire coverage reporting toward the 90% floor. — done
+  2026-10-02: `CodeGenToTutorial.Core.Tests` (xUnit + `coverlet.collector`), added to
+  `CodeGenToTutorial.slnx`; `dotnet test --collect:"XPlat Code Coverage"` produces a Cobertura report.
+- [x] T9.1.2 `DiffBuilder` tests: empty/identical/insert/delete/move, CRLF vs LF, the `MaxLcsCells`
+  fallback. — done 2026-10-02, 100% line coverage on `DiffBuilder`.
+- [x] T9.1.3 `ClaudeResponseParser` tests: happy path, no-files response, unstructured response,
+  language tags on fences, nested fences, multiple files, multiple steps, truncated input. — done
+  2026-10-02, 100% line coverage; the nested-fence and truncated-fence tests pin today's known-fragile
+  behavior (see "Protocol fragility" above) as a baseline for the Epic 5 rework.
+- [x] T9.1.4 `FileChangeApplyService` tests: new file, nested directory creation, **path-traversal
+  rejection**, permission failure. — done 2026-10-02, 100% line coverage, covers the T4.1.1 fix.
+- [x] T9.1.5 ViewModel tests with a faked `ILlmRunner`. — done 2026-10-06: new
+  `CodeGenToTutorial.Avalonia.Tests` project (hand-written fakes for `IClaudeCliService`,
+  `ILocalSettingsService`, `IFolderPickerService`, `IPromptResultStore`, matching the existing
+  no-mocking-library convention) covers `PromptViewModel` — success with/without files, non-zero
+  exit code, CLI exceptions, `CanRunPrompt` gating, save/browse commands, and settings restore on
+  navigation. There's no `ILlmRunner` abstraction yet (that's T6.3.1); faked `IClaudeCliService`
+  directly, which is the only LLM-runner dependency that exists today.
 
 **F9.2 — Reliability**
 - T9.2.1 Structured logging (`ILogger`) across services; user-accessible log file.

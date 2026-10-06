@@ -15,7 +15,18 @@ public class FileChangeApplyService : IFileChangeApplyService
             throw new InvalidOperationException("A project location must be selected before applying changes.");
         }
 
-        var fullPath = Path.Combine(workingDirectoryPath, file.FilePath);
+        var root = Path.GetFullPath(workingDirectoryPath);
+        var fullPath = Path.GetFullPath(Path.Combine(root, file.FilePath));
+        var rootWithSeparator = root.EndsWith(Path.DirectorySeparatorChar)
+            ? root
+            : root + Path.DirectorySeparatorChar;
+
+        if (!fullPath.StartsWith(rootWithSeparator, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Refusing to write outside the project folder: '{file.FilePath}' resolves to '{fullPath}'.");
+        }
+
         var directory = Path.GetDirectoryName(fullPath);
 
         if (!string.IsNullOrEmpty(directory))
