@@ -1,7 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 
-using CodeGenToTutorial.Core.Models;
+using CodeGenToTutorial.Core.ViewModels;
 
 namespace CodeGenToTutorial.Avalonia.Views;
 
@@ -14,7 +14,7 @@ public partial class DiffsDetailControl : UserControl
 
     private async void OnCopyButtonClick(object? sender, RoutedEventArgs e)
     {
-        if (DataContext is not ProposedFileChange proposedFileChange)
+        if (DataContext is not ProposedFileChangeViewModel proposedFileChange)
         {
             return;
         }
@@ -22,7 +22,7 @@ public partial class DiffsDetailControl : UserControl
         var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
         if (clipboard != null)
         {
-            await clipboard.SetTextAsync(proposedFileChange.Content);
+            await clipboard.SetTextAsync(proposedFileChange.ProposedContent);
         }
     }
 }

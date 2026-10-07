@@ -1,10 +1,12 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:ui="using:FluentAvalonia.UI.Controls"
-             xmlns:models="using:CodeGenToTutorial.Core.Models"
+             xmlns:coreVm="using:CodeGenToTutorial.Core.ViewModels"
              xmlns:viewmodels="using:CodeGenToTutorial.Avalonia.ViewModels"
+             xmlns:controls="using:CodeGenToTutorial.Avalonia.Controls"
+             xmlns:helpers="using:CodeGenToTutorial.Avalonia.Helpers"
              x:Class="CodeGenToTutorial.Avalonia.Views.TutorialDetailControl"
-             x:DataType="models:ProposedFileChange">
+             x:DataType="coreVm:ProposedFileChangeViewModel">
 
     <Grid RowDefinitions="Auto,*">
         <StackPanel Grid.Row="0" Margin="0,0,0,8" Orientation="Horizontal" Spacing="8">
@@ -12,7 +14,8 @@
             <TextBlock VerticalAlignment="Center"
                        Text="{Binding FilePath}"
                        FontSize="18"
-                       FontWeight="SemiBold" />
+                       FontWeight="SemiBold"
+                       x:CompileBindings="False" />
         </StackPanel>
 
         <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
@@ -22,14 +25,12 @@
                         <StackPanel Margin="0,0,0,24" Spacing="8">
                             <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
                             <TextBlock Text="{Binding Explanation}" TextWrapping="Wrap" />
-                            <TextBox Text="{Binding Code}"
-                                     IsReadOnly="True"
-                                     AcceptsReturn="True"
-                                     TextWrapping="NoWrap"
-                                     FontFamily="Cascadia Mono,Consolas,monospace"
-                                     MaxHeight="320"
-                                     ScrollViewer.VerticalScrollBarVisibility="Auto"
-                                     ScrollViewer.HorizontalScrollBarVisibility="Auto" />
+                            <controls:CodeEditor helpers:TextEditorExtensions.BindableText="{Binding Code}"
+                                                  FilePath="{Binding FilePath}"
+                                                  IsReadOnly="True"
+                                                  MaxHeight="320"
+                                                  HorizontalScrollBarVisibility="Auto"
+                                                  VerticalScrollBarVisibility="Auto" />
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <Button Content="Apply this change" Command="{Binding ApplyCommand}" />
                                 <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" />

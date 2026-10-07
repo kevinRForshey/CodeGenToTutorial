@@ -3,7 +3,7 @@ using System.Collections.ObjectModel;
 using CodeGenToTutorial.Avalonia.Contracts.ViewModels;
 using CodeGenToTutorial.Core.Contracts.Services;
 using CodeGenToTutorial.Core.Helpers;
-using CodeGenToTutorial.Core.Models;
+using CodeGenToTutorial.Core.ViewModels;
 
 using CommunityToolkit.Mvvm.ComponentModel;
 
@@ -14,9 +14,9 @@ public partial class DiffsViewModel : ObservableRecipient, INavigationAware
     private readonly IPromptResultStore _promptResultStore;
 
     [ObservableProperty]
-    private ProposedFileChange? selected;
+    private ProposedFileChangeViewModel? selected;
 
-    public ObservableCollection<ProposedFileChange> Files { get; } = new();
+    public ObservableCollection<ProposedFileChangeViewModel> Files { get; } = new();
 
     public DiffsViewModel(IPromptResultStore promptResultStore)
     {
@@ -33,12 +33,10 @@ public partial class DiffsViewModel : ObservableRecipient, INavigationAware
         {
             var originalContent = ReadOriginalContent(workingDirectory, file.FilePath);
 
-            Files.Add(new ProposedFileChange
+            Files.Add(new ProposedFileChangeViewModel(file.FilePath, file.ProposedContent, originalContent)
             {
-                FilePath = file.FilePath,
-                Content = file.Content,
-                DiffLines = DiffBuilder.BuildLineDiff(originalContent, file.Content),
-                TutorialSteps = file.TutorialSteps,
+                DiffLines = DiffBuilder.BuildLineDiff(originalContent, file.ProposedContent),
+                Hunks = file.Hunks,
             });
         }
 

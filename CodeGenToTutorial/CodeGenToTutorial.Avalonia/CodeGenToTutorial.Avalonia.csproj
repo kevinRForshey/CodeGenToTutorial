@@ -18,12 +18,22 @@
       <PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
     </PackageReference>
     <PackageReference Include="FluentAvaloniaUI" Version="2.5.1" />
+    <!-- AvaloniaEdit depends on Avalonia >= 11.0.0, so this stays compatible with the pinned 11.3.22
+         line above; AvaloniaEdit.TextMate + TextMateSharp.Grammars add TextMate-based syntax
+         highlighting on top of the base editor control. -->
+    <PackageReference Include="Avalonia.AvaloniaEdit" Version="11.4.0" />
+    <PackageReference Include="AvaloniaEdit.TextMate" Version="11.4.0" />
+    <PackageReference Include="TextMateSharp.Grammars" Version="2.0.4" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.12" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\CodeGenToTutorial.Core\CodeGenToTutorial.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="CodeGenToTutorial.Avalonia.Tests" />
   </ItemGroup>
 
   <ItemGroup>

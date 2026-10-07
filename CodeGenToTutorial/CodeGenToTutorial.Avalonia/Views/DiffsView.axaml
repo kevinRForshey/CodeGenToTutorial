@@ -2,7 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:ui="using:FluentAvalonia.UI.Controls"
              xmlns:conv="using:Avalonia.Data.Converters"
-             xmlns:models="using:CodeGenToTutorial.Core.Models"
+             xmlns:coreVm="using:CodeGenToTutorial.Core.ViewModels"
              xmlns:views="using:CodeGenToTutorial.Avalonia.Views"
              xmlns:vm="using:CodeGenToTutorial.Avalonia.ViewModels"
              x:Class="CodeGenToTutorial.Avalonia.Views.DiffsView"
@@ -14,7 +14,7 @@
                  ItemsSource="{Binding Files}"
                  SelectedItem="{Binding Selected, Mode=TwoWay}">
             <ListBox.ItemTemplate>
-                <DataTemplate x:DataType="models:ProposedFileChange">
+                <DataTemplate x:DataType="coreVm:ProposedFileChangeViewModel">
                     <Grid Height="48" ColumnDefinitions="Auto,*">
                         <ui:SymbolIcon Grid.Column="0" Symbol="Document" VerticalAlignment="Center" />
                         <TextBlock Grid.Column="1"

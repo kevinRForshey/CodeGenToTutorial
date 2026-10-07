@@ -1,8 +1,8 @@
-using CodeGenToTutorial.Core.Models;
+using CodeGenToTutorial.Core.ViewModels;
 
 namespace CodeGenToTutorial.Core.Contracts.Services;
 
 public interface IFileChangeApplyService
 {
-    void Apply(ProposedFileChange file, string workingDirectoryPath);
+    void Apply(ProposedFileChangeViewModel file, string workingDirectoryPath);
 }

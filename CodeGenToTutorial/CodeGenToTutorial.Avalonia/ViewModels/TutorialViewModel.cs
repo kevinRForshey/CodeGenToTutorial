@@ -2,7 +2,7 @@ using System.Collections.ObjectModel;
 
 using CodeGenToTutorial.Avalonia.Contracts.ViewModels;
 using CodeGenToTutorial.Core.Contracts.Services;
-using CodeGenToTutorial.Core.Models;
+using CodeGenToTutorial.Core.ViewModels;
 
 using CommunityToolkit.Mvvm.ComponentModel;
 
@@ -13,9 +13,9 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware
     private readonly IPromptResultStore _promptResultStore;
 
     [ObservableProperty]
-    private ProposedFileChange? selected;
+    private ProposedFileChangeViewModel? selected;
 
-    public ObservableCollection<ProposedFileChange> Files { get; } = new();
+    public ObservableCollection<ProposedFileChangeViewModel> Files { get; } = new();
 
     public TutorialViewModel(IPromptResultStore promptResultStore)
     {

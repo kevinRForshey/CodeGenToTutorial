@@ -1,5 +1,5 @@
-using CodeGenToTutorial.Core.Models;
 using CodeGenToTutorial.Core.Services;
+using CodeGenToTutorial.Core.ViewModels;
 
 namespace CodeGenToTutorial.Core.Tests.Services;
 
@@ -33,7 +33,7 @@ public class FileChangeApplyServiceTests : IDisposable
     [Fact]
     public void Apply_NoWorkingDirectory_Throws()
     {
-        var file = new ProposedFileChange { FilePath = "a.txt", Content = "hi" };
+        var file = new ProposedFileChangeViewModel("a.txt", "hi");
 
         Assert.Throws<InvalidOperationException>(() => _service.Apply(file, string.Empty));
     }
@@ -41,7 +41,7 @@ public class FileChangeApplyServiceTests : IDisposable
     [Fact]
     public void Apply_NewFile_WritesContentToWorkingDirectory()
     {
-        var file = new ProposedFileChange { FilePath = "a.txt", Content = "hello world" };
+        var file = new ProposedFileChangeViewModel("a.txt", "hello world");
 
         _service.Apply(file, _workingDirectory);
 
@@ -53,7 +53,7 @@ public class FileChangeApplyServiceTests : IDisposable
     [Fact]
     public void Apply_NestedPath_CreatesIntermediateDirectories()
     {
-        var file = new ProposedFileChange { FilePath = Path.Combine("src", "nested", "Foo.cs"), Content = "class Foo {}" };
+        var file = new ProposedFileChangeViewModel(Path.Combine("src", "nested", "Foo.cs"), "class Foo {}");
 
         _service.Apply(file, _workingDirectory);
 
@@ -67,7 +67,7 @@ public class FileChangeApplyServiceTests : IDisposable
     {
         var path = Path.Combine(_workingDirectory, "a.txt");
         File.WriteAllText(path, "old content");
-        var file = new ProposedFileChange { FilePath = "a.txt", Content = "new content" };
+        var file = new ProposedFileChangeViewModel("a.txt", "new content");
 
         _service.Apply(file, _workingDirectory);
 
@@ -80,7 +80,7 @@ public class FileChangeApplyServiceTests : IDisposable
     [InlineData("nested/../../escape.txt")]
     public void Apply_RelativePathTraversal_ThrowsAndDoesNotWrite(string traversalPath)
     {
-        var file = new ProposedFileChange { FilePath = traversalPath, Content = "malicious" };
+        var file = new ProposedFileChangeViewModel(traversalPath, "malicious");
 
         Assert.Throws<InvalidOperationException>(() => _service.Apply(file, _workingDirectory));
 
@@ -95,7 +95,7 @@ public class FileChangeApplyServiceTests : IDisposable
         try
         {
             var absoluteTarget = Path.Combine(outsideDirectory, "escape.txt");
-            var file = new ProposedFileChange { FilePath = absoluteTarget, Content = "malicious" };
+            var file = new ProposedFileChangeViewModel(absoluteTarget, "malicious");
 
             Assert.Throws<InvalidOperationException>(() => _service.Apply(file, _workingDirectory));
 
@@ -118,7 +118,7 @@ public class FileChangeApplyServiceTests : IDisposable
         }
 
         File.SetUnixFileMode(_workingDirectory, UnixFileMode.UserRead | UnixFileMode.UserExecute);
-        var file = new ProposedFileChange { FilePath = "a.txt", Content = "hi" };
+        var file = new ProposedFileChangeViewModel("a.txt", "hi");
 
         Assert.ThrowsAny<UnauthorizedAccessException>(() => _service.Apply(file, _workingDirectory));
     }

@@ -191,16 +191,58 @@ committed yet — review `git status`/`git diff` before committing.
 ### EPIC 2 — Editable proposed changes *(P0 — the biggest missing piece)*
 
 **F2.1 — Make the change model mutable and observable**
-- T2.1.1 Replace `ProposedFileChange` (init-only) with an observable
+- [x] T2.1.1 Replace `ProposedFileChange` (init-only) with an observable
   `ProposedFileChangeViewModel` holding `OriginalContent`, `ProposedContent`, `EditedContent`,
-  and `IsDirty`.
-- T2.1.2 Introduce a per-step `ProposedHunk` model (step title, explanation, snippet, resolved
-  location in the file, selection state) so steps stop being presentational-only.
+  and `IsDirty`. — done 2026-10-06: new class lives in `CodeGenToTutorial.Core/ViewModels`
+  (Core now takes a `CommunityToolkit.Mvvm` dependency so `PromptResultStore` — the shared graph
+  both the Tutorial and Diffs pages read from — can hold observable items directly).
+  `FilePath`/`OriginalContent`/`ProposedContent`/`TutorialSteps`/`DiffLines` are set at construction;
+  `EditedContent` defaults to `ProposedContent` and `IsDirty` flips automatically when it diverges.
+  Nothing mutates `EditedContent` yet (no editor exists — that's F2.2), and
+  `FileChangeApplyService.Apply` still writes `ProposedContent`, so behavior is unchanged; this is
+  scaffolding for T2.2.2/T2.3.1. Updated every consumer (`ClaudeResponseParser`, `PromptResultStore`,
+  `FileChangeApplyService`, `DiffsViewModel`, `TutorialViewModel`, `TutorialStepViewModel`, the
+  Diffs/Tutorial `.axaml` views and code-behind) and all existing tests; added
+  `ProposedFileChangeViewModelTests` covering the dirty-tracking behavior. Full solution builds
+  with 0 warnings/errors, all 46 tests pass, app launches without throwing.
+- [x] T2.1.2 Introduce a per-step `ProposedHunk` model (step title, explanation, snippet, resolved
+  location in the file, selection state) so steps stop being presentational-only. — done
+  2026-10-06: `ProposedHunk` (`CodeGenToTutorial.Core/ViewModels`) carries `Title`/`Explanation`/
+  `Snippet` plus an observable `IsSelected` (defaults `true`, nothing reads it yet — scaffolding
+  for F3.2) and a `Location` (`HunkLocation`, start/end line numbers within `ProposedContent`)
+  resolved by a new `HunkLocationResolver` helper that does an exact line-sequence search; returns
+  `null` if the snippet isn't found verbatim (known fragility, same class as the nested-fence
+  parsing issue — a baseline for Epic 5, not a bug to fix here). `ProposedFileChangeViewModel`'s
+  `TutorialSteps` property is renamed to `Hunks` and now holds `ProposedHunk` instead of the raw
+  `TutorialStep`; `ClaudeResponseParser` builds hunks (and resolves their location) right after
+  parsing each file's content. `TutorialStepViewModel` now takes a `ProposedHunk` instead of a
+  `TutorialStep` — display behavior (`Title`/`Explanation`/`Code`) is unchanged. Added
+  `HunkLocationResolverTests`. Full solution builds clean, 52/52 tests pass, app launches without
+  throwing.
 - T2.1.3 Make `PromptResultStore` hold the mutable graph and raise change notifications.
 
 **F2.2 — In-app code editor**
-- T2.2.1 Evaluate and add an editor control (AvaloniaEdit is the obvious candidate) — syntax
-  highlighting, line numbers, bracket matching.
+- [x] T2.2.1 Evaluate and add an editor control (AvaloniaEdit is the obvious candidate) — syntax
+  highlighting, line numbers, bracket matching. — done 2026-10-06: added `Avalonia.AvaloniaEdit`
+  11.4.0 (+ `AvaloniaEdit.TextMate`/`TextMateSharp.Grammars` for TextMate-based highlighting); its
+  `Avalonia` dependency floor is 11.0.0 so it stays on the pinned 11.3.22 line. New `CodeEditor`
+  control (`CodeGenToTutorial.Avalonia/Controls`) wraps `AvaloniaEdit.TextEditor`: turns on
+  `ShowLineNumbers`, installs TextMate with a grammar picked from a bound `FilePath`'s extension,
+  and adds bracket matching via a new `BracketHighlightRenderer` (`IBackgroundRenderer`) since
+  AvaloniaEdit has none built in — it's a language-agnostic depth-counting scan of the raw text
+  for a `()`/`[]`/`{}` pair touching the caret, not grammar-aware, so it doesn't skip brackets
+  inside strings/comments (same class of known fragility as the response-parser issues, acceptable
+  for a code viewer). Because `TextEditor.Text` is a plain CLR property rather than an
+  `AvaloniaProperty`, added a `TextEditorExtensions.BindableText` attached property so it can still
+  be the target of an XAML `Binding`. `TutorialDetailControl`'s per-step `TextBox` is replaced with
+  `CodeEditor` (still `IsReadOnly="True"` here; wiring it to `EditedContent` for in-place editing is
+  T2.2.2). `TutorialStepViewModel` gained a `FilePath` property (from its `ProposedFileChangeViewModel`)
+  so the control has an extension to pick a grammar from. Added `BracketHighlightRendererTests`
+  against the extracted matching algorithm (internal, `InternalsVisibleTo` the Avalonia test
+  project). Full solution builds clean, 57/57 tests pass. Not visually verified in a browser/running
+  app — this sandbox has no X server (`XOpenDisplay failed`, no `Xvfb`), so the editor's rendering
+  (line numbers, highlighting colors, bracket highlight) is unverified beyond compiling and the
+  unit-tested matching logic.
 - T2.2.2 Replace the read-only `TextBox` in `TutorialDetailControl` with an editable editor bound
   to `EditedContent`.
 - T2.2.3 Dirty tracking, revert-to-proposed, and revert-to-original per file.

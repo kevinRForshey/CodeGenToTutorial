@@ -1,18 +1,18 @@
 using CodeGenToTutorial.Avalonia.Strings;
 using CodeGenToTutorial.Core.Contracts.Services;
-using CodeGenToTutorial.Core.Models;
+using CodeGenToTutorial.Core.ViewModels;
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
 namespace CodeGenToTutorial.Avalonia.ViewModels;
 
-// Wraps a single parsed TutorialStep with the ability to apply its file's proposed change and report
-// the outcome. All steps for the same file share one "applied" state, since applying any of them writes
+// Wraps a single ProposedHunk with the ability to apply its file's proposed change and report the
+// outcome. All steps for the same file share one "applied" state, since applying any of them writes
 // the same complete file content.
 public partial class TutorialStepViewModel : ObservableObject
 {
-    private readonly ProposedFileChange _file;
+    private readonly ProposedFileChangeViewModel _file;
     private readonly string _workingDirectoryPath;
     private readonly IFileChangeApplyService _fileChangeApplyService;
     private readonly Action _onApplied;
@@ -23,17 +23,20 @@ public partial class TutorialStepViewModel : ObservableObject
 
     public string Code { get; }
 
+    public string FilePath { get; }
+
     [ObservableProperty]
     private bool isApplied;
 
     [ObservableProperty]
     private string statusMessage = string.Empty;
 
-    public TutorialStepViewModel(TutorialStep step, ProposedFileChange file, string workingDirectoryPath, IFileChangeApplyService fileChangeApplyService, Action onApplied)
+    public TutorialStepViewModel(ProposedHunk hunk, ProposedFileChangeViewModel file, string workingDirectoryPath, IFileChangeApplyService fileChangeApplyService, Action onApplied)
     {
-        Title = step.Title;
-        Explanation = step.Explanation;
-        Code = step.Code;
+        Title = hunk.Title;
+        Explanation = hunk.Explanation;
+        Code = hunk.Snippet;
+        FilePath = file.FilePath;
         _file = file;
         _workingDirectoryPath = workingDirectoryPath;
         _fileChangeApplyService = fileChangeApplyService;

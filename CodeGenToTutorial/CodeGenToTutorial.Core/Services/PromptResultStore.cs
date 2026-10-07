@@ -1,5 +1,5 @@
 using CodeGenToTutorial.Core.Contracts.Services;
-using CodeGenToTutorial.Core.Models;
+using CodeGenToTutorial.Core.ViewModels;
 
 namespace CodeGenToTutorial.Core.Services;
 
@@ -11,9 +11,9 @@ public class PromptResultStore : IPromptResultStore
 
     public string WorkingDirectoryPath { get; private set; } = string.Empty;
 
-    public IReadOnlyList<ProposedFileChange> Files { get; private set; } = Array.Empty<ProposedFileChange>();
+    public IReadOnlyList<ProposedFileChangeViewModel> Files { get; private set; } = Array.Empty<ProposedFileChangeViewModel>();
 
-    public void SetResult(string tutorial, IReadOnlyList<ProposedFileChange> files, string workingDirectoryPath)
+    public void SetResult(string tutorial, IReadOnlyList<ProposedFileChangeViewModel> files, string workingDirectoryPath)
     {
         Tutorial = tutorial;
         Files = files;

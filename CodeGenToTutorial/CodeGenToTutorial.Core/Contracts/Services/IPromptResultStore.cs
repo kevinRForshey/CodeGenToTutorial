@@ -1,4 +1,4 @@
-using CodeGenToTutorial.Core.Models;
+using CodeGenToTutorial.Core.ViewModels;
 
 namespace CodeGenToTutorial.Core.Contracts.Services;
 
@@ -8,7 +8,7 @@ public interface IPromptResultStore
 
     string WorkingDirectoryPath { get; }
 
-    IReadOnlyList<ProposedFileChange> Files { get; }
+    IReadOnlyList<ProposedFileChangeViewModel> Files { get; }
 
-    void SetResult(string tutorial, IReadOnlyList<ProposedFileChange> files, string workingDirectoryPath);
+    void SetResult(string tutorial, IReadOnlyList<ProposedFileChangeViewModel> files, string workingDirectoryPath);
 }

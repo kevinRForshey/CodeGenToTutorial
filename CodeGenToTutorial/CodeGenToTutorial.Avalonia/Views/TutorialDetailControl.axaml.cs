@@ -5,7 +5,7 @@ using Avalonia.Controls;
 
 using CodeGenToTutorial.Avalonia.ViewModels;
 using CodeGenToTutorial.Core.Contracts.Services;
-using CodeGenToTutorial.Core.Models;
+using CodeGenToTutorial.Core.ViewModels;
 
 namespace CodeGenToTutorial.Avalonia.Views;
 
@@ -30,14 +30,14 @@ public partial class TutorialDetailControl : UserControl
     {
         Steps.Clear();
 
-        if (DataContext is not ProposedFileChange proposedFileChange)
+        if (DataContext is not ProposedFileChangeViewModel proposedFileChange)
         {
             return;
         }
 
-        foreach (var step in proposedFileChange.TutorialSteps)
+        foreach (var hunk in proposedFileChange.Hunks)
         {
-            Steps.Add(new TutorialStepViewModel(step, proposedFileChange, _promptResultStore.WorkingDirectoryPath, _fileChangeApplyService, MarkAllStepsApplied));
+            Steps.Add(new TutorialStepViewModel(hunk, proposedFileChange, _promptResultStore.WorkingDirectoryPath, _fileChangeApplyService, MarkAllStepsApplied));
         }
     }
 

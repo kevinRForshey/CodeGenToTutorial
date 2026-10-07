@@ -1,4 +1,5 @@
 using CodeGenToTutorial.Core.Helpers;
+using CodeGenToTutorial.Core.Models;
 
 namespace CodeGenToTutorial.Core.Tests.Helpers;
 
@@ -97,12 +98,13 @@ public class ClaudeResponseParserTests
         Assert.Equal("Adds a Foo class.", result.Tutorial);
         var file = Assert.Single(result.Files);
         Assert.Equal("src/Foo.cs", file.FilePath);
-        Assert.Equal("public class Foo {}", file.Content);
+        Assert.Equal("public class Foo {}", file.ProposedContent);
 
-        var step = Assert.Single(file.TutorialSteps);
-        Assert.Equal("Add Foo class", step.Title);
-        Assert.Equal("This step adds the Foo class.", step.Explanation);
-        Assert.Equal("public class Foo {}", step.Code);
+        var hunk = Assert.Single(file.Hunks);
+        Assert.Equal("Add Foo class", hunk.Title);
+        Assert.Equal("This step adds the Foo class.", hunk.Explanation);
+        Assert.Equal("public class Foo {}", hunk.Snippet);
+        Assert.Equal(new HunkLocation(0, 0), hunk.Location);
     }
 
     [Fact]
@@ -123,7 +125,7 @@ public class ClaudeResponseParserTests
 
         var file = Assert.Single(result.Files);
         Assert.Equal("notes.txt", file.FilePath);
-        Assert.Equal("plain text content", file.Content);
+        Assert.Equal("plain text content", file.ProposedContent);
     }
 
     [Fact]
@@ -148,9 +150,9 @@ public class ClaudeResponseParserTests
 
         Assert.Equal(2, result.Files.Count);
         Assert.Equal("src/Foo.cs", result.Files[0].FilePath);
-        Assert.Equal("public class Foo {}", result.Files[0].Content);
+        Assert.Equal("public class Foo {}", result.Files[0].ProposedContent);
         Assert.Equal("src/Bar.cs", result.Files[1].FilePath);
-        Assert.Equal("public class Bar {}", result.Files[1].Content);
+        Assert.Equal("public class Bar {}", result.Files[1].ProposedContent);
     }
 
     [Fact]
@@ -183,9 +185,9 @@ public class ClaudeResponseParserTests
         var result = ClaudeResponseParser.Parse(cliOutput);
 
         var file = Assert.Single(result.Files);
-        Assert.Equal(2, file.TutorialSteps.Count);
-        Assert.Equal("Declare the class", file.TutorialSteps[0].Title);
-        Assert.Equal("Add a method", file.TutorialSteps[1].Title);
+        Assert.Equal(2, file.Hunks.Count);
+        Assert.Equal("Declare the class", file.Hunks[0].Title);
+        Assert.Equal("Add a method", file.Hunks[1].Title);
     }
 
     [Fact]
@@ -233,6 +235,6 @@ public class ClaudeResponseParserTests
 
         var file = Assert.Single(result.Files);
         Assert.Equal("README.md", file.FilePath);
-        Assert.Equal("Example:", file.Content);
+        Assert.Equal("Example:", file.ProposedContent);
     }
 }

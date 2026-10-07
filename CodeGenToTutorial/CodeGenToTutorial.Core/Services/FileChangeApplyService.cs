@@ -1,5 +1,5 @@
 using CodeGenToTutorial.Core.Contracts.Services;
-using CodeGenToTutorial.Core.Models;
+using CodeGenToTutorial.Core.ViewModels;
 
 namespace CodeGenToTutorial.Core.Services;
 
@@ -8,7 +8,7 @@ namespace CodeGenToTutorial.Core.Services;
 // so applying any step for a file applies that file's full proposed change.
 public class FileChangeApplyService : IFileChangeApplyService
 {
-    public void Apply(ProposedFileChange file, string workingDirectoryPath)
+    public void Apply(ProposedFileChangeViewModel file, string workingDirectoryPath)
     {
         if (string.IsNullOrWhiteSpace(workingDirectoryPath))
         {
@@ -34,6 +34,6 @@ public class FileChangeApplyService : IFileChangeApplyService
             Directory.CreateDirectory(directory);
         }
 
-        File.WriteAllText(fullPath, file.Content);
+        File.WriteAllText(fullPath, file.ProposedContent);
     }
 }

@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 
 using CodeGenToTutorial.Core.Models;
+using CodeGenToTutorial.Core.ViewModels;
 
 namespace CodeGenToTutorial.Core.Helpers;
 
@@ -16,7 +17,7 @@ public static partial class ClaudeResponseParser
     {
         if (string.IsNullOrWhiteSpace(cliOutput))
         {
-            return new ClaudeParsedResponse(string.Empty, Array.Empty<ProposedFileChange>());
+            return new ClaudeParsedResponse(string.Empty, Array.Empty<ProposedFileChangeViewModel>());
         }
 
         var tutorialIndex = cliOutput.IndexOf(TutorialHeader, StringComparison.OrdinalIgnoreCase);
@@ -25,18 +26,21 @@ public static partial class ClaudeResponseParser
         if (tutorialIndex < 0 || filesIndex < 0 || filesIndex < tutorialIndex)
         {
             // Not a structured development response - e.g. a plain answer to a general question.
-            return new ClaudeParsedResponse(cliOutput.Trim(), Array.Empty<ProposedFileChange>());
+            return new ClaudeParsedResponse(cliOutput.Trim(), Array.Empty<ProposedFileChangeViewModel>());
         }
 
         var tutorial = cliOutput[(tutorialIndex + TutorialHeader.Length)..filesIndex].Trim();
         var filesSection = cliOutput[(filesIndex + FilesHeader.Length)..];
 
         var files = FileEntryRegex().Matches(filesSection)
-            .Select(match => new ProposedFileChange
+            .Select(match =>
             {
-                FilePath = match.Groups["path"].Value.Trim(),
-                Content = match.Groups["content"].Value,
-                TutorialSteps = ParseSteps(match.Groups["tail"].Value),
+                var content = match.Groups["content"].Value;
+
+                return new ProposedFileChangeViewModel(match.Groups["path"].Value.Trim(), content)
+                {
+                    Hunks = ParseHunks(match.Groups["tail"].Value, content),
+                };
             })
             .Where(file => file.FilePath.Length > 0)
             .ToList();
@@ -44,13 +48,14 @@ public static partial class ClaudeResponseParser
         return new ClaudeParsedResponse(tutorial, files);
     }
 
-    private static IReadOnlyList<TutorialStep> ParseSteps(string tail) =>
+    private static IReadOnlyList<ProposedHunk> ParseHunks(string tail, string fileContent) =>
         StepEntryRegex().Matches(tail)
             .Select(match => new TutorialStep(
                 match.Groups["title"].Value.Trim(),
                 match.Groups["explanation"].Value.Trim(),
                 match.Groups["code"].Value))
             .Where(step => step.Title.Length > 0)
+            .Select(step => new ProposedHunk(step.Title, step.Explanation, step.Code, HunkLocationResolver.Resolve(fileContent, step.Code)))
             .ToList();
 
     [GeneratedRegex(@"^###\s*File:\s*(?<path>.+?)\s*\r?\n```[^\r\n]*\r?\n(?<content>.*?)\r?\n```(?<tail>.*?)(?=^###\s*File:|\z)", RegexOptions.Multiline | RegexOptions.Singleline)]
