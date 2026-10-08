@@ -219,7 +219,27 @@ committed yet — review `git status`/`git diff` before committing.
   `TutorialStep` — display behavior (`Title`/`Explanation`/`Code`) is unchanged. Added
   `HunkLocationResolverTests`. Full solution builds clean, 52/52 tests pass, app launches without
   throwing.
-- T2.1.3 Make `PromptResultStore` hold the mutable graph and raise change notifications.
+- [x] T2.1.3 Make `PromptResultStore` hold the mutable graph and raise change notifications. — done
+  2026-10-08: the store already held the shared mutable `ProposedFileChangeViewModel` graph (since
+  T2.1.1/T2.3.2), but it was a plain POCO — no way for anything to react to a new prompt result
+  except a page's `OnNavigatedTo` happening to re-run. `PromptResultStore` is now `partial class
+  PromptResultStore : ObservableObject, IPromptResultStore`: `Tutorial`/`WorkingDirectoryPath` are
+  `[ObservableProperty]` fields (raise `PropertyChanged`), and `Files` is a fixed
+  `ObservableCollection<ProposedFileChangeViewModel>` instance — `SetResult` now `Clear()`s and
+  re-`Add()`s into it rather than reassigning the reference, so a subscriber holding the original
+  `Files` collection keeps seeing `CollectionChanged` across repeated prompt runs instead of
+  watching a now-stale snapshot. `IPromptResultStore` extends `INotifyPropertyChanged` and exposes
+  `Files` as the concrete `ObservableCollection` (was `IReadOnlyList`) so consumers can subscribe to
+  either. `TutorialViewModel`/`DiffsViewModel` need no changes — their `OnNavigatedTo` already just
+  enumerates `_promptResultStore.Files`, which works unchanged against the new collection type.
+  Updated `FakePromptResultStore` to match the interface and added
+  `CodeGenToTutorial.Core.Tests/Services/PromptResultStoreTests.cs` (stores values, raises
+  `PropertyChanged` for `Tutorial`/`WorkingDirectoryPath`, raises `CollectionChanged` on `Files`,
+  and the same `Files` instance survives a second `SetResult`). Full solution builds clean,
+  65/65 tests pass (61 existing + 4 new). Not wired to a new UI consumer yet — nothing currently
+  binds directly to the store outside the existing `OnNavigatedTo` pull, so this is the
+  notification plumbing the rest of F2.1/Epic 3 (and the still-open "tutorial summary is never
+  shown" bug from the gap analysis) can build on, not a new visible behavior by itself.
 
 **F2.2 — In-app code editor**
 - [x] T2.2.1 Evaluate and add an editor control (AvaloniaEdit is the obvious candidate) — syntax
@@ -262,7 +282,27 @@ committed yet — review `git status`/`git diff` before committing.
   solution builds clean, 57/57 tests pass. Not visually verified (same no-X-server sandbox
   limitation noted under T2.2.1); applying edited-but-unsaved content is still a no-op until
   T2.3.1 rewires `Apply` to use `EditedContent` instead of `ProposedContent`.
-- T2.2.3 Dirty tracking, revert-to-proposed, and revert-to-original per file.
+- [x] T2.2.3 Dirty tracking, revert-to-proposed, and revert-to-original per file. — done 2026-10-08:
+  dirty tracking already existed (`IsDirty`, from T2.1.1). Added the two revert actions as
+  `[RelayCommand]`s directly on `ProposedFileChangeViewModel` (`CommunityToolkit.Mvvm.Input`,
+  already available via the `CommunityToolkit.Mvvm` package `.Core` already depends on) rather than
+  on a page ViewModel, since the state being reverted (`EditedContent`) and the state being
+  reverted *to* (`ProposedContent`/`OriginalContent`) all live on that one object already:
+  `RevertToProposedCommand` sets `EditedContent = ProposedContent` and is disabled once
+  `!IsDirty` (nothing to discard); `RevertToOriginalCommand` sets `EditedContent =
+  OriginalContent` and is disabled once `EditedContent == OriginalContent` - deliberately *not*
+  gated on `IsDirty`, so a not-dirty file whose `ProposedContent` still differs from
+  `OriginalContent` can still be rejected outright. Both commands' `CanExecute` are kept correct
+  via existing `On*Changed` partial hooks (`OnIsDirtyChanged` →
+  `RevertToProposedCommand.NotifyCanExecuteChanged()`; `OnEditedContentChanged`/
+  `OnOriginalContentChanged` → `RevertToOriginalCommand.NotifyCanExecuteChanged()`), same pattern
+  `PromptViewModel` already uses for `RunPromptCommand`. Wired to two new buttons in
+  `TutorialDetailControl.axaml`, above the per-file `CodeEditor` (the only place editing happens,
+  per T2.2.2) alongside an "Edited" label bound to `IsDirty`; the Diffs page is unchanged since it
+  has no editor to revert. Added 8 new tests to `ProposedFileChangeViewModelTests` covering both
+  commands' `CanExecute` gating and effect, including the not-dirty-but-still-revertible-to-original
+  case. Full solution builds clean, 73/73 tests pass (65 existing + 8 new). Not visually verified
+  (no X server in this sandbox, same limitation noted on prior Epic 2 tasks).
 - T2.2.4 Undo/redo within the editor; warn on navigating away with unsaved edits.
 
 **F2.3 — Write the user's edits, not the model's output**
