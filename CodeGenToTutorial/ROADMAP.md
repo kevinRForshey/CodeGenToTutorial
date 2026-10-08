@@ -243,14 +243,57 @@ committed yet — review `git status`/`git diff` before committing.
   app — this sandbox has no X server (`XOpenDisplay failed`, no `Xvfb`), so the editor's rendering
   (line numbers, highlighting colors, bracket highlight) is unverified beyond compiling and the
   unit-tested matching logic.
-- T2.2.2 Replace the read-only `TextBox` in `TutorialDetailControl` with an editable editor bound
-  to `EditedContent`.
+- [x] T2.2.2 Replace the read-only `TextBox` in `TutorialDetailControl` with an editable editor bound
+  to `EditedContent`. — done 2026-10-07: `FileChangeApplyService.Apply` writes a file's whole
+  `ProposedContent`, not any one step's snippet, so there's exactly one editable buffer per file,
+  not per step. Moved the `CodeEditor` out of the per-step `DataTemplate` and hoisted it to file
+  scope in `TutorialDetailControl` (one instance, `IsReadOnly="False"`, bound
+  `EditedContent, Mode=TwoWay`); each step card below it now only shows `Title`/`Explanation`/
+  `Apply`. Made `TextEditorExtensions.BindableText` round-trip: it now hooks the editor's
+  `TextChanged` once per instance and pushes `editor.Text` back onto the attached property (the
+  attached property's default binding mode is `TwoWay`), and only reassigns `editor.Text` when the
+  incoming value actually differs — needed because `TextEditor.Text`'s setter unconditionally
+  resets `CaretOffset` to 0 and clears the undo stack, which would fight the user's typing on every
+  keystroke otherwise. Removed `TutorialStepViewModel.Code`/`FilePath` (dead now that the per-step
+  snippet view is gone). Tried adding a test that constructs a real `AvaloniaEdit.TextEditor` to
+  exercise the two-way bridge directly; it throws (`CaretNavigationCommandHandler`'s static
+  keymap init needs a running Avalonia `Application`), and this project has no
+  `Avalonia.Headless` test host, so that's unverified by a test — reviewed by hand instead. Full
+  solution builds clean, 57/57 tests pass. Not visually verified (same no-X-server sandbox
+  limitation noted under T2.2.1); applying edited-but-unsaved content is still a no-op until
+  T2.3.1 rewires `Apply` to use `EditedContent` instead of `ProposedContent`.
 - T2.2.3 Dirty tracking, revert-to-proposed, and revert-to-original per file.
 - T2.2.4 Undo/redo within the editor; warn on navigating away with unsaved edits.
 
 **F2.3 — Write the user's edits, not the model's output**
-- T2.3.1 Change `IFileChangeApplyService.Apply` to take the effective (possibly edited) content.
-- T2.3.2 Re-diff live as the user edits so the Diffs page reflects edits, not just the raw proposal.
+- [x] T2.3.1 Change `IFileChangeApplyService.Apply` to take the effective (possibly edited) content. —
+  done 2026-10-07: `ProposedFileChangeViewModel` already modeled the effective content as
+  `EditedContent` (defaults to `ProposedContent`, diverges once the user types in the `CodeEditor`
+  from T2.2.2), so no interface/signature change was needed — `FileChangeApplyService.Apply` now
+  writes `file.EditedContent` instead of `file.ProposedContent`. Added
+  `Apply_UserEditedContent_WritesEditedContentNotProposedContent` to pin the behavior; all existing
+  tests still pass unchanged since they never diverge `EditedContent` from `ProposedContent`. Full
+  solution builds clean, 58/58 tests pass. Known follow-on gap, not fixed here: the Diffs page
+  (`DiffsViewModel.OnNavigatedTo`) builds its *own* `ProposedFileChangeViewModel` instances from
+  `file.ProposedContent`, separate from the ones the Tutorial page edits, so Diffs still shows the
+  raw proposal rather than live edits — that's T2.3.2.
+- [x] T2.3.2 Re-diff live as the user edits so the Diffs page reflects edits, not just the raw
+  proposal. — done 2026-10-07: `DiffsViewModel.OnNavigatedTo` used to build its own throwaway
+  `ProposedFileChangeViewModel` copies from `file.ProposedContent`, separate from the instances the
+  Tutorial page edits, so Diffs could never see live edits regardless of how the diff was computed.
+  Fixed by having Diffs reuse the store's own instances (same objects as Tutorial, matching the
+  pattern `TutorialViewModel` already used) and moving diff computation *into*
+  `ProposedFileChangeViewModel` itself: `DiffLines` is now a computed `[ObservableProperty]`
+  recomputed via `DiffBuilder` whenever `OriginalContent` or `EditedContent` change (constructor
+  computes the initial value; `OnEditedContentChanged`/`OnOriginalContentChanged` recompute it).
+  `OriginalContent` changed from a get-only constructor param to a settable `[ObservableProperty]`
+  so Diffs can back-fill it from disk on navigation without re-constructing the object. Net effect:
+  typing in the Tutorial page's `CodeEditor` now updates the Diffs page's diff immediately, since
+  both pages are watching the same `EditedContent`-driven `DiffLines` on the same instance. Added
+  `ProposedFileChangeViewModelTests` cases for initial/edited/original-driven recompute. Full
+  solution builds clean, 61/61 tests pass. Not visually verified (no X server in this sandbox, same
+  limitation as T2.2.1/T2.2.2) — confirmed by test and by reading the binding (`DiffsDetailControl`
+  binds `DiffLines` via a compiled binding, which already refreshes on `PropertyChanged`).
 
 ---
 

@@ -2,7 +2,6 @@ using System.Collections.ObjectModel;
 
 using CodeGenToTutorial.Avalonia.Contracts.ViewModels;
 using CodeGenToTutorial.Core.Contracts.Services;
-using CodeGenToTutorial.Core.Helpers;
 using CodeGenToTutorial.Core.ViewModels;
 
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -29,15 +28,13 @@ public partial class DiffsViewModel : ObservableRecipient, INavigationAware
 
         var workingDirectory = _promptResultStore.WorkingDirectoryPath;
 
+        // Reuse the store's own instances - the same ones the Tutorial page edits - rather than
+        // building copies, so DiffLines (recomputed inside ProposedFileChangeViewModel) reflects the
+        // user's live edits instead of a snapshot of the raw proposal taken at navigation time.
         foreach (var file in _promptResultStore.Files)
         {
-            var originalContent = ReadOriginalContent(workingDirectory, file.FilePath);
-
-            Files.Add(new ProposedFileChangeViewModel(file.FilePath, file.ProposedContent, originalContent)
-            {
-                DiffLines = DiffBuilder.BuildLineDiff(originalContent, file.ProposedContent),
-                Hunks = file.Hunks,
-            });
+            file.OriginalContent = ReadOriginalContent(workingDirectory, file.FilePath);
+            Files.Add(file);
         }
 
         // The WinUI version only auto-selects the first file once the master/detail view reports it has

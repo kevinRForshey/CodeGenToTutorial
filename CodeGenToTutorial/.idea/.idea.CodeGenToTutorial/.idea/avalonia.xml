@@ -3,6 +3,7 @@
   <component name="AvaloniaProject">
     <option name="projectPerEditor">
       <map>
+        <entry key="CodeGenToTutorial.Avalonia/Views/DiffsView.axaml" value="CodeGenToTutorial.Avalonia/CodeGenToTutorial.Avalonia.csproj" />
         <entry key="CodeGenToTutorial.Avalonia/Views/TutorialView.axaml" value="CodeGenToTutorial.Avalonia/CodeGenToTutorial.Avalonia.csproj" />
       </map>
     </option>

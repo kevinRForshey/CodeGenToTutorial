@@ -21,10 +21,6 @@ public partial class TutorialStepViewModel : ObservableObject
 
     public string Explanation { get; }
 
-    public string Code { get; }
-
-    public string FilePath { get; }
-
     [ObservableProperty]
     private bool isApplied;
 
@@ -35,8 +31,6 @@ public partial class TutorialStepViewModel : ObservableObject
     {
         Title = hunk.Title;
         Explanation = hunk.Explanation;
-        Code = hunk.Snippet;
-        FilePath = file.FilePath;
         _file = file;
         _workingDirectoryPath = workingDirectoryPath;
         _fileChangeApplyService = fileChangeApplyService;

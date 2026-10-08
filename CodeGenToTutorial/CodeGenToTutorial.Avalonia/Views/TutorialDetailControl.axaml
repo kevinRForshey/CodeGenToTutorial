@@ -8,7 +8,7 @@
              x:Class="CodeGenToTutorial.Avalonia.Views.TutorialDetailControl"
              x:DataType="coreVm:ProposedFileChangeViewModel">
 
-    <Grid RowDefinitions="Auto,*">
+    <Grid RowDefinitions="Auto,Auto,*">
         <StackPanel Grid.Row="0" Margin="0,0,0,8" Orientation="Horizontal" Spacing="8">
             <ui:SymbolIcon Symbol="Document" VerticalAlignment="Center" />
             <TextBlock VerticalAlignment="Center"
@@ -18,19 +18,25 @@
                        x:CompileBindings="False" />
         </StackPanel>
 
-        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+        <!-- One editable buffer per file: every step's "Apply this change" writes this file's
+             whole content (see FileChangeApplyService), so editing happens here rather than on
+             each step's snippet. -->
+        <controls:CodeEditor Grid.Row="1"
+                              Margin="0,0,0,8"
+                              helpers:TextEditorExtensions.BindableText="{Binding EditedContent, Mode=TwoWay}"
+                              FilePath="{Binding FilePath}"
+                              IsReadOnly="False"
+                              Height="320"
+                              HorizontalScrollBarVisibility="Auto"
+                              VerticalScrollBarVisibility="Auto" />
+
+        <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
             <ItemsControl Name="StepsItemsControl">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="viewmodels:TutorialStepViewModel">
                         <StackPanel Margin="0,0,0,24" Spacing="8">
                             <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
                             <TextBlock Text="{Binding Explanation}" TextWrapping="Wrap" />
-                            <controls:CodeEditor helpers:TextEditorExtensions.BindableText="{Binding Code}"
-                                                  FilePath="{Binding FilePath}"
-                                                  IsReadOnly="True"
-                                                  MaxHeight="320"
-                                                  HorizontalScrollBarVisibility="Auto"
-                                                  VerticalScrollBarVisibility="Auto" />
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <Button Content="Apply this change" Command="{Binding ApplyCommand}" />
                                 <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" />

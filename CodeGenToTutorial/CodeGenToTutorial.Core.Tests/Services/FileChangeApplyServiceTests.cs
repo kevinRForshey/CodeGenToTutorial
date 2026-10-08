@@ -74,6 +74,20 @@ public class FileChangeApplyServiceTests : IDisposable
         Assert.Equal("new content", File.ReadAllText(path));
     }
 
+    [Fact]
+    public void Apply_UserEditedContent_WritesEditedContentNotProposedContent()
+    {
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed content")
+        {
+            EditedContent = "user-edited content",
+        };
+
+        _service.Apply(file, _workingDirectory);
+
+        var written = Path.Combine(_workingDirectory, "a.txt");
+        Assert.Equal("user-edited content", File.ReadAllText(written));
+    }
+
     [Theory]
     [InlineData("../escape.txt")]
     [InlineData("../../../../etc/escape.txt")]

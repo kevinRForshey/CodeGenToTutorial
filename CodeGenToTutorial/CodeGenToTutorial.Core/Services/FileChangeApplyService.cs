@@ -4,8 +4,9 @@ using CodeGenToTutorial.Core.ViewModels;
 namespace CodeGenToTutorial.Core.Services;
 
 // Writes a proposed file's complete content to disk. A tutorial step's "Apply" button targets a single
-// snippet, but the only content we can reliably write back is the whole file the CLI already produced,
-// so applying any step for a file applies that file's full proposed change.
+// snippet, but the only content we can reliably write back is the whole file, so applying any step for
+// a file applies that file's full content - EditedContent, which is the user's in-editor edits when
+// present and falls back to the LLM's ProposedContent untouched otherwise.
 public class FileChangeApplyService : IFileChangeApplyService
 {
     public void Apply(ProposedFileChangeViewModel file, string workingDirectoryPath)
@@ -34,6 +35,6 @@ public class FileChangeApplyService : IFileChangeApplyService
             Directory.CreateDirectory(directory);
         }
 
-        File.WriteAllText(fullPath, file.ProposedContent);
+        File.WriteAllText(fullPath, file.EditedContent);
     }
 }
