@@ -303,7 +303,46 @@ committed yet — review `git status`/`git diff` before committing.
   commands' `CanExecute` gating and effect, including the not-dirty-but-still-revertible-to-original
   case. Full solution builds clean, 73/73 tests pass (65 existing + 8 new). Not visually verified
   (no X server in this sandbox, same limitation noted on prior Epic 2 tasks).
-- T2.2.4 Undo/redo within the editor; warn on navigating away with unsaved edits.
+- [x] T2.2.4 Undo/redo within the editor; warn on navigating away with unsaved edits. — done 2026-10-08:
+  investigated AvaloniaEdit via reflection on the compiled `Avalonia.AvaloniaEdit` assembly (doc
+  searches kept 404ing on exact source lines) and found `TextEditor` already has public
+  `Undo()`/`Redo()`/`CanUndo`/`CanRedo`, and that `TextAreaDefaultInputHandler` (installed on every
+  `TextArea` by default) already wires Ctrl+Z/Ctrl+Y to them — so keyboard undo/redo needed zero
+  code. The only real gap was discoverability: added named `UndoButton`/`RedoButton` buttons to
+  `TutorialDetailControl.axaml` next to the revert buttons, wired to `Editor.Undo()`/`Editor.Redo()`
+  in the code-behind. `CanUndo`/`CanRedo` are plain CLR properties (not `AvaloniaProperty`s), so
+  they can't be bound from XAML directly; kept them in sync via the editor's public `TextChanged`
+  event (fires on typing *and* on Undo/Redo itself), re-checking both buttons' `IsEnabled` each
+  time. `TutorialDetailControl` is a single long-lived instance whose `DataContext` rebinds per
+  file (per T2.2.1/T2.2.2), so there's one `Document`/`UndoStack` for the page's lifetime; switching
+  files resets undo history for the new file, which is expected.
+  For the navigate-away warning: found via reflection that FluentAvalonia's `Frame` has a
+  cancelable `Navigating` event (`NavigatingCancelEventArgs.Cancel` is settable) that fires *before*
+  content changes - unlike `Navigated`/`INavigationAware.OnNavigatedFrom`, which both only run
+  *after* navigation already happened, so neither could actually block anything. Added
+  `IConfirmNavigationAway` (opt-in interface, `bool HasUnsavedChanges`) implemented by
+  `TutorialViewModel` as `Files.Any(f => f.IsDirty)`, and a new `IDialogService`/`DialogService`
+  wrapping FluentAvalonia's `ContentDialog` for a generic yes/no confirm (`DefaultButton =
+  ContentDialogButton.Close` so Enter/default focus can't accidentally pick the destructive
+  choice). `NavigationService` now subscribes to `Frame.Navigating`: if the leaving page reports
+  unsaved changes, cancels synchronously and shows the confirm dialog; on "leave without saving" it
+  re-issues the exact same navigation (forward or `GoBack`) with a `_suppressUnsavedChangesCheck`
+  flag set so the retry doesn't re-trigger the same prompt. Refactored `NavigateTo` to share its
+  core logic with the retry path via a private `NavigateToPageType` helper. Also fixed a
+  pre-existing latent bug found while doing this: `GoBack()` previously called
+  `OnNavigatedFrom()`/returned `true` unconditionally, even though `Frame.GoBack()` returns `void`
+  and could be silently cancelled by the new `Navigating` handler - it now compares
+  `GetPageViewModel()` before/after the call to detect whether navigation actually happened.
+  Registered `IDialogService` in `App.axaml.cs`'s DI container. Added `TutorialViewModelTests`
+  (new file) covering `HasUnsavedChanges` across no files / clean files / a dirtied file / a
+  dirtied-then-reverted file. Did not add tests for `NavigationService`'s new `Navigating` handling
+  or `DialogService`'s `ContentDialog` usage - both need a real FluentAvalonia `Frame`/`ContentDialog`
+  instance, which (consistent with the AvaloniaEdit `TextEditor` limitation noted under T2.2.2)
+  can't be constructed without a running Avalonia `Application` and headless test host this project
+  doesn't have; reviewed by hand instead. Full solution builds clean, 77/77 tests pass (73 existing
+  + 4 new). Not visually verified (no X server in this sandbox, same limitation noted on prior Epic
+  2 tasks) - in particular, the undo/redo buttons' enabled state and the confirm dialog's actual
+  on-screen appearance are unverified beyond code review.
 
 **F2.3 — Write the user's edits, not the model's output**
 - [x] T2.3.1 Change `IFileChangeApplyService.Apply` to take the effective (possibly edited) content. —

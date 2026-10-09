@@ -12,8 +12,13 @@ namespace CodeGenToTutorial.Avalonia.Services;
 public class NavigationService : INavigationService
 {
     private readonly IPageService _pageService;
+    private readonly IDialogService _dialogService;
     private object? _lastParameterUsed;
     private Frame? _frame;
+
+    // Set while re-issuing a navigation the user already confirmed through the "unsaved changes"
+    // dialog, so OnNavigating doesn't ask again for the exact same navigation it just approved.
+    private bool _suppressUnsavedChangesCheck;
 
     public event NavigatedEventHandler? Navigated;
 
@@ -31,9 +36,10 @@ public class NavigationService : INavigationService
     [MemberNotNullWhen(true, nameof(Frame), nameof(_frame))]
     public bool CanGoBack => Frame != null && Frame.CanGoBack;
 
-    public NavigationService(IPageService pageService)
+    public NavigationService(IPageService pageService, IDialogService dialogService)
     {
         _pageService = pageService;
+        _dialogService = dialogService;
     }
 
     private void RegisterFrameEvents()
@@ -41,6 +47,7 @@ public class NavigationService : INavigationService
         if (_frame != null)
         {
             _frame.Navigated += OnNavigated;
+            _frame.Navigating += OnNavigating;
         }
     }
 
@@ -49,30 +56,36 @@ public class NavigationService : INavigationService
         if (_frame != null)
         {
             _frame.Navigated -= OnNavigated;
+            _frame.Navigating -= OnNavigating;
         }
     }
 
     public bool GoBack()
     {
-        if (CanGoBack)
+        if (!CanGoBack)
         {
-            var vmBeforeNavigation = _frame.GetPageViewModel();
-            _frame.GoBack();
-            if (vmBeforeNavigation is INavigationAware navigationAware)
-            {
-                navigationAware.OnNavigatedFrom();
-            }
-
-            return true;
+            return false;
         }
 
-        return false;
+        var vmBeforeNavigation = _frame.GetPageViewModel();
+        _frame.GoBack();
+
+        // Frame.GoBack() returns void, so the only way to tell whether it actually happened (as
+        // opposed to being cancelled by OnNavigating below) is to check whether the page changed.
+        var navigated = !ReferenceEquals(_frame.GetPageViewModel(), vmBeforeNavigation);
+        if (navigated && vmBeforeNavigation is INavigationAware navigationAware)
+        {
+            navigationAware.OnNavigatedFrom();
+        }
+
+        return navigated;
     }
 
-    public bool NavigateTo(string pageKey, object? parameter = null, bool clearNavigation = false)
-    {
-        var pageType = _pageService.GetPageType(pageKey);
+    public bool NavigateTo(string pageKey, object? parameter = null, bool clearNavigation = false) =>
+        NavigateToPageType(_pageService.GetPageType(pageKey), parameter, clearNavigation);
 
+    private bool NavigateToPageType(Type pageType, object? parameter, bool clearNavigation)
+    {
         if (_frame != null && (_frame.Content?.GetType() != pageType || (parameter != null && !parameter.Equals(_lastParameterUsed))))
         {
             _frame.Tag = clearNavigation;
@@ -91,6 +104,59 @@ public class NavigationService : INavigationService
         }
 
         return false;
+    }
+
+    // Fires before the frame's content changes - unlike OnNavigatedTo/OnNavigatedFrom, which both
+    // only ever run after a navigation has already happened - so it's the one place a navigation
+    // can still be stopped. If the page being left has unsaved changes, cancel it immediately
+    // (NavigatingCancelEventArgs.Cancel has to be set synchronously here) and ask the user via a
+    // dialog; if they choose to leave anyway, re-issue the same navigation with the check
+    // suppressed.
+    private void OnNavigating(object sender, NavigatingCancelEventArgs e)
+    {
+        if (_suppressUnsavedChangesCheck || sender is not Frame frame)
+        {
+            return;
+        }
+
+        if (frame.GetPageViewModel() is not IConfirmNavigationAway { HasUnsavedChanges: true })
+        {
+            return;
+        }
+
+        e.Cancel = true;
+        ConfirmThenRetryNavigation(e.NavigationMode, e.SourcePageType, e.Parameter);
+    }
+
+    private async void ConfirmThenRetryNavigation(NavigationMode mode, Type targetPageType, object? parameter)
+    {
+        var shouldLeave = await _dialogService.ConfirmAsync(
+            "Discard unsaved edits?",
+            "You have unsaved edits on this page. Leaving now will discard them.",
+            "Leave without saving",
+            "Stay");
+
+        if (!shouldLeave)
+        {
+            return;
+        }
+
+        _suppressUnsavedChangesCheck = true;
+        try
+        {
+            if (mode == NavigationMode.Back)
+            {
+                GoBack();
+            }
+            else
+            {
+                NavigateToPageType(targetPageType, parameter, clearNavigation: false);
+            }
+        }
+        finally
+        {
+            _suppressUnsavedChangesCheck = false;
+        }
     }
 
     private void OnNavigated(object sender, NavigationEventArgs e)

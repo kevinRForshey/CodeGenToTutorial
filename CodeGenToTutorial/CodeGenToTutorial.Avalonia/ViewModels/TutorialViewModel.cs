@@ -8,7 +8,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace CodeGenToTutorial.Avalonia.ViewModels;
 
-public partial class TutorialViewModel : ObservableRecipient, INavigationAware
+public partial class TutorialViewModel : ObservableRecipient, INavigationAware, IConfirmNavigationAway
 {
     private readonly IPromptResultStore _promptResultStore;
 
@@ -40,6 +40,8 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware
     public void OnNavigatedFrom()
     {
     }
+
+    public bool HasUnsavedChanges => Files.Any(f => f.IsDirty);
 
     public void EnsureItemSelected()
     {

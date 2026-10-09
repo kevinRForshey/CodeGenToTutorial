@@ -56,6 +56,7 @@ public partial class App : Application
             services.AddSingleton<IPromptResultStore, PromptResultStore>();
             services.AddTransient<IFileChangeApplyService, FileChangeApplyService>();
             services.AddTransient<INavigationViewService, NavigationViewService>();
+            services.AddTransient<IDialogService, DialogService>();
 
             services.AddSingleton<IPageService, PageService>();
             services.AddSingleton<INavigationService, NavigationService>();

@@ -3,18 +3,11 @@
     "original": null,
     "holders": [
       {
-        "pid": 116771,
+        "pid": 15746,
         "start_src": "proc",
-        "start_time": 2284485.0,
+        "start_time": 31780.0,
         "port": 8787,
         "inherited": false
-      },
-      {
-        "pid": 362847,
-        "start_src": "proc",
-        "start_time": 8154761.0,
-        "port": 8787,
-        "inherited": true
       }
     ]
   },
@@ -22,18 +15,11 @@
     "original": "true",
     "holders": [
       {
-        "pid": 116771,
+        "pid": 15746,
         "start_src": "proc",
-        "start_time": 2284485.0,
+        "start_time": 31780.0,
         "port": null,
         "inherited": false
-      },
-      {
-        "pid": 362847,
-        "start_src": "proc",
-        "start_time": 8154761.0,
-        "port": null,
-        "inherited": true
       }
     ]
   }

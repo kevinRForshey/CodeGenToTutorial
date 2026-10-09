@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Interactivity;
 
 using CodeGenToTutorial.Avalonia.ViewModels;
 using CodeGenToTutorial.Core.Contracts.Services;
@@ -24,6 +25,30 @@ public partial class TutorialDetailControl : UserControl
 
         StepsItemsControl.ItemsSource = Steps;
         DataContextChanged += (_, _) => RebuildSteps();
+
+        // CanUndo/CanRedo are plain CLR properties on AvaloniaEdit's TextEditor, not
+        // AvaloniaProperties, so they can't be bound from XAML - TextChanged (which also fires on
+        // Undo()/Redo() themselves) is the hook used to keep the buttons' enabled state in sync.
+        Editor.TextChanged += (_, _) => RefreshUndoRedoButtons();
+        RefreshUndoRedoButtons();
+    }
+
+    private void RefreshUndoRedoButtons()
+    {
+        UndoButton.IsEnabled = Editor.CanUndo;
+        RedoButton.IsEnabled = Editor.CanRedo;
+    }
+
+    private void OnUndoButtonClick(object? sender, RoutedEventArgs e)
+    {
+        Editor.Undo();
+        RefreshUndoRedoButtons();
+    }
+
+    private void OnRedoButtonClick(object? sender, RoutedEventArgs e)
+    {
+        Editor.Redo();
+        RefreshUndoRedoButtons();
     }
 
     private void RebuildSteps()
