@@ -20,20 +20,31 @@ public partial class DiffsViewModel : ObservableRecipient, INavigationAware
     public DiffsViewModel(IPromptResultStore promptResultStore)
     {
         _promptResultStore = promptResultStore;
+
+        // ObservableCollection<T> raises PropertyChanged("Count") on its own, but HasNoFiles/
+        // HasFilesButNoneSelected are derived from that count rather than being Count itself, so
+        // the view's bindings to them need an explicit nudge whenever the collection changes.
+        Files.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(HasNoFiles));
+            OnPropertyChanged(nameof(HasFilesButNoneSelected));
+        };
     }
 
     public void OnNavigatedTo(object parameter)
     {
         Files.Clear();
 
-        var workingDirectory = _promptResultStore.WorkingDirectoryPath;
-
         // Reuse the store's own instances - the same ones the Tutorial page edits - rather than
         // building copies, so DiffLines (recomputed inside ProposedFileChangeViewModel) reflects the
         // user's live edits instead of a snapshot of the raw proposal taken at navigation time.
+        // Reading each file's on-disk content and recomputing its diff is deferred to selection
+        // (see OnSelectedChanged) rather than done eagerly here for every file - with real file
+        // content (as opposed to the empty-original diff computed at parse time) that's a disk read
+        // plus an O(n*m) LCS pass per file, which done for every file up front froze the UI while
+        // navigating to this page even though only one file is ever shown at a time.
         foreach (var file in _promptResultStore.Files)
         {
-            file.OriginalContent = ReadOriginalContent(workingDirectory, file.FilePath);
             Files.Add(file);
         }
 
@@ -69,6 +80,27 @@ public partial class DiffsViewModel : ObservableRecipient, INavigationAware
 
     public void OnNavigatedFrom()
     {
+    }
+
+    // Drives the Diffs page's empty-state messaging: with no files at all (no prompt run yet) the
+    // master list is empty and there's nothing to select, which otherwise looks indistinguishable
+    // from the page having failed to load.
+    public bool HasNoFiles => Files.Count == 0;
+
+    public bool HasFilesButNoneSelected => Files.Count > 0 && Selected == null;
+
+    partial void OnSelectedChanged(ProposedFileChangeViewModel? value)
+    {
+        OnPropertyChanged(nameof(HasFilesButNoneSelected));
+
+        // Loading the on-disk original content (and the real diff it triggers via
+        // OnOriginalContentChanged) is deferred until a file is actually shown, rather than done for
+        // every file in OnNavigatedTo, so the UI thread only ever pays that cost for the one file
+        // the user is looking at.
+        if (value != null)
+        {
+            value.OriginalContent = ReadOriginalContent(_promptResultStore.WorkingDirectoryPath, value.FilePath);
+        }
     }
 
     public void EnsureItemSelected()

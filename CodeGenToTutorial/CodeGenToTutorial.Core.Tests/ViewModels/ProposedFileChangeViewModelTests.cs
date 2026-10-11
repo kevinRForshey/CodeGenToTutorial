@@ -1,3 +1,4 @@
+using CodeGenToTutorial.Core.Models;
 using CodeGenToTutorial.Core.ViewModels;
 
 namespace CodeGenToTutorial.Core.Tests.ViewModels;
@@ -171,5 +172,59 @@ public class ProposedFileChangeViewModelTests
         file.OriginalContent = "proposed";
 
         Assert.False(file.RevertToOriginalCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public void Constructor_ComputesInitialDiffHunksFromOriginalAndProposed()
+    {
+        var file = new ProposedFileChangeViewModel("a.txt", "line1\nline2", "line1");
+
+        var hunk = Assert.Single(file.DiffHunks);
+        Assert.Equal(file.DiffLines, hunk.Lines);
+    }
+
+    [Fact]
+    public void Hunks_SetAfterConstruction_PopulatesMatchedDiffHunksFromInitialDiffHunks()
+    {
+        var hunk = new ProposedHunk("Add line2", string.Empty, "line2", new HunkLocation(1, 1));
+
+        var file = new ProposedFileChangeViewModel("a.txt", "line1\nline2", "line1")
+        {
+            Hunks = new[] { hunk },
+        };
+
+        var match = Assert.Single(hunk.MatchedDiffHunks);
+        Assert.Same(file.DiffHunks[0], match);
+    }
+
+    [Fact]
+    public void EditedContent_Changed_RecomputesMatchedDiffHunksForExistingSteps()
+    {
+        var hunk = new ProposedHunk("Add line2", string.Empty, "line2", new HunkLocation(1, 1));
+
+        var file = new ProposedFileChangeViewModel("a.txt", "line1\nline2", "line1")
+        {
+            Hunks = new[] { hunk },
+        };
+        Assert.Single(hunk.MatchedDiffHunks);
+
+        // Editing the file back to match the original removes every diff hunk, so there's nothing
+        // left for the step's location to match.
+        file.EditedContent = "line1";
+
+        Assert.Empty(hunk.MatchedDiffHunks);
+    }
+
+    [Fact]
+    public void Hunks_StepLocationUnresolved_MatchedDiffHunksStaysEmpty()
+    {
+        var hunk = new ProposedHunk("Unresolvable step", string.Empty, "nonexistent snippet", null);
+
+        var file = new ProposedFileChangeViewModel("a.txt", "line1\nline2", "line1")
+        {
+            Hunks = new[] { hunk },
+        };
+
+        Assert.Empty(hunk.MatchedDiffHunks);
     }
 }

@@ -20,6 +20,13 @@ public partial class ProposedHunk : ObservableObject
     [ObservableProperty]
     private bool isSelected = true;
 
+    // The DiffHunk(s) (from ProposedFileChangeViewModel.DiffHunks) that this step's Location
+    // overlaps - kept in sync by ProposedFileChangeViewModel whenever its DiffHunks are
+    // recomputed. Empty when Location is unresolved or no diff hunk covers it (e.g. the step's
+    // snippet turned out identical to what was already there).
+    [ObservableProperty]
+    private IReadOnlyList<DiffHunk> matchedDiffHunks = Array.Empty<DiffHunk>();
+
     public ProposedHunk(string title, string explanation, string snippet, HunkLocation? location)
     {
         Title = title;

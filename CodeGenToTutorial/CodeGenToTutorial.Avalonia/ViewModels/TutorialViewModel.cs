@@ -20,6 +20,15 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
     public TutorialViewModel(IPromptResultStore promptResultStore)
     {
         _promptResultStore = promptResultStore;
+
+        // ObservableCollection<T> raises PropertyChanged("Count") on its own, but HasNoFiles/
+        // HasFilesButNoneSelected are derived from that count rather than being Count itself, so
+        // the view's bindings to them need an explicit nudge whenever the collection changes.
+        Files.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(HasNoFiles));
+            OnPropertyChanged(nameof(HasFilesButNoneSelected));
+        };
     }
 
     public void OnNavigatedTo(object parameter)
@@ -42,6 +51,15 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
     }
 
     public bool HasUnsavedChanges => Files.Any(f => f.IsDirty);
+
+    // Drives the Tutorial page's empty-state messaging: with no files at all (no prompt run yet)
+    // the master list is empty and there's nothing to select, which otherwise looks indistinguishable
+    // from the page having failed to load.
+    public bool HasNoFiles => Files.Count == 0;
+
+    public bool HasFilesButNoneSelected => Files.Count > 0 && Selected == null;
+
+    partial void OnSelectedChanged(ProposedFileChangeViewModel? value) => OnPropertyChanged(nameof(HasFilesButNoneSelected));
 
     public void EnsureItemSelected()
     {

@@ -21,7 +21,22 @@ public partial class ProposedFileChangeViewModel : ObservableObject
 
     public string ProposedContent { get; }
 
-    public IReadOnlyList<ProposedHunk> Hunks { get; init; } = Array.Empty<ProposedHunk>();
+    private IReadOnlyList<ProposedHunk> hunks = Array.Empty<ProposedHunk>();
+
+    // init rather than a plain [ObservableProperty] field, since the set of steps a response
+    // parses out doesn't change after construction - but it still needs to run the same
+    // matching logic as OnDiffHunksChanged below, because it's assigned via an object initializer
+    // (ClaudeResponseParser.Parse), which runs after the constructor - and therefore after
+    // DiffHunks already has its initial value.
+    public IReadOnlyList<ProposedHunk> Hunks
+    {
+        get => hunks;
+        init
+        {
+            hunks = value;
+            UpdateMatchedDiffHunks();
+        }
+    }
 
     [ObservableProperty]
     private string originalContent;
@@ -35,6 +50,12 @@ public partial class ProposedFileChangeViewModel : ObservableObject
     [ObservableProperty]
     private IReadOnlyList<DiffLine> diffLines = Array.Empty<DiffLine>();
 
+    // Unified-diff-style grouping of DiffLines (see DiffBuilder.GroupIntoHunks), kept in sync with
+    // DiffLines rather than recomputed on demand so Hunks' MatchedDiffHunks (below) can be updated
+    // reactively via OnDiffHunksChanged instead of every consumer having to remember to re-match.
+    [ObservableProperty]
+    private IReadOnlyList<DiffHunk> diffHunks = Array.Empty<DiffHunk>();
+
     public ProposedFileChangeViewModel(string filePath, string proposedContent, string originalContent = "")
     {
         FilePath = filePath;
@@ -42,6 +63,7 @@ public partial class ProposedFileChangeViewModel : ObservableObject
         this.originalContent = originalContent;
         editedContent = proposedContent;
         diffLines = DiffBuilder.BuildLineDiff(originalContent, proposedContent);
+        diffHunks = DiffBuilder.GroupIntoHunks(diffLines);
     }
 
     partial void OnEditedContentChanged(string value)
@@ -55,6 +77,18 @@ public partial class ProposedFileChangeViewModel : ObservableObject
     {
         DiffLines = DiffBuilder.BuildLineDiff(value, EditedContent);
         RevertToOriginalCommand.NotifyCanExecuteChanged();
+    }
+
+    partial void OnDiffLinesChanged(IReadOnlyList<DiffLine> value) => DiffHunks = DiffBuilder.GroupIntoHunks(value);
+
+    partial void OnDiffHunksChanged(IReadOnlyList<DiffHunk> value) => UpdateMatchedDiffHunks();
+
+    private void UpdateMatchedDiffHunks()
+    {
+        foreach (var hunk in hunks)
+        {
+            hunk.MatchedDiffHunks = ProposedHunkMatcher.FindMatches(DiffHunks, hunk.Location);
+        }
     }
 
     // IsDirty only ever changes as a side effect of EditedContent changing (above), but hooking its

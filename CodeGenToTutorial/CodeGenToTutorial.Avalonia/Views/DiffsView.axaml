@@ -29,12 +29,19 @@
 
         <Border Grid.Column="1" Padding="16">
             <Grid>
+                <TextBlock Text="No proposed changes yet. Run a prompt first, then come back here to review the diff."
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           TextAlignment="Center"
+                           TextWrapping="Wrap"
+                           FontSize="18"
+                           IsVisible="{Binding HasNoFiles}" />
                 <TextBlock Text="Select a file from the list to view the proposed changes."
                            HorizontalAlignment="Center"
                            VerticalAlignment="Center"
                            TextAlignment="Center"
                            FontSize="18"
-                           IsVisible="{Binding #FileList.SelectedItem, Converter={x:Static conv:ObjectConverters.IsNull}}" />
+                           IsVisible="{Binding HasFilesButNoneSelected}" />
                 <views:DiffsDetailControl DataContext="{Binding Selected}"
                                           IsVisible="{Binding #FileList.SelectedItem, Converter={x:Static conv:ObjectConverters.IsNotNull}}" />
             </Grid>

@@ -379,11 +379,29 @@ committed yet — review `git status`/`git diff` before committing.
 ### EPIC 3 — Granular selection & apply *(P0)*
 
 **F3.1 — Hunk-level diff model**
-- T3.1.1 Extend `DiffBuilder` to group `DiffLine`s into hunks with context (unified-diff style).
-- T3.1.2 Map each `TutorialStep` snippet onto the hunk(s) it produces, so "apply this step" means
-  something precise.
-- T3.1.3 Implement patch application: compose the target file content from the selected hunks plus
-  the untouched original.
+- [x] T3.1.1 Extend `DiffBuilder` to group `DiffLine`s into hunks with context (unified-diff style). —
+  done 2026-10-10: `DiffBuilder.GroupIntoHunks` (+ new `DiffHunk` model) groups a flat line diff into
+  unified-diff-style hunks with configurable context, merging change regions whose gap is within
+  `2 * contextLines`. Not consumed by anything yet - scaffolding for T3.1.2/T3.1.3.
+- [x] T3.1.2 Map each `TutorialStep` snippet onto the hunk(s) it produces, so "apply this step" means
+  something precise. — done 2026-10-10: new `ProposedHunkMatcher.FindMatches` maps a `ProposedHunk`'s
+  resolved `HunkLocation` onto the `DiffHunk`(s) whose proposed-side range overlaps it (pure-deletion
+  hunks, which contribute no proposed lines, never match). `ProposedFileChangeViewModel` now computes
+  `DiffHunks` reactively alongside `DiffLines`, and keeps every `Hunk`'s new `MatchedDiffHunks`
+  property in sync whenever `DiffHunks` changes (edits, or the `Hunks` list itself being assigned).
+  Still display-only - nothing reads `MatchedDiffHunks` yet; that's T3.1.3/F3.2.
+- [x] T3.1.3 Implement patch application: compose the target file content from the selected hunks plus
+  the untouched original. — done 2026-10-11: `DiffHunk` gained `SourceRangeStart`/`SourceRangeEnd`
+  (its `[start, end)` index range within the `DiffLines` it was grouped from) so a hunk's lines can be
+  distinguished from its neighbors' when recomposing. New `DiffBuilder.ComposeContent(diffLines,
+  hunks, isSelected)` walks the full line list once: inside a selected hunk's range it keeps
+  `Unchanged`/`Added` lines (the proposed outcome); inside an unselected hunk's range it keeps
+  `Unchanged`/`Removed` lines (reverts that region to the original); everything outside any hunk's
+  range is guaranteed `Unchanged` (hunks are built to cover every changed region) and passes through
+  either way. Pure algorithm, not wired to `ProposedFileChangeViewModel`/UI - there's no selection
+  state on `DiffHunk` itself yet (only per-step `ProposedHunk.IsSelected`), and deciding how step
+  selection aggregates onto a shared `DiffHunk` (e.g. two steps mapping to the same hunk with
+  different selection) is F3.2/F3.3's job, not this one's.
 
 **F3.2 — Selection UI**
 - T3.2.1 Checkbox per file in the Diffs and Tutorial master lists.
