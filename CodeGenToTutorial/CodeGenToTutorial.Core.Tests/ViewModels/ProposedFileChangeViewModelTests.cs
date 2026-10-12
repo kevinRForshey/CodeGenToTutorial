@@ -227,4 +227,209 @@ public class ProposedFileChangeViewModelTests
 
         Assert.Empty(hunk.MatchedDiffHunks);
     }
+
+    [Fact]
+    public void IsSelected_NoHunks_DefaultsToTrue()
+    {
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original");
+
+        Assert.True(file.IsSelected);
+        Assert.Equal("Whole file", file.SelectionSummary);
+    }
+
+    [Fact]
+    public void IsSelected_NoHunks_SetFalse_UpdatesSummaryToExcluded()
+    {
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original")
+        {
+            IsSelected = false,
+        };
+
+        Assert.False(file.IsSelected);
+        Assert.Equal("Excluded", file.SelectionSummary);
+    }
+
+    [Fact]
+    public void IsSelected_AllHunksSelected_IsTrue()
+    {
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original")
+        {
+            Hunks = new[]
+            {
+                new ProposedHunk("Step 1", string.Empty, "x", null),
+                new ProposedHunk("Step 2", string.Empty, "y", null),
+            },
+        };
+
+        Assert.True(file.IsSelected);
+        Assert.Equal("2/2 selected", file.SelectionSummary);
+    }
+
+    [Fact]
+    public void IsSelected_NoHunksSelected_IsFalse()
+    {
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original")
+        {
+            Hunks = new[]
+            {
+                new ProposedHunk("Step 1", string.Empty, "x", null) { IsSelected = false },
+                new ProposedHunk("Step 2", string.Empty, "y", null) { IsSelected = false },
+            },
+        };
+
+        Assert.False(file.IsSelected);
+        Assert.Equal("0/2 selected", file.SelectionSummary);
+    }
+
+    [Fact]
+    public void IsSelected_MixedHunkSelection_IsNullIndeterminate()
+    {
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original")
+        {
+            Hunks = new[]
+            {
+                new ProposedHunk("Step 1", string.Empty, "x", null),
+                new ProposedHunk("Step 2", string.Empty, "y", null) { IsSelected = false },
+            },
+        };
+
+        Assert.Null(file.IsSelected);
+        Assert.Equal("1/2 selected", file.SelectionSummary);
+    }
+
+    [Fact]
+    public void IsSelected_SetTrue_SelectsEveryHunk()
+    {
+        var hunks = new[]
+        {
+            new ProposedHunk("Step 1", string.Empty, "x", null) { IsSelected = false },
+            new ProposedHunk("Step 2", string.Empty, "y", null) { IsSelected = false },
+        };
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original") { Hunks = hunks };
+
+        file.IsSelected = true;
+
+        Assert.All(hunks, h => Assert.True(h.IsSelected));
+    }
+
+    [Fact]
+    public void IsSelected_SetFalse_DeselectsEveryHunk()
+    {
+        var hunks = new[]
+        {
+            new ProposedHunk("Step 1", string.Empty, "x", null),
+            new ProposedHunk("Step 2", string.Empty, "y", null),
+        };
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original") { Hunks = hunks };
+
+        file.IsSelected = false;
+
+        Assert.All(hunks, h => Assert.False(h.IsSelected));
+    }
+
+    [Fact]
+    public void IsSelected_SetNull_TreatsAsSelectAll()
+    {
+        var hunks = new[]
+        {
+            new ProposedHunk("Step 1", string.Empty, "x", null) { IsSelected = false },
+            new ProposedHunk("Step 2", string.Empty, "y", null) { IsSelected = false },
+        };
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original") { Hunks = hunks };
+
+        file.IsSelected = null;
+
+        Assert.All(hunks, h => Assert.True(h.IsSelected));
+    }
+
+    [Fact]
+    public void HunkPropertyChanged_TogglingOneStep_UpdatesRollupWithoutReassigningHunks()
+    {
+        var hunks = new[]
+        {
+            new ProposedHunk("Step 1", string.Empty, "x", null),
+            new ProposedHunk("Step 2", string.Empty, "y", null),
+        };
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original") { Hunks = hunks };
+
+        hunks[0].IsSelected = false;
+
+        Assert.Null(file.IsSelected);
+        Assert.Equal(1, file.SelectedHunkCount);
+    }
+
+    [Fact]
+    public void HasSelectableHunks_NoHunks_IsFalse()
+    {
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original");
+
+        Assert.False(file.HasSelectableHunks);
+    }
+
+    [Fact]
+    public void HasSelectableHunks_WithHunks_IsTrue()
+    {
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original")
+        {
+            Hunks = new[] { new ProposedHunk("Step 1", string.Empty, "x", null) },
+        };
+
+        Assert.True(file.HasSelectableHunks);
+    }
+
+    [Fact]
+    public void SelectAllHunksCommand_NoHunks_CannotExecute()
+    {
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original");
+
+        Assert.False(file.SelectAllHunksCommand.CanExecute(null));
+        Assert.False(file.SelectNoHunksCommand.CanExecute(null));
+        Assert.False(file.InvertHunkSelectionCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public void SelectAllHunksCommand_SomeDeselected_SelectsAll()
+    {
+        var hunks = new[]
+        {
+            new ProposedHunk("Step 1", string.Empty, "x", null) { IsSelected = false },
+            new ProposedHunk("Step 2", string.Empty, "y", null),
+        };
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original") { Hunks = hunks };
+
+        file.SelectAllHunksCommand.Execute(null);
+
+        Assert.All(hunks, h => Assert.True(h.IsSelected));
+    }
+
+    [Fact]
+    public void SelectNoHunksCommand_SomeSelected_DeselectsAll()
+    {
+        var hunks = new[]
+        {
+            new ProposedHunk("Step 1", string.Empty, "x", null),
+            new ProposedHunk("Step 2", string.Empty, "y", null),
+        };
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original") { Hunks = hunks };
+
+        file.SelectNoHunksCommand.Execute(null);
+
+        Assert.All(hunks, h => Assert.False(h.IsSelected));
+    }
+
+    [Fact]
+    public void InvertHunkSelectionCommand_FlipsEachHunk()
+    {
+        var hunks = new[]
+        {
+            new ProposedHunk("Step 1", string.Empty, "x", null),
+            new ProposedHunk("Step 2", string.Empty, "y", null) { IsSelected = false },
+        };
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original") { Hunks = hunks };
+
+        file.InvertHunkSelectionCommand.Execute(null);
+
+        Assert.False(hunks[0].IsSelected);
+        Assert.True(hunks[1].IsSelected);
+    }
 }

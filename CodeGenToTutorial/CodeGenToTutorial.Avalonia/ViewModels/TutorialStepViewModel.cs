@@ -21,6 +21,10 @@ public partial class TutorialStepViewModel : ObservableObject
 
     public string Explanation { get; }
 
+    // Exposed so the view can bind its selection checkbox directly to Hunk.IsSelected rather than
+    // this class forwarding/duplicating that state.
+    public ProposedHunk Hunk { get; }
+
     [ObservableProperty]
     private bool isApplied;
 
@@ -31,6 +35,7 @@ public partial class TutorialStepViewModel : ObservableObject
     {
         Title = hunk.Title;
         Explanation = hunk.Explanation;
+        Hunk = hunk;
         _file = file;
         _workingDirectoryPath = workingDirectoryPath;
         _fileChangeApplyService = fileChangeApplyService;

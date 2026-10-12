@@ -5,8 +5,9 @@ using CommunityToolkit.Mvvm.ComponentModel;
 namespace CodeGenToTutorial.Core.ViewModels;
 
 // Wraps a single parsed tutorial step as a selectable unit of change, carrying the resolved line
-// range (if any) its snippet produces in the file. IsSelected is scaffolding for the hunk-level
-// selection UI (F3.2) - nothing reads it yet, since apply still writes the whole file (T3.1.3).
+// range (if any) its snippet produces in the file. IsSelected drives the per-step checkbox (F3.2)
+// and the owning ProposedFileChangeViewModel's tri-state file-level rollup; apply still writes the
+// whole file regardless of selection until F3.3 wires selection into FileChangeApplyService.
 public partial class ProposedHunk : ObservableObject
 {
     public string Title { get; }

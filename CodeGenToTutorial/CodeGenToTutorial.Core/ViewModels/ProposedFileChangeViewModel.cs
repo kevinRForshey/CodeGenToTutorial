@@ -1,3 +1,5 @@
+using System.ComponentModel;
+
 using CodeGenToTutorial.Core.Helpers;
 using CodeGenToTutorial.Core.Models;
 
@@ -23,11 +25,18 @@ public partial class ProposedFileChangeViewModel : ObservableObject
 
     private IReadOnlyList<ProposedHunk> hunks = Array.Empty<ProposedHunk>();
 
+    // Fallback selection state for files with no resolved hunks (the parser found no tutorial
+    // steps, or none of their snippets could be located in the content) - there's nothing to roll
+    // up from, so IsSelected just means "apply this whole file" directly. Defaults to true to match
+    // today's apply-everything behavior.
+    private bool noHunksSelected = true;
+
     // init rather than a plain [ObservableProperty] field, since the set of steps a response
     // parses out doesn't change after construction - but it still needs to run the same
     // matching logic as OnDiffHunksChanged below, because it's assigned via an object initializer
     // (ClaudeResponseParser.Parse), which runs after the constructor - and therefore after
-    // DiffHunks already has its initial value.
+    // DiffHunks already has its initial value. Also subscribes to each hunk's PropertyChanged so
+    // IsSelected/SelectedHunkCount/SelectionSummary stay correct as the user checks/unchecks steps.
     public IReadOnlyList<ProposedHunk> Hunks
     {
         get => hunks;
@@ -35,6 +44,99 @@ public partial class ProposedFileChangeViewModel : ObservableObject
         {
             hunks = value;
             UpdateMatchedDiffHunks();
+
+            foreach (var hunk in hunks)
+            {
+                hunk.PropertyChanged += OnHunkPropertyChanged;
+            }
+        }
+    }
+
+    private void OnHunkPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(ProposedHunk.IsSelected))
+        {
+            return;
+        }
+
+        OnPropertyChanged(nameof(IsSelected));
+        OnPropertyChanged(nameof(SelectedHunkCount));
+        OnPropertyChanged(nameof(SelectionSummary));
+    }
+
+    // Tri-state rollup of every hunk's IsSelected: true when all are selected, false when none are,
+    // null (indeterminate) when mixed. Setting it fans out to every hunk. For a file with no hunks
+    // at all, reads/writes the plain whole-file fallback instead since there's nothing to roll up.
+    public bool? IsSelected
+    {
+        get
+        {
+            if (hunks.Count == 0)
+            {
+                return noHunksSelected;
+            }
+
+            if (hunks.All(h => h.IsSelected))
+            {
+                return true;
+            }
+
+            return hunks.All(h => !h.IsSelected) ? false : null;
+        }
+        set
+        {
+            if (hunks.Count == 0)
+            {
+                // A three-state CheckBox can land on null by repeated clicking even though nothing
+                // here ever sets it programmatically; treat that the same as selecting everything
+                // rather than leaving the fallback in an unselectable state.
+                noHunksSelected = value ?? true;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(SelectionSummary));
+                return;
+            }
+
+            foreach (var hunk in hunks)
+            {
+                hunk.IsSelected = value ?? true;
+            }
+        }
+    }
+
+    public int SelectedHunkCount => hunks.Count(h => h.IsSelected);
+
+    public bool HasSelectableHunks => hunks.Count > 0;
+
+    public string SelectionSummary => hunks.Count == 0
+        ? (noHunksSelected ? "Whole file" : "Excluded")
+        : $"{SelectedHunkCount}/{hunks.Count} selected";
+
+    private bool CanChangeHunkSelection() => hunks.Count > 0;
+
+    [RelayCommand(CanExecute = nameof(CanChangeHunkSelection))]
+    private void SelectAllHunks()
+    {
+        foreach (var hunk in hunks)
+        {
+            hunk.IsSelected = true;
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanChangeHunkSelection))]
+    private void SelectNoHunks()
+    {
+        foreach (var hunk in hunks)
+        {
+            hunk.IsSelected = false;
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanChangeHunkSelection))]
+    private void InvertHunkSelection()
+    {
+        foreach (var hunk in hunks)
+        {
+            hunk.IsSelected = !hunk.IsSelected;
         }
     }
 
