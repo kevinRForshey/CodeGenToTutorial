@@ -13,6 +13,10 @@
             <StackPanel Grid.Row="0" Margin="8" Spacing="4">
                 <Button Content="Apply Selected" Command="{Binding ApplySelectedCommand}" HorizontalAlignment="Stretch"
                          ToolTip.Tip="Write every selected change, across every file, to disk." />
+                <Button Content="Undo Last Apply" Command="{Binding UndoLastApplyCommand}" HorizontalAlignment="Stretch"
+                         ToolTip.Tip="Restore the files from the most recent apply to their content from right before it." />
+                <Button Content="Revert All Applied" Command="{Binding RevertAllAppliedCommand}" HorizontalAlignment="Stretch"
+                         ToolTip.Tip="Restore every file this session has applied a change to back to its content from before this session." />
                 <TextBlock Text="{Binding ApplyStatusMessage}" TextWrapping="Wrap" FontSize="11" Opacity="0.7"
                            IsVisible="{Binding ApplyStatusMessage, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}" />
             </StackPanel>

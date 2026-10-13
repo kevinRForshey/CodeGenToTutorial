@@ -55,6 +55,8 @@ public partial class App : Application
             services.AddTransient<IFolderPickerService, FolderPickerService>();
             services.AddSingleton<IPromptResultStore, PromptResultStore>();
             services.AddTransient<IFileChangeApplyService, FileChangeApplyService>();
+            services.AddSingleton<IApplyBackupStore, ApplyBackupStore>();
+            services.AddSingleton<IApplyHistoryStore, ApplyHistoryStore>();
             services.AddTransient<IApplyOrchestrationService, ApplyOrchestrationService>();
             services.AddTransient<INavigationViewService, NavigationViewService>();
             services.AddTransient<IDialogService, DialogService>();

@@ -32,6 +32,22 @@ public static class Resources
         ["Tutorial_ApplyProtectedPathsConfirmButton"] = "Write anyway",
         ["Tutorial_ApplyProtectedPathsConfirmCancelButton"] = "Skip those files",
         ["Tutorial_ApplySelectedResultProtectedBlocked"] = "{0} file(s) were skipped because they're protected paths: {1}.",
+        ["Tutorial_UndoLastApplyConfirmTitle"] = "Undo last apply?",
+        ["Tutorial_UndoLastApplyConfirmMessage"] = "This will overwrite each file from the most recent apply with its content from right before that apply.",
+        ["Tutorial_UndoLastApplyConfirmButton"] = "Undo",
+        ["Tutorial_UndoLastApplyCancelButton"] = "Cancel",
+        ["Tutorial_UndoLastApplyNothingToUndo"] = "Nothing to undo - no apply has been made this session.",
+        ["Tutorial_UndoLastApplyResultTitle"] = "Undo results",
+        ["Tutorial_UndoLastApplyResultClose"] = "OK",
+        ["Tutorial_RevertAllAppliedConfirmTitle"] = "Revert all applied changes?",
+        ["Tutorial_RevertAllAppliedConfirmMessage"] = "This will overwrite every file this session has applied a change to with its content from before this session touched it at all.",
+        ["Tutorial_RevertAllAppliedConfirmButton"] = "Revert all",
+        ["Tutorial_RevertAllAppliedCancelButton"] = "Cancel",
+        ["Tutorial_RevertAllAppliedNothingToRevert"] = "Nothing to revert - no apply has been made this session.",
+        ["Tutorial_RevertAllAppliedResultTitle"] = "Revert results",
+        ["Tutorial_RevertAllAppliedResultClose"] = "OK",
+        ["Tutorial_RevertResultSucceeded"] = "Reverted {0} file(s).",
+        ["Tutorial_RevertResultFailures"] = "{0} file(s) failed to revert: {1}.",
     };
 
     public static string GetLocalized(this string resourceKey) =>

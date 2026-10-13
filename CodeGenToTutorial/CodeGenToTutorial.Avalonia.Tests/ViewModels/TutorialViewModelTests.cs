@@ -222,4 +222,126 @@ public class TutorialViewModelTests
 
         Assert.Contains("bin/output.txt", sut.ApplyStatusMessage);
     }
+
+    [Fact]
+    public async Task UndoLastApplyAsync_UserCancelsConfirmation_DoesNotUndo()
+    {
+        _dialogService.ConfirmResultToReturn = false;
+        var sut = CreateSut();
+
+        await sut.UndoLastApplyCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, _dialogService.ConfirmCallCount);
+        Assert.Equal(0, _applyOrchestrationService.TryUndoLastApplyCallCount);
+    }
+
+    [Fact]
+    public async Task UndoLastApplyAsync_NothingToUndo_ReportsItWithoutShowingResultDialog()
+    {
+        _dialogService.ConfirmResultToReturn = true;
+        _applyOrchestrationService.TryUndoLastApplyResultToReturn = false;
+        var sut = CreateSut();
+
+        await sut.UndoLastApplyCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, _dialogService.InfoCallCount);
+        Assert.False(string.IsNullOrEmpty(sut.ApplyStatusMessage));
+    }
+
+    [Fact]
+    public async Task UndoLastApplyAsync_UserConfirms_UndoesAndReportsResultViaInfoDialog()
+    {
+        _dialogService.ConfirmResultToReturn = true;
+        _applyOrchestrationService.TryUndoLastApplyResultToReturn = true;
+        _applyOrchestrationService.UndoLastApplyRevertResultToReturn = new RevertResult([new RevertFileResult("a.txt", true)]);
+        var sut = CreateSut();
+
+        await sut.UndoLastApplyCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, _applyOrchestrationService.TryUndoLastApplyCallCount);
+        Assert.Equal(1, _dialogService.InfoCallCount);
+        Assert.Contains("1", sut.ApplyStatusMessage);
+    }
+
+    [Fact]
+    public async Task UndoLastApplyAsync_RestoredFileIsInFilesCollection_RefreshesItsOriginalContent()
+    {
+        _promptResultStore.SetResult("tutorial", [new ProposedFileChangeViewModel("a.txt", "proposed", "stale baseline")], Path.GetTempPath());
+        _dialogService.ConfirmResultToReturn = true;
+        _applyOrchestrationService.TryUndoLastApplyResultToReturn = true;
+        _applyOrchestrationService.UndoLastApplyRevertResultToReturn = new RevertResult([new RevertFileResult("a.txt", true)]);
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+
+        await sut.UndoLastApplyCommand.ExecuteAsync(null);
+
+        Assert.NotEqual("stale baseline", sut.Files[0].OriginalContent);
+    }
+
+    [Fact]
+    public async Task UndoLastApplyAsync_SomeFilesFailedToRestore_MessageMentionsEachFailedFile()
+    {
+        _dialogService.ConfirmResultToReturn = true;
+        _applyOrchestrationService.TryUndoLastApplyResultToReturn = true;
+        _applyOrchestrationService.UndoLastApplyRevertResultToReturn = new RevertResult(
+            [new RevertFileResult("failed.txt", false, "disk full")]);
+        var sut = CreateSut();
+
+        await sut.UndoLastApplyCommand.ExecuteAsync(null);
+
+        Assert.Contains("failed.txt", sut.ApplyStatusMessage);
+    }
+
+    [Fact]
+    public async Task RevertAllAppliedAsync_UserCancelsConfirmation_DoesNotRevert()
+    {
+        _dialogService.ConfirmResultToReturn = false;
+        var sut = CreateSut();
+
+        await sut.RevertAllAppliedCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, _dialogService.ConfirmCallCount);
+        Assert.Equal(0, _applyOrchestrationService.RevertAllAppliedCallCount);
+    }
+
+    [Fact]
+    public async Task RevertAllAppliedAsync_NothingToRevert_ReportsItWithoutShowingResultDialog()
+    {
+        _dialogService.ConfirmResultToReturn = true;
+        _applyOrchestrationService.RevertAllAppliedResultToReturn = new RevertResult(Array.Empty<RevertFileResult>());
+        var sut = CreateSut();
+
+        await sut.RevertAllAppliedCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, _dialogService.InfoCallCount);
+        Assert.False(string.IsNullOrEmpty(sut.ApplyStatusMessage));
+    }
+
+    [Fact]
+    public async Task RevertAllAppliedAsync_UserConfirms_RevertsAndReportsResultViaInfoDialog()
+    {
+        _dialogService.ConfirmResultToReturn = true;
+        _applyOrchestrationService.RevertAllAppliedResultToReturn = new RevertResult(
+            [new RevertFileResult("a.txt", true), new RevertFileResult("b.txt", true)]);
+        var sut = CreateSut();
+
+        await sut.RevertAllAppliedCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, _applyOrchestrationService.RevertAllAppliedCallCount);
+        Assert.Equal(1, _dialogService.InfoCallCount);
+        Assert.Contains("2", sut.ApplyStatusMessage);
+    }
+
+    [Fact]
+    public async Task RevertAllAppliedAsync_SomeFilesFailedToRevert_MessageMentionsEachFailedFile()
+    {
+        _dialogService.ConfirmResultToReturn = true;
+        _applyOrchestrationService.RevertAllAppliedResultToReturn = new RevertResult(
+            [new RevertFileResult("failed.txt", false, "disk full")]);
+        var sut = CreateSut();
+
+        await sut.RevertAllAppliedCommand.ExecuteAsync(null);
+
+        Assert.Contains("failed.txt", sut.ApplyStatusMessage);
+    }
 }

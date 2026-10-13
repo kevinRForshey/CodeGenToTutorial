@@ -250,4 +250,42 @@ public class FileChangeApplyServiceTests : IDisposable
 
         Assert.ThrowsAny<UnauthorizedAccessException>(() => _service.Apply(file, _workingDirectory));
     }
+
+    // WriteRaw (T4.2.2) is Apply's underlying write path with no ProposedFileChangeViewModel
+    // involved - these exercise it directly as its own public contract, covering the same
+    // path-containment and encoding-preservation behavior the Apply_* tests above already cover
+    // transitively through it.
+    [Fact]
+    public void WriteRaw_NewFile_WritesContentToWorkingDirectory()
+    {
+        _service.WriteRaw("a.txt", "hello world", _workingDirectory);
+
+        var written = Path.Combine(_workingDirectory, "a.txt");
+        Assert.True(File.Exists(written));
+        Assert.Equal("hello world", File.ReadAllText(written));
+    }
+
+    [Fact]
+    public void WriteRaw_ExistingFile_OverwritesItPreservingEncoding()
+    {
+        var path = Path.Combine(_workingDirectory, "a.txt");
+        File.WriteAllText(path, "old content", new UTF8Encoding(true));
+
+        _service.WriteRaw("a.txt", "restored content", _workingDirectory);
+
+        var writtenBytes = File.ReadAllBytes(path);
+        Assert.Equal(0xEF, writtenBytes[0]);
+        Assert.Equal(0xBB, writtenBytes[1]);
+        Assert.Equal(0xBF, writtenBytes[2]);
+        Assert.Equal("restored content", File.ReadAllText(path));
+    }
+
+    [Fact]
+    public void WriteRaw_PathTraversal_ThrowsAndDoesNotWrite()
+    {
+        Assert.Throws<InvalidOperationException>(() => _service.WriteRaw("../escape.txt", "malicious", _workingDirectory));
+
+        var escapedTarget = Path.GetFullPath(Path.Combine(_workingDirectory, "../escape.txt"));
+        Assert.False(File.Exists(escapedTarget));
+    }
 }

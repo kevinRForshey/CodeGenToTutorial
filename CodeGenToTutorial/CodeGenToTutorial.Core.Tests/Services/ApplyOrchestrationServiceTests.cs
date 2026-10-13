@@ -7,10 +7,13 @@ namespace CodeGenToTutorial.Core.Tests.Services;
 public class ApplyOrchestrationServiceTests : IDisposable
 {
     private readonly string _workingDirectory;
-    private readonly ApplyOrchestrationService _service = new(new FileChangeApplyService());
+    private readonly ApplyBackupStore _backupStore = new();
+    private readonly ApplyHistoryStore _historyStore = new();
+    private readonly ApplyOrchestrationService _service;
 
     public ApplyOrchestrationServiceTests()
     {
+        _service = new ApplyOrchestrationService(new FileChangeApplyService(), _backupStore, _historyStore);
         _workingDirectory = Directory.CreateTempSubdirectory("CodeGenToTutorialTests_").FullName;
     }
 
@@ -224,5 +227,199 @@ public class ApplyOrchestrationServiceTests : IDisposable
         Assert.Equal(1, result.ProtectedPathBlockedCount);
         Assert.Equal(1, result.AppliedCount);
         Assert.True(File.Exists(Path.Combine(_workingDirectory, "clean.txt")));
+    }
+
+    [Fact]
+    public void ApplySelected_ExistingFileFirstWrite_SnapshotsItsPreApplyContent()
+    {
+        File.WriteAllText(Path.Combine(_workingDirectory, "a.txt"), "original");
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original");
+
+        _service.ApplySelected(new[] { file }, _workingDirectory);
+
+        var found = _backupStore.TryGetSnapshot("a.txt", out var snapshot);
+        Assert.True(found);
+        Assert.Equal("original", snapshot);
+    }
+
+    [Fact]
+    public void ApplySelected_NewFileFirstWrite_SnapshotsEmptyContent()
+    {
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed content");
+
+        _service.ApplySelected(new[] { file }, _workingDirectory);
+
+        var found = _backupStore.TryGetSnapshot("a.txt", out var snapshot);
+        Assert.True(found);
+        Assert.Equal(string.Empty, snapshot);
+    }
+
+    [Fact]
+    public void ApplySelected_SecondWriteToSamePathInSameSession_DoesNotOverwriteTheFirstSnapshot()
+    {
+        File.WriteAllText(Path.Combine(_workingDirectory, "a.txt"), "original");
+        var firstFile = new ProposedFileChangeViewModel("a.txt", "first edit", "original");
+        _service.ApplySelected(new[] { firstFile }, _workingDirectory);
+
+        var secondFile = new ProposedFileChangeViewModel("a.txt", "second edit", "first edit");
+        _service.ApplySelected(new[] { secondFile }, _workingDirectory);
+
+        _backupStore.TryGetSnapshot("a.txt", out var snapshot);
+        Assert.Equal("original", snapshot);
+    }
+
+    [Fact]
+    public void ApplySelected_ConflictedFile_DoesNotCreateASnapshot()
+    {
+        File.WriteAllText(Path.Combine(_workingDirectory, "a.txt"), "changed on disk");
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original");
+
+        _service.ApplySelected(new[] { file }, _workingDirectory);
+
+        Assert.False(_backupStore.TryGetSnapshot("a.txt", out _));
+    }
+
+    [Fact]
+    public void ApplySelected_ProtectedPathBlockedFile_DoesNotCreateASnapshot()
+    {
+        var file = new ProposedFileChangeViewModel(".git/config", "malicious");
+
+        _service.ApplySelected(new[] { file }, _workingDirectory);
+
+        Assert.False(_backupStore.TryGetSnapshot(".git/config", out _));
+    }
+
+    [Fact]
+    public void TryUndoLastApply_NothingAppliedThisSession_ReturnsFalseWithEmptyResult()
+    {
+        var found = _service.TryUndoLastApply(_workingDirectory, out var result);
+
+        Assert.False(found);
+        Assert.Empty(result.Results);
+    }
+
+    [Fact]
+    public void TryUndoLastApply_OneFileApplied_RestoresItsPreApplyContent()
+    {
+        File.WriteAllText(Path.Combine(_workingDirectory, "a.txt"), "original");
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original");
+        _service.ApplySelected(new[] { file }, _workingDirectory);
+
+        var found = _service.TryUndoLastApply(_workingDirectory, out var result);
+
+        Assert.True(found);
+        Assert.Equal(1, result.SucceededCount);
+        Assert.Equal("original", File.ReadAllText(Path.Combine(_workingDirectory, "a.txt")));
+    }
+
+    [Fact]
+    public void TryUndoLastApply_TwoBatchesApplied_OnlyUndoesTheMostRecentOne()
+    {
+        File.WriteAllText(Path.Combine(_workingDirectory, "a.txt"), "original");
+        _service.ApplySelected(new[] { new ProposedFileChangeViewModel("a.txt", "first edit", "original") }, _workingDirectory);
+        _service.ApplySelected(new[] { new ProposedFileChangeViewModel("a.txt", "second edit", "first edit") }, _workingDirectory);
+
+        _service.TryUndoLastApply(_workingDirectory, out _);
+
+        Assert.Equal("first edit", File.ReadAllText(Path.Combine(_workingDirectory, "a.txt")));
+    }
+
+    [Fact]
+    public void TryUndoLastApply_CalledTwiceAfterOneBatch_SecondCallReturnsFalse()
+    {
+        File.WriteAllText(Path.Combine(_workingDirectory, "a.txt"), "original");
+        _service.ApplySelected(new[] { new ProposedFileChangeViewModel("a.txt", "proposed", "original") }, _workingDirectory);
+        _service.TryUndoLastApply(_workingDirectory, out _);
+
+        var found = _service.TryUndoLastApply(_workingDirectory, out var result);
+
+        Assert.False(found);
+        Assert.Empty(result.Results);
+    }
+
+    [Fact]
+    public void TryUndoLastApply_ConflictedOrBlockedFilesContributeNothingToTheBatch()
+    {
+        File.WriteAllText(Path.Combine(_workingDirectory, "conflicted.txt"), "changed on disk");
+        var conflicted = new ProposedFileChangeViewModel("conflicted.txt", "proposed", "original");
+        var clean = new ProposedFileChangeViewModel("clean.txt", "proposed content");
+        _service.ApplySelected(new[] { conflicted, clean }, _workingDirectory);
+
+        var found = _service.TryUndoLastApply(_workingDirectory, out var result);
+
+        Assert.True(found);
+        Assert.Equal("clean.txt", Assert.Single(result.Results).FilePath);
+    }
+
+    [Fact]
+    public void TryUndoLastApply_WriteBackFails_ReportsFailureViaFailedCountAndFailedFiles()
+    {
+        if (OperatingSystem.IsWindows() || Environment.UserName == "root")
+        {
+            // Mirrors FileChangeApplyServiceTests' permission-failure guard - not reliably
+            // reproducible on Windows ACLs or as root.
+            return;
+        }
+
+        var path = Path.Combine(_workingDirectory, "a.txt");
+        File.WriteAllText(path, "original");
+        _service.ApplySelected(new[] { new ProposedFileChangeViewModel("a.txt", "proposed", "original") }, _workingDirectory);
+
+        // Removing write permission on the file itself (not the directory) blocks WriteRaw's
+        // overwrite without preventing Dispose()'s recursive directory delete afterward, which
+        // only needs write permission on the containing directory.
+        File.SetUnixFileMode(path, UnixFileMode.UserRead);
+
+        var found = _service.TryUndoLastApply(_workingDirectory, out var result);
+
+        Assert.True(found);
+        Assert.Equal(1, result.FailedCount);
+        Assert.Equal("a.txt", Assert.Single(result.FailedFiles).FilePath);
+    }
+
+    [Fact]
+    public void RevertAllApplied_NothingAppliedThisSession_ReturnsEmptyResult()
+    {
+        var result = _service.RevertAllApplied(_workingDirectory);
+
+        Assert.Empty(result.Results);
+    }
+
+    [Fact]
+    public void RevertAllApplied_FileAppliedMultipleTimes_RestoresTheSessionBaselineNotTheIntermediateEdit()
+    {
+        File.WriteAllText(Path.Combine(_workingDirectory, "a.txt"), "original");
+        _service.ApplySelected(new[] { new ProposedFileChangeViewModel("a.txt", "first edit", "original") }, _workingDirectory);
+        _service.ApplySelected(new[] { new ProposedFileChangeViewModel("a.txt", "second edit", "first edit") }, _workingDirectory);
+
+        var result = _service.RevertAllApplied(_workingDirectory);
+
+        Assert.Equal(1, result.SucceededCount);
+        Assert.Equal("original", File.ReadAllText(Path.Combine(_workingDirectory, "a.txt")));
+    }
+
+    [Fact]
+    public void RevertAllApplied_MultipleFilesApplied_RestoresEachOne()
+    {
+        var first = new ProposedFileChangeViewModel("a.txt", "proposed a");
+        var second = new ProposedFileChangeViewModel("b.txt", "proposed b");
+        _service.ApplySelected(new[] { first, second }, _workingDirectory);
+
+        var result = _service.RevertAllApplied(_workingDirectory);
+
+        Assert.Equal(2, result.SucceededCount);
+        Assert.Equal(string.Empty, File.ReadAllText(Path.Combine(_workingDirectory, "a.txt")));
+        Assert.Equal(string.Empty, File.ReadAllText(Path.Combine(_workingDirectory, "b.txt")));
+    }
+
+    [Fact]
+    public void RevertAllApplied_AfterReverting_ClearsUndoHistory()
+    {
+        File.WriteAllText(Path.Combine(_workingDirectory, "a.txt"), "original");
+        _service.ApplySelected(new[] { new ProposedFileChangeViewModel("a.txt", "proposed", "original") }, _workingDirectory);
+
+        _service.RevertAllApplied(_workingDirectory);
+
+        Assert.False(_service.TryUndoLastApply(_workingDirectory, out _));
     }
 }

@@ -18,6 +18,16 @@ public class FakeApplyOrchestrationService : IApplyOrchestrationService
 
     public bool? LastAllowProtectedPaths { get; private set; }
 
+    public bool TryUndoLastApplyResultToReturn { get; set; }
+
+    public RevertResult UndoLastApplyRevertResultToReturn { get; set; } = new(Array.Empty<RevertFileResult>());
+
+    public RevertResult RevertAllAppliedResultToReturn { get; set; } = new(Array.Empty<RevertFileResult>());
+
+    public int TryUndoLastApplyCallCount { get; private set; }
+
+    public int RevertAllAppliedCallCount { get; private set; }
+
     public ApplyPreview Preview(IReadOnlyList<ProposedFileChangeViewModel> files, string workingDirectoryPath)
     {
         PreviewCallCount++;
@@ -30,5 +40,20 @@ public class FakeApplyOrchestrationService : IApplyOrchestrationService
         LastWorkingDirectoryPath = workingDirectoryPath;
         LastAllowProtectedPaths = allowProtectedPaths;
         return ApplySelectedResultToReturn;
+    }
+
+    public bool TryUndoLastApply(string workingDirectoryPath, out RevertResult result)
+    {
+        TryUndoLastApplyCallCount++;
+        LastWorkingDirectoryPath = workingDirectoryPath;
+        result = UndoLastApplyRevertResultToReturn;
+        return TryUndoLastApplyResultToReturn;
+    }
+
+    public RevertResult RevertAllApplied(string workingDirectoryPath)
+    {
+        RevertAllAppliedCallCount++;
+        LastWorkingDirectoryPath = workingDirectoryPath;
+        return RevertAllAppliedResultToReturn;
     }
 }

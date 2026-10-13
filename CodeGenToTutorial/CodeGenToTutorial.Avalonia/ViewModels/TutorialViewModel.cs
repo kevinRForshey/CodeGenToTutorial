@@ -4,6 +4,7 @@ using CodeGenToTutorial.Avalonia.Contracts.Services;
 using CodeGenToTutorial.Avalonia.Contracts.ViewModels;
 using CodeGenToTutorial.Avalonia.Strings;
 using CodeGenToTutorial.Core.Contracts.Services;
+using CodeGenToTutorial.Core.Models;
 using CodeGenToTutorial.Core.ViewModels;
 
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -146,5 +147,100 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
             "Tutorial_ApplySelectedResultTitle".GetLocalized(),
             ApplyStatusMessage,
             "Tutorial_ApplySelectedResultClose".GetLocalized());
+    }
+
+    // T4.2.2: reverts the files touched by the most recent ApplySelected batch to their content
+    // from immediately before that batch, confirming first since it overwrites whatever's on disk
+    // now. Nothing-to-undo is reported the same way ApplySelectedAsync reports nothing-selected -
+    // inline via ApplyStatusMessage - rather than disabling the command, consistent with how this
+    // page already handles that case.
+    [RelayCommand]
+    private async Task UndoLastApplyAsync()
+    {
+        var confirmed = await _dialogService.ConfirmAsync(
+            "Tutorial_UndoLastApplyConfirmTitle".GetLocalized(),
+            "Tutorial_UndoLastApplyConfirmMessage".GetLocalized(),
+            "Tutorial_UndoLastApplyConfirmButton".GetLocalized(),
+            "Tutorial_UndoLastApplyCancelButton".GetLocalized());
+
+        if (!confirmed)
+        {
+            return;
+        }
+
+        if (!_applyOrchestrationService.TryUndoLastApply(_promptResultStore.WorkingDirectoryPath, out var result))
+        {
+            ApplyStatusMessage = "Tutorial_UndoLastApplyNothingToUndo".GetLocalized();
+            return;
+        }
+
+        RefreshFilesAffectedBy(result);
+        ApplyStatusMessage = BuildRevertStatusMessage(result);
+
+        await _dialogService.InfoAsync(
+            "Tutorial_UndoLastApplyResultTitle".GetLocalized(),
+            ApplyStatusMessage,
+            "Tutorial_UndoLastApplyResultClose".GetLocalized());
+    }
+
+    // T4.2.2: reverts every file this session has applied a change to, back to its content from
+    // before this session touched it at all - not just the most recent batch, so this is confirmed
+    // separately and more strongly worded than UndoLastApplyAsync.
+    [RelayCommand]
+    private async Task RevertAllAppliedAsync()
+    {
+        var confirmed = await _dialogService.ConfirmAsync(
+            "Tutorial_RevertAllAppliedConfirmTitle".GetLocalized(),
+            "Tutorial_RevertAllAppliedConfirmMessage".GetLocalized(),
+            "Tutorial_RevertAllAppliedConfirmButton".GetLocalized(),
+            "Tutorial_RevertAllAppliedCancelButton".GetLocalized());
+
+        if (!confirmed)
+        {
+            return;
+        }
+
+        var result = _applyOrchestrationService.RevertAllApplied(_promptResultStore.WorkingDirectoryPath);
+
+        if (result.Results.Count == 0)
+        {
+            ApplyStatusMessage = "Tutorial_RevertAllAppliedNothingToRevert".GetLocalized();
+            return;
+        }
+
+        RefreshFilesAffectedBy(result);
+        ApplyStatusMessage = BuildRevertStatusMessage(result);
+
+        await _dialogService.InfoAsync(
+            "Tutorial_RevertAllAppliedResultTitle".GetLocalized(),
+            ApplyStatusMessage,
+            "Tutorial_RevertAllAppliedResultClose".GetLocalized());
+    }
+
+    private string BuildRevertStatusMessage(RevertResult result)
+    {
+        var messageParts = new List<string> { string.Format("Tutorial_RevertResultSucceeded".GetLocalized(), result.SucceededCount) };
+
+        if (result.FailedCount > 0)
+        {
+            var failedPaths = string.Join(", ", result.FailedFiles.Select(r => r.FilePath));
+            messageParts.Add(string.Format("Tutorial_RevertResultFailures".GetLocalized(), result.FailedCount, failedPaths));
+        }
+
+        return string.Join(" ", messageParts);
+    }
+
+    // Writes back by TryUndoLastApply/RevertAllApplied happen directly against disk, with no
+    // reference to the live ProposedFileChangeViewModel instances this page is showing - so each
+    // successfully reverted file's OriginalContent/hunks need an explicit refresh afterward, the
+    // same re-diff RefreshOriginalContent already does for a T3.3.3 conflict.
+    private void RefreshFilesAffectedBy(RevertResult result)
+    {
+        var revertedPaths = result.Results.Where(r => r.Succeeded).Select(r => r.FilePath).ToHashSet();
+
+        foreach (var file in Files.Where(f => revertedPaths.Contains(f.FilePath)))
+        {
+            file.RefreshOriginalContent(_promptResultStore.WorkingDirectoryPath);
+        }
     }
 }

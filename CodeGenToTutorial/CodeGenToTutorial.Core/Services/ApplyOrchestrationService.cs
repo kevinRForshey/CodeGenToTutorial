@@ -12,10 +12,14 @@ namespace CodeGenToTutorial.Core.Services;
 public class ApplyOrchestrationService : IApplyOrchestrationService
 {
     private readonly IFileChangeApplyService _fileChangeApplyService;
+    private readonly IApplyBackupStore _applyBackupStore;
+    private readonly IApplyHistoryStore _applyHistoryStore;
 
-    public ApplyOrchestrationService(IFileChangeApplyService fileChangeApplyService)
+    public ApplyOrchestrationService(IFileChangeApplyService fileChangeApplyService, IApplyBackupStore applyBackupStore, IApplyHistoryStore applyHistoryStore)
     {
         _fileChangeApplyService = fileChangeApplyService;
+        _applyBackupStore = applyBackupStore;
+        _applyHistoryStore = applyHistoryStore;
     }
 
     public ApplyPreview Preview(IReadOnlyList<ProposedFileChangeViewModel> files, string workingDirectoryPath)
@@ -48,23 +52,85 @@ public class ApplyOrchestrationService : IApplyOrchestrationService
     public ApplyBatchResult ApplySelected(IReadOnlyList<ProposedFileChangeViewModel> files, string workingDirectoryPath, bool allowProtectedPaths = false)
     {
         var results = new List<FileApplyResult>();
+        var appliedChanges = new List<AppliedFileChange>();
 
         foreach (var file in files.Where(f => f.HasAnySelectedChange))
         {
-            results.Add(ApplyOne(file, workingDirectoryPath, allowProtectedPaths));
+            var (result, preApplyContent) = ApplyOne(file, workingDirectoryPath, allowProtectedPaths);
+            results.Add(result);
+
+            if (preApplyContent is not null)
+            {
+                appliedChanges.Add(new AppliedFileChange(file.FilePath, preApplyContent));
+            }
         }
+
+        // RecordBatch no-ops for an empty list, so a batch that applied nothing (every file
+        // conflicted, was blocked, or failed) doesn't push an empty entry onto the undo stack.
+        _applyHistoryStore.RecordBatch(appliedChanges);
 
         return new ApplyBatchResult(results);
     }
 
-    private FileApplyResult ApplyOne(ProposedFileChangeViewModel file, string workingDirectoryPath, bool allowProtectedPaths)
+    // Undoes the most recently applied batch by writing each of its files' pre-apply content back
+    // to disk (T4.2.2). False (with an empty result) if nothing's been applied this session, or
+    // everything applied has already been undone.
+    public bool TryUndoLastApply(string workingDirectoryPath, out RevertResult result)
+    {
+        if (!_applyHistoryStore.TryPopLastBatch(out var changes))
+        {
+            result = new RevertResult(Array.Empty<RevertFileResult>());
+            return false;
+        }
+
+        result = WriteBack(changes, workingDirectoryPath);
+        return true;
+    }
+
+    // Restores every file this session has touched back to its pre-apply baseline (T4.2.1's
+    // session-wide snapshot, not just the most recent batch). Clears the undo history afterward -
+    // once every tracked file is back at its original content, none of the previously recorded
+    // batches describe a state worth returning to.
+    public RevertResult RevertAllApplied(string workingDirectoryPath)
+    {
+        var changes = _applyBackupStore.AllSnapshots
+            .Select(kvp => new AppliedFileChange(kvp.Key, kvp.Value))
+            .ToList();
+
+        var result = WriteBack(changes, workingDirectoryPath);
+        _applyHistoryStore.Clear();
+
+        return result;
+    }
+
+    private RevertResult WriteBack(IReadOnlyList<AppliedFileChange> changes, string workingDirectoryPath)
+    {
+        var results = new List<RevertFileResult>();
+
+        foreach (var change in changes)
+        {
+            try
+            {
+                _fileChangeApplyService.WriteRaw(change.FilePath, change.ContentBeforeApply, workingDirectoryPath);
+                results.Add(new RevertFileResult(change.FilePath, Succeeded: true));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+            {
+                results.Add(new RevertFileResult(change.FilePath, Succeeded: false, ex.Message));
+            }
+        }
+
+        return new RevertResult(results);
+    }
+
+    private (FileApplyResult Result, string? PreApplyContent) ApplyOne(ProposedFileChangeViewModel file, string workingDirectoryPath, bool allowProtectedPaths)
     {
         // Checked before touching disk at all (T4.1.2) - unlike Conflict, there's nothing to re-diff
         // and retry here, so this short-circuits ahead of the read/write below rather than sharing
         // their try/catch.
         if (!allowProtectedPaths && ProtectedPathChecker.IsProtected(workingDirectoryPath, file.FilePath))
         {
-            return new FileApplyResult(file.FilePath, FileApplyOutcome.ProtectedPathBlocked);
+            return (new FileApplyResult(file.FilePath, FileApplyOutcome.ProtectedPathBlocked), null);
         }
 
         string fullPath;
@@ -85,14 +151,14 @@ public class ApplyOrchestrationService : IApplyOrchestrationService
         {
             // The path-containment check (or a blank working directory) rejected it - treat the same
             // as any other failed write rather than letting it escape the batch or the read.
-            return new FileApplyResult(file.FilePath, FileApplyOutcome.Failed, ex.Message);
+            return (new FileApplyResult(file.FilePath, FileApplyOutcome.Failed, ex.Message), null);
         }
 
         if (currentDiskContent != file.OriginalContent)
         {
             // Don't write - the caller can offer file.RefreshOriginalContent(workingDirectoryPath) to
             // re-diff against what's actually there and let the user decide again (T3.3.3).
-            return new FileApplyResult(file.FilePath, FileApplyOutcome.Conflict);
+            return (new FileApplyResult(file.FilePath, FileApplyOutcome.Conflict), null);
         }
 
         try
@@ -103,11 +169,18 @@ public class ApplyOrchestrationService : IApplyOrchestrationService
             // afterward (T3.3.2) - this orchestration only decides which files get attempted and
             // reports what happened to each.
             _fileChangeApplyService.Apply(file, workingDirectoryPath);
-            return new FileApplyResult(file.FilePath, FileApplyOutcome.Applied);
+
+            // Recorded only after a write actually succeeds (T4.2.1) - a conflicted, blocked, or
+            // failed attempt never touched the file, so there's nothing to back up. SnapshotIfAbsent
+            // is a no-op past the first successful write to this path, so the backup always reflects
+            // what was on disk before this session touched the file at all, not an intermediate state.
+            _applyBackupStore.SnapshotIfAbsent(file.FilePath, currentDiskContent);
+
+            return (new FileApplyResult(file.FilePath, FileApplyOutcome.Applied), currentDiskContent);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
-            return new FileApplyResult(file.FilePath, FileApplyOutcome.Failed, ex.Message);
+            return (new FileApplyResult(file.FilePath, FileApplyOutcome.Failed, ex.Message), null);
         }
     }
 }

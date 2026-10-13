@@ -499,8 +499,47 @@ committed yet — review `git status`/`git diff` before committing.
   in a unit test.
 
 **F4.2 — Backup & undo**
-- T4.2.1 Snapshot each file before first write in a session-scoped backup store.
-- T4.2.2 "Undo last apply" and "Revert all applied changes in this session".
+- [x] T4.2.1 Snapshot each file before first write in a session-scoped backup store. — done
+  2026-10-13: added `IApplyBackupStore`/`ApplyBackupStore` (in-memory, keyed by the proposal's
+  relative `FilePath`, registered as a singleton like `IPromptResultStore` so it survives page
+  navigation for the app's lifetime). `ApplyOrchestrationService.ApplyOne` now calls
+  `SnapshotIfAbsent` with the disk content it already reads for the T3.3.3 conflict check, right
+  after `IFileChangeApplyService.Apply` succeeds - so a conflicted, protected-path-blocked, or
+  failed attempt never creates a backup entry, and a second apply to a path already written this
+  session doesn't overwrite the pre-session baseline with an intermediate state. Doesn't add
+  undo/revert or a history UI - that's T4.2.2/T4.2.3. Covered by new `ApplyBackupStoreTests` (store
+  in isolation: first-write stores, repeat writes to the same path keep the original, independent
+  paths tracked separately, miss returns false) and new `ApplyOrchestrationServiceTests` cases
+  (existing-file and new-file first writes snapshot correctly, a second same-session write doesn't
+  clobber the snapshot, conflicted/blocked files create none); full solution builds with 0
+  warnings/errors, 217/217 tests pass (179 Core + 38 Avalonia). `ApplyBackupStore.cs` is 100%
+  line/100% branch covered.
+- [x] T4.2.2 "Undo last apply" and "Revert all applied changes in this session". — done
+  2026-10-13: added `IApplyHistoryStore`/`ApplyHistoryStore` (session-scoped LIFO stack of
+  `AppliedFileChange` batches, singleton like `IApplyBackupStore`) alongside T4.2.1's store so
+  "undo last apply" can restore exactly the files one batch touched even when a file's been
+  applied more than once this session, while "revert all" still goes back to T4.2.1's session-wide
+  baseline via a new `IApplyBackupStore.AllSnapshots`. Extracted `IFileChangeApplyService.WriteRaw`
+  out of `Apply` (same path-containment/directory-creation/encoding/line-ending preservation,
+  T4.1.3) so both new write-backs reuse it instead of duplicating that logic. `ApplyOrchestrationService`
+  gained `TryUndoLastApply`/`RevertAllApplied`, sharing a private `WriteBack` helper that reports
+  per-file success/failure via the new `RevertResult`/`RevertFileResult` models; `RevertAllApplied`
+  clears the undo history afterward since older batches no longer describe a state worth returning
+  to once everything's back at its original content. Wired into the UI as two new
+  `TutorialViewModel` commands (`UndoLastApplyCommand`/`RevertAllAppliedCommand`) and buttons,
+  following the existing `ApplySelectedCommand` confirm/apply/report-via-status-and-info-dialog
+  pattern; a successful revert also calls `ProposedFileChangeViewModel.RefreshOriginalContent` on
+  any affected file still in the `Files` collection so the Tutorial/Diffs pages' diff state matches
+  disk again. Covered by new `ApplyHistoryStoreTests`, `ApplyBackupStoreTests`/`ApplyOrchestrationServiceTests`
+  additions (LIFO undo order, undo/revert restoring the right baseline, conflicted/blocked files
+  contributing nothing to a batch, a write-back failure reporting via `FailedCount`/`FailedFiles`),
+  direct `FileChangeApplyServiceTests` for `WriteRaw`, and new `TutorialViewModelTests` cases for
+  both commands (cancel, nothing-to-undo/revert, success, partial failure, Files refresh); full
+  solution builds with 0 warnings/errors, 248/248 tests pass (201 Core + 47 Avalonia).
+  `ApplyHistoryStore.cs`, `ApplyBackupStore.cs`, `FileChangeApplyService.cs`, `AppliedFileChange.cs`,
+  and `RevertResult.cs` are all 100% line/100% branch covered; `ApplyOrchestrationService.cs`'s one
+  remaining gap is the same pre-existing `FileApplyOutcome.Failed` catch arm in `ApplyOne` already
+  documented under T4.2.1/T3.3.4, not anything new from this task.
 - T4.2.3 Apply-history log surfaced in the UI.
 
 **F4.3 — Git integration**

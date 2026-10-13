@@ -14,7 +14,21 @@ public class FileChangeApplyService : IFileChangeApplyService
 {
     public void Apply(ProposedFileChangeViewModel file, string workingDirectoryPath)
     {
-        var fullPath = FilePathContainment.Resolve(workingDirectoryPath, file.FilePath);
+        WriteRaw(file.FilePath, file.BuildSelectedContent(), workingDirectoryPath);
+
+        // T3.3.2: record that this write reflects the current selection, so each step's IsApplied
+        // is accurate instead of the old MarkAllStepsApplied() workaround that marked every step
+        // applied just because one of them triggered the write.
+        file.MarkHunksAppliedFromSelection();
+    }
+
+    // Extracted out of Apply (T4.2.2) so undo/revert write-backs - which have raw content to
+    // restore rather than a ProposedFileChangeViewModel to compose it from - go through the same
+    // path-containment, directory-creation, and encoding/line-ending preservation as a normal
+    // apply instead of duplicating it.
+    public void WriteRaw(string filePath, string content, string workingDirectoryPath)
+    {
+        var fullPath = FilePathContainment.Resolve(workingDirectoryPath, filePath);
         var directory = Path.GetDirectoryName(fullPath);
 
         if (!string.IsNullOrEmpty(directory))
@@ -27,14 +41,9 @@ public class FileChangeApplyService : IFileChangeApplyService
         // already on disk instead of silently normalizing to UTF-8 (no BOM) with LF endings
         // (T4.1.3). A brand-new file has nothing to preserve, so this is just today's defaults.
         var encodingInfo = FileEncodingDetector.Detect(fullPath);
-        var content = NormalizeNewLines(file.BuildSelectedContent(), encodingInfo.NewLine);
+        var normalized = NormalizeNewLines(content, encodingInfo.NewLine);
 
-        File.WriteAllText(fullPath, content, encodingInfo.Encoding);
-
-        // T3.3.2: record that this write reflects the current selection, so each step's IsApplied
-        // is accurate instead of the old MarkAllStepsApplied() workaround that marked every step
-        // applied just because one of them triggered the write.
-        file.MarkHunksAppliedFromSelection();
+        File.WriteAllText(fullPath, normalized, encodingInfo.Encoding);
     }
 
     // Rewrites every line ending in `content` to `newLine`. A null `newLine` (FileEncodingDetector
