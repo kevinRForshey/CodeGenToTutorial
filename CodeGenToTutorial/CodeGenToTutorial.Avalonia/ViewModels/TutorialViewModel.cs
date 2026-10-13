@@ -1,25 +1,35 @@
 using System.Collections.ObjectModel;
 
+using CodeGenToTutorial.Avalonia.Contracts.Services;
 using CodeGenToTutorial.Avalonia.Contracts.ViewModels;
+using CodeGenToTutorial.Avalonia.Strings;
 using CodeGenToTutorial.Core.Contracts.Services;
 using CodeGenToTutorial.Core.ViewModels;
 
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 
 namespace CodeGenToTutorial.Avalonia.ViewModels;
 
 public partial class TutorialViewModel : ObservableRecipient, INavigationAware, IConfirmNavigationAway
 {
     private readonly IPromptResultStore _promptResultStore;
+    private readonly IApplyOrchestrationService _applyOrchestrationService;
+    private readonly IDialogService _dialogService;
 
     [ObservableProperty]
     private ProposedFileChangeViewModel? selected;
 
+    [ObservableProperty]
+    private string applyStatusMessage = string.Empty;
+
     public ObservableCollection<ProposedFileChangeViewModel> Files { get; } = new();
 
-    public TutorialViewModel(IPromptResultStore promptResultStore)
+    public TutorialViewModel(IPromptResultStore promptResultStore, IApplyOrchestrationService applyOrchestrationService, IDialogService dialogService)
     {
         _promptResultStore = promptResultStore;
+        _applyOrchestrationService = applyOrchestrationService;
+        _dialogService = dialogService;
 
         // ObservableCollection<T> raises PropertyChanged("Count") on its own, but HasNoFiles/
         // HasFilesButNoneSelected are derived from that count rather than being Count itself, so
@@ -64,5 +74,55 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
     public void EnsureItemSelected()
     {
         Selected ??= Files.FirstOrDefault();
+    }
+
+    // F3.3: applies every selected hunk/whole-file change across every file in the tutorial, not
+    // just the one file currently shown in the detail pane. Confirms with a pre-apply summary
+    // (T3.3.1) before touching disk, then reports what happened per file (T3.3.3 conflicts,
+    // T3.3.4 partial failures) rather than assuming the whole batch succeeded.
+    [RelayCommand]
+    private async Task ApplySelectedAsync()
+    {
+        var preview = _applyOrchestrationService.Preview(Files);
+
+        if (preview.FileCount == 0)
+        {
+            ApplyStatusMessage = "Tutorial_ApplySelectedNoneSelected".GetLocalized();
+            return;
+        }
+
+        var confirmed = await _dialogService.ConfirmAsync(
+            "Tutorial_ApplySelectedConfirmTitle".GetLocalized(),
+            string.Format("Tutorial_ApplySelectedConfirmMessage".GetLocalized(), preview.ChangeCount, preview.FileCount),
+            "Tutorial_ApplySelectedConfirmButton".GetLocalized(),
+            "Tutorial_ApplySelectedCancelButton".GetLocalized());
+
+        if (!confirmed)
+        {
+            return;
+        }
+
+        var result = _applyOrchestrationService.ApplySelected(Files, _promptResultStore.WorkingDirectoryPath);
+
+        var messageParts = new List<string> { string.Format("Tutorial_ApplySelectedResultApplied".GetLocalized(), result.AppliedCount) };
+
+        if (result.ConflictCount > 0)
+        {
+            var conflictedPaths = string.Join(", ", result.ConflictedFiles.Select(r => r.FilePath));
+            messageParts.Add(string.Format("Tutorial_ApplySelectedResultConflicts".GetLocalized(), result.ConflictCount, conflictedPaths));
+        }
+
+        if (result.FailedCount > 0)
+        {
+            var failedPaths = string.Join(", ", result.FailedFiles.Select(r => r.FilePath));
+            messageParts.Add(string.Format("Tutorial_ApplySelectedResultFailures".GetLocalized(), result.FailedCount, failedPaths));
+        }
+
+        ApplyStatusMessage = string.Join(" ", messageParts);
+
+        await _dialogService.InfoAsync(
+            "Tutorial_ApplySelectedResultTitle".GetLocalized(),
+            ApplyStatusMessage,
+            "Tutorial_ApplySelectedResultClose".GetLocalized());
     }
 }

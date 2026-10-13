@@ -62,15 +62,7 @@ public partial class TutorialDetailControl : UserControl
 
         foreach (var hunk in proposedFileChange.Hunks)
         {
-            Steps.Add(new TutorialStepViewModel(hunk, proposedFileChange, _promptResultStore.WorkingDirectoryPath, _fileChangeApplyService, MarkAllStepsApplied));
-        }
-    }
-
-    private void MarkAllStepsApplied()
-    {
-        foreach (var step in Steps)
-        {
-            step.IsApplied = true;
+            Steps.Add(new TutorialStepViewModel(hunk, proposedFileChange, _promptResultStore.WorkingDirectoryPath, _fileChangeApplyService));
         }
     }
 }

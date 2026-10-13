@@ -60,6 +60,8 @@
                                 <CheckBox IsChecked="{Binding Hunk.IsSelected, Mode=TwoWay}" VerticalAlignment="Center"
                                           ToolTip.Tip="Include this step's change when applying." />
                                 <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                <TextBlock Text="Applied" IsVisible="{Binding Hunk.IsApplied}" VerticalAlignment="Center"
+                                           FontStyle="Italic" Opacity="0.7" />
                             </StackPanel>
                             <TextBlock Text="{Binding Explanation}" TextWrapping="Wrap" />
                             <StackPanel Orientation="Horizontal" Spacing="8">

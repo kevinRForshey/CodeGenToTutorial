@@ -8,30 +8,30 @@ using CommunityToolkit.Mvvm.Input;
 namespace CodeGenToTutorial.Avalonia.ViewModels;
 
 // Wraps a single ProposedHunk with the ability to apply its file's proposed change and report the
-// outcome. All steps for the same file share one "applied" state, since applying any of them writes
-// the same complete file content.
+// outcome. Applying any step writes the same complete file (one write, selection-aware content via
+// ProposedFileChangeViewModel.BuildSelectedContent - see FileChangeApplyService), but "applied"
+// itself is per-step: FileChangeApplyService.MarkHunksAppliedFromSelection sets Hunk.IsApplied to
+// Hunk.IsSelected right after that write, so a deselected step never reports itself as applied just
+// because a sibling step's button was clicked (T3.3.2 - replaces the old MarkAllStepsApplied()
+// workaround that marked every step on the file applied unconditionally).
 public partial class TutorialStepViewModel : ObservableObject
 {
     private readonly ProposedFileChangeViewModel _file;
     private readonly string _workingDirectoryPath;
     private readonly IFileChangeApplyService _fileChangeApplyService;
-    private readonly Action _onApplied;
 
     public string Title { get; }
 
     public string Explanation { get; }
 
-    // Exposed so the view can bind its selection checkbox directly to Hunk.IsSelected rather than
-    // this class forwarding/duplicating that state.
+    // Exposed so the view can bind its selection/applied state directly to Hunk's properties rather
+    // than this class forwarding/duplicating them.
     public ProposedHunk Hunk { get; }
-
-    [ObservableProperty]
-    private bool isApplied;
 
     [ObservableProperty]
     private string statusMessage = string.Empty;
 
-    public TutorialStepViewModel(ProposedHunk hunk, ProposedFileChangeViewModel file, string workingDirectoryPath, IFileChangeApplyService fileChangeApplyService, Action onApplied)
+    public TutorialStepViewModel(ProposedHunk hunk, ProposedFileChangeViewModel file, string workingDirectoryPath, IFileChangeApplyService fileChangeApplyService)
     {
         Title = hunk.Title;
         Explanation = hunk.Explanation;
@@ -39,7 +39,16 @@ public partial class TutorialStepViewModel : ObservableObject
         _file = file;
         _workingDirectoryPath = workingDirectoryPath;
         _fileChangeApplyService = fileChangeApplyService;
-        _onApplied = onApplied;
+
+        // Hunk.IsApplied lives on a different ObservableObject than this view model's own
+        // [ObservableProperty]s, so CanApply needs an explicit nudge whenever it changes.
+        Hunk.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(ProposedHunk.IsApplied))
+            {
+                ApplyCommand.NotifyCanExecuteChanged();
+            }
+        };
     }
 
     [RelayCommand(CanExecute = nameof(CanApply))]
@@ -49,7 +58,6 @@ public partial class TutorialStepViewModel : ObservableObject
         {
             _fileChangeApplyService.Apply(_file, _workingDirectoryPath);
             StatusMessage = string.Format("Tutorial_ChangeApplied".GetLocalized(), _file.FilePath);
-            _onApplied();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
@@ -57,7 +65,5 @@ public partial class TutorialStepViewModel : ObservableObject
         }
     }
 
-    private bool CanApply() => !IsApplied && !string.IsNullOrWhiteSpace(_workingDirectoryPath);
-
-    partial void OnIsAppliedChanged(bool value) => ApplyCommand.NotifyCanExecuteChanged();
+    private bool CanApply() => !Hunk.IsApplied && !string.IsNullOrWhiteSpace(_workingDirectoryPath);
 }

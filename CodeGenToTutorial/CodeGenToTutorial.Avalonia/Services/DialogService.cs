@@ -25,4 +25,16 @@ public class DialogService : IDialogService
 
         return result == ContentDialogResult.Primary;
     }
+
+    public async Task InfoAsync(string title, string message, string closeButtonText)
+    {
+        var dialog = new ContentDialog
+        {
+            Title = title,
+            Content = message,
+            CloseButtonText = closeButtonText,
+        };
+
+        await dialog.ShowAsync();
+    }
 }

@@ -62,6 +62,7 @@ public partial class ProposedFileChangeViewModel : ObservableObject
         OnPropertyChanged(nameof(IsSelected));
         OnPropertyChanged(nameof(SelectedHunkCount));
         OnPropertyChanged(nameof(SelectionSummary));
+        OnPropertyChanged(nameof(HasAnySelectedChange));
     }
 
     // Tri-state rollup of every hunk's IsSelected: true when all are selected, false when none are,
@@ -93,6 +94,7 @@ public partial class ProposedFileChangeViewModel : ObservableObject
                 noHunksSelected = value ?? true;
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(SelectionSummary));
+                OnPropertyChanged(nameof(HasAnySelectedChange));
                 return;
             }
 
@@ -110,6 +112,11 @@ public partial class ProposedFileChangeViewModel : ObservableObject
     public string SelectionSummary => hunks.Count == 0
         ? (noHunksSelected ? "Whole file" : "Excluded")
         : $"{SelectedHunkCount}/{hunks.Count} selected";
+
+    // Whether applying this file would actually write anything - false means ApplyOrchestrationService
+    // skips it entirely rather than writing a no-op (or, for the no-hunks fallback, the original
+    // content back over itself).
+    public bool HasAnySelectedChange => hunks.Count == 0 ? noHunksSelected : hunks.Any(h => h.IsSelected);
 
     private bool CanChangeHunkSelection() => hunks.Count > 0;
 
@@ -190,7 +197,65 @@ public partial class ProposedFileChangeViewModel : ObservableObject
         foreach (var hunk in hunks)
         {
             hunk.MatchedDiffHunks = ProposedHunkMatcher.FindMatches(DiffHunks, hunk.Location);
+
+            // The diff this hunk matches against just changed (new edit, or OriginalContent refreshed
+            // from disk), so whatever was last applied no longer necessarily corresponds to it -
+            // same reasoning as ProposedHunk.OnIsSelectedChanged, just triggered from this side.
+            hunk.IsApplied = false;
         }
+    }
+
+    // Composes the content that applying this file right now would actually write: for a file with no
+    // resolved hunks, the whole-file fallback (EditedContent if selected, otherwise OriginalContent
+    // untouched); otherwise DiffBuilder.ComposeContent over DiffLines/DiffHunks, selecting a DiffHunk
+    // if any ProposedHunk (tutorial step) matched to it is selected - matching ANY rather than ALL,
+    // since GroupIntoHunks can merge two steps' changes into one DiffHunk (when they're close enough
+    // together that their context windows overlap) and there's no way to apply half of a merged hunk.
+    // A DiffHunk nothing matched to (an unresolved step location, or a change the parser didn't tie to
+    // any step at all) has no checkbox to exclude it with, so it defaults to included.
+    public string BuildSelectedContent()
+    {
+        if (hunks.Count == 0)
+        {
+            return noHunksSelected ? EditedContent : OriginalContent;
+        }
+
+        return DiffBuilder.ComposeContent(DiffLines, DiffHunks, IsDiffHunkSelected);
+    }
+
+    private bool IsDiffHunkSelected(DiffHunk diffHunk)
+    {
+        var matchingSteps = hunks.Where(h => h.MatchedDiffHunks.Contains(diffHunk)).ToList();
+        return matchingSteps.Count == 0 || matchingSteps.Any(h => h.IsSelected);
+    }
+
+    // Records that a write using the current selection just happened, so each step's IsApplied
+    // (T3.3.2) reflects exactly what ended up on disk - a selected step is now applied, a deselected
+    // one isn't, regardless of what either was before. Called by FileChangeApplyService.Apply right
+    // after a successful write; a no-op for files with no resolved hunks (the fallback case has
+    // nothing per-step to mark).
+    public void MarkHunksAppliedFromSelection()
+    {
+        foreach (var hunk in hunks)
+        {
+            hunk.IsApplied = hunk.IsSelected;
+        }
+    }
+
+    // Re-reads this file's current on-disk content and adopts it as the new diff baseline - used
+    // when a conflict is detected (the file changed since this proposal's OriginalContent was
+    // captured, T3.3.3) and the user chooses to re-diff rather than abandon or blindly overwrite it.
+    // Reassigning OriginalContent recomputes DiffLines/DiffHunks (and, via UpdateMatchedDiffHunks,
+    // clears every step's stale IsApplied) through the existing OnOriginalContentChanged hook.
+    public void RefreshOriginalContent(string workingDirectoryPath)
+    {
+        if (string.IsNullOrWhiteSpace(workingDirectoryPath) || string.IsNullOrWhiteSpace(FilePath))
+        {
+            OriginalContent = string.Empty;
+            return;
+        }
+
+        OriginalContent = FileContentReader.ReadOrEmpty(Path.Combine(workingDirectoryPath, FilePath));
     }
 
     // IsDirty only ever changes as a side effect of EditedContent changing (above), but hooking its

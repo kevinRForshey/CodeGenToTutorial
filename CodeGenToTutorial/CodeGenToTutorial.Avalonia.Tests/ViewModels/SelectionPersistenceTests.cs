@@ -20,7 +20,7 @@ public class SelectionPersistenceTests
             [new ProposedFileChangeViewModel("a.txt", "proposed", "original") { Hunks = new[] { hunk } }],
             "/tmp");
 
-        var tutorialViewModel = new TutorialViewModel(promptResultStore);
+        var tutorialViewModel = new TutorialViewModel(promptResultStore, new FakeApplyOrchestrationService(), new FakeDialogService());
         var diffsViewModel = new DiffsViewModel(promptResultStore);
         tutorialViewModel.OnNavigatedTo(null!);
         diffsViewModel.OnNavigatedTo(null!);
@@ -40,7 +40,7 @@ public class SelectionPersistenceTests
             [new ProposedFileChangeViewModel("a.txt", "proposed", "original")],
             "/tmp");
 
-        var tutorialViewModel = new TutorialViewModel(promptResultStore);
+        var tutorialViewModel = new TutorialViewModel(promptResultStore, new FakeApplyOrchestrationService(), new FakeDialogService());
         var diffsViewModel = new DiffsViewModel(promptResultStore);
         tutorialViewModel.OnNavigatedTo(null!);
         diffsViewModel.OnNavigatedTo(null!);

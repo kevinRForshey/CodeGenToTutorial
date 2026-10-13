@@ -17,6 +17,16 @@ public static class Resources
         ["Prompt_RunError"] = "Failed to run Claude Code: {0}",
         ["Tutorial_ChangeApplied"] = "Applied the changes to {0}.",
         ["Tutorial_ApplyFailed"] = "Failed to apply the change: {0}",
+        ["Tutorial_ApplySelectedNoneSelected"] = "No changes are selected to apply.",
+        ["Tutorial_ApplySelectedConfirmTitle"] = "Apply selected changes?",
+        ["Tutorial_ApplySelectedConfirmMessage"] = "This will write {0} change(s) across {1} file(s) to disk.",
+        ["Tutorial_ApplySelectedConfirmButton"] = "Apply",
+        ["Tutorial_ApplySelectedCancelButton"] = "Cancel",
+        ["Tutorial_ApplySelectedResultTitle"] = "Apply results",
+        ["Tutorial_ApplySelectedResultClose"] = "OK",
+        ["Tutorial_ApplySelectedResultApplied"] = "Applied {0} file(s).",
+        ["Tutorial_ApplySelectedResultConflicts"] = "{0} file(s) changed on disk since this proposal and were skipped: {1}. Open the Diffs page and select one to re-diff it against the current file, then try applying again.",
+        ["Tutorial_ApplySelectedResultFailures"] = "{0} file(s) failed to apply: {1}.",
     };
 
     public static string GetLocalized(this string resourceKey) =>

@@ -404,17 +404,49 @@ committed yet — review `git status`/`git diff` before committing.
   different selection) is F3.2/F3.3's job, not this one's.
 
 **F3.2 — Selection UI**
-- T3.2.1 Checkbox per file in the Diffs and Tutorial master lists.
-- T3.2.2 Checkbox per hunk/step in the detail pane, with per-file tri-state roll-up.
-- T3.2.3 Select-all / select-none / invert; show a count of selected changes.
-- T3.2.4 Persist selection state across navigation between the Diffs and Tutorial pages.
+- [x] T3.2.1 Checkbox per file in the Diffs and Tutorial master lists. — done 2026-10-12: tri-state
+  `CheckBox` bound to `ProposedFileChangeViewModel.IsSelected` in both `DiffsView` and `TutorialView`'s
+  master `ListBox` item templates.
+- [x] T3.2.2 Checkbox per hunk/step in the detail pane, with per-file tri-state roll-up. — done
+  2026-10-12: per-step checkbox in `TutorialDetailControl` bound to `ProposedHunk.IsSelected`;
+  `ProposedFileChangeViewModel.IsSelected` rolls up to `true`/`false`/`null` depending on whether
+  all, none, or some of a file's hunks are selected.
+- [x] T3.2.3 Select-all / select-none / invert; show a count of selected changes. — done 2026-10-12:
+  `SelectAllHunksCommand`/`SelectNoneHunksCommand`/`InvertHunkSelectionCommand` on
+  `ProposedFileChangeViewModel`, surfaced as buttons in `TutorialDetailControl`; `SelectionSummary`
+  shows the selected/total hunk count in the master list.
+- [x] T3.2.4 Persist selection state across navigation between the Diffs and Tutorial pages. — done
+  2026-10-12: both pages read the same `ProposedFileChangeViewModel` instances straight out of
+  `IPromptResultStore.Files` rather than copying them, so selection is shared by construction; pinned
+  by `SelectionPersistenceTests`.
 
 **F3.3 — Apply orchestration**
-- T3.3.1 "Apply selected" command with a pre-apply summary (N files, M hunks).
-- T3.3.2 Per-file and per-hunk applied state that is *accurate* — remove the
-  `MarkAllStepsApplied()` workaround.
-- T3.3.3 Conflict detection: if a file changed on disk since the proposal, warn and offer re-diff.
-- T3.3.4 Partial-failure reporting — don't abandon the batch on one failed write.
+- [x] T3.3.1 "Apply selected" command with a pre-apply summary (N files, M hunks). — done 2026-10-12:
+  new `IApplyOrchestrationService.Preview` computes a file/change count across every file in the
+  tutorial (not just the one shown in the detail pane); `TutorialViewModel.ApplySelectedCommand`
+  shows it in a confirm dialog before calling `ApplySelected`, and a "nothing selected" message if
+  there's nothing to apply.
+- [x] T3.3.2 Per-file and per-hunk applied state that is *accurate* — remove the
+  `MarkAllStepsApplied()` workaround. — done 2026-10-12: `TutorialDetailControl.MarkAllStepsApplied()`
+  deleted. `ProposedHunk.IsApplied` is now set only by
+  `ProposedFileChangeViewModel.MarkHunksAppliedFromSelection()` right after a successful write, and
+  automatically resets to `false` whenever that hunk's `IsSelected` changes or the file's underlying
+  diff changes (edit or original-content refresh) — so a step only ever shows "Applied" if its current
+  selection was actually the one last written to disk.
+- [x] T3.3.3 Conflict detection: if a file changed on disk since the proposal, warn and offer
+  re-diff. — done 2026-10-12: `ApplyOrchestrationService.ApplySelected` re-reads each file's current
+  disk content at apply-time and compares it to the proposal's `OriginalContent` baseline; a mismatch
+  reports `FileApplyOutcome.Conflict` and skips the write rather than overwriting it. The result
+  message names the conflicted files and points at the new
+  `ProposedFileChangeViewModel.RefreshOriginalContent(workingDirectoryPath)` (re-reads disk and
+  re-triggers the existing reactive re-diff) as the way to resolve one.
+- [x] T3.3.4 Partial-failure reporting — don't abandon the batch on one failed write. — done
+  2026-10-12: `ApplyOrchestrationService.ApplySelected` attempts every selected file independently,
+  catching `IOException`/`UnauthorizedAccessException`/path-containment failures per file into
+  `FileApplyOutcome.Failed` without stopping the rest of the batch; `ApplyBatchResult` reports
+  applied/conflicted/failed counts and file lists, shown via an info dialog after the batch completes.
+  Covered by `ApplyOrchestrationServiceTests` and `TutorialViewModelTests`; full solution builds with
+  0 warnings/errors, 156/156 tests pass (123 Core + 33 Avalonia).
 
 ---
 

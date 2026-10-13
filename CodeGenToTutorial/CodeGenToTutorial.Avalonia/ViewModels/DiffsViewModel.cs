@@ -54,30 +54,6 @@ public partial class DiffsViewModel : ObservableRecipient, INavigationAware
         EnsureItemSelected();
     }
 
-    // Original file may not exist yet (new file) or the working directory may not be set; either case
-    // is treated as an empty original, so the whole proposed content shows up as added lines.
-    private static string ReadOriginalContent(string workingDirectory, string relativeFilePath)
-    {
-        if (string.IsNullOrWhiteSpace(workingDirectory) || string.IsNullOrWhiteSpace(relativeFilePath))
-        {
-            return string.Empty;
-        }
-
-        try
-        {
-            var fullPath = Path.Combine(workingDirectory, relativeFilePath);
-            return File.Exists(fullPath) ? File.ReadAllText(fullPath) : string.Empty;
-        }
-        catch (IOException)
-        {
-            return string.Empty;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return string.Empty;
-        }
-    }
-
     public void OnNavigatedFrom()
     {
     }
@@ -96,11 +72,9 @@ public partial class DiffsViewModel : ObservableRecipient, INavigationAware
         // Loading the on-disk original content (and the real diff it triggers via
         // OnOriginalContentChanged) is deferred until a file is actually shown, rather than done for
         // every file in OnNavigatedTo, so the UI thread only ever pays that cost for the one file
-        // the user is looking at.
-        if (value != null)
-        {
-            value.OriginalContent = ReadOriginalContent(_promptResultStore.WorkingDirectoryPath, value.FilePath);
-        }
+        // the user is looking at. RefreshOriginalContent (Core) is the same re-diff-from-disk logic
+        // ApplyOrchestrationService's conflict handling (T3.3.3) offers after a write is skipped.
+        value?.RefreshOriginalContent(_promptResultStore.WorkingDirectoryPath);
     }
 
     public void EnsureItemSelected()

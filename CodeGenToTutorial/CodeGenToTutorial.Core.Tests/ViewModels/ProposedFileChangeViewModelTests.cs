@@ -432,4 +432,178 @@ public class ProposedFileChangeViewModelTests
         Assert.False(hunks[0].IsSelected);
         Assert.True(hunks[1].IsSelected);
     }
+
+    [Fact]
+    public void HasAnySelectedChange_NoHunks_WholeFileSelected_IsTrue()
+    {
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original");
+
+        Assert.True(file.HasAnySelectedChange);
+    }
+
+    [Fact]
+    public void HasAnySelectedChange_NoHunks_WholeFileExcluded_IsFalse()
+    {
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original") { IsSelected = false };
+
+        Assert.False(file.HasAnySelectedChange);
+    }
+
+    [Fact]
+    public void HasAnySelectedChange_SomeHunksSelected_IsTrue()
+    {
+        var hunks = new[]
+        {
+            new ProposedHunk("Step 1", string.Empty, "x", null) { IsSelected = false },
+            new ProposedHunk("Step 2", string.Empty, "y", null),
+        };
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original") { Hunks = hunks };
+
+        Assert.True(file.HasAnySelectedChange);
+    }
+
+    [Fact]
+    public void HasAnySelectedChange_AllHunksDeselected_IsFalse()
+    {
+        var hunks = new[]
+        {
+            new ProposedHunk("Step 1", string.Empty, "x", null) { IsSelected = false },
+            new ProposedHunk("Step 2", string.Empty, "y", null) { IsSelected = false },
+        };
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original") { Hunks = hunks };
+
+        Assert.False(file.HasAnySelectedChange);
+    }
+
+    [Fact]
+    public void BuildSelectedContent_NoHunks_WholeFileSelected_ReturnsEditedContent()
+    {
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original") { EditedContent = "edited" };
+
+        Assert.Equal("edited", file.BuildSelectedContent());
+    }
+
+    [Fact]
+    public void BuildSelectedContent_NoHunks_WholeFileExcluded_ReturnsOriginalContent()
+    {
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original")
+        {
+            EditedContent = "edited",
+            IsSelected = false,
+        };
+
+        Assert.Equal("original", file.BuildSelectedContent());
+    }
+
+    [Fact]
+    public void BuildSelectedContent_MixedHunkSelection_AppliesOnlySelectedSteps()
+    {
+        // Two changes far enough apart that GroupIntoHunks keeps them as separate DiffHunks, each
+        // matched to its own step.
+        var gap = string.Join('\n', Enumerable.Range(0, 20).Select(i => $"gap-{i}"));
+        var original = $"OLD1\n{gap}\nOLD2";
+        var proposed = $"NEW1\n{gap}\nNEW2";
+        var proposedLineCount = proposed.Split('\n').Length;
+        var step1 = new ProposedHunk("Step 1", string.Empty, "NEW1", new HunkLocation(0, 0)) { IsSelected = false };
+        var step2 = new ProposedHunk("Step 2", string.Empty, "NEW2", new HunkLocation(proposedLineCount - 1, proposedLineCount - 1));
+
+        var file = new ProposedFileChangeViewModel("a.txt", proposed, original) { Hunks = new[] { step1, step2 } };
+
+        Assert.Equal($"OLD1\n{gap}\nNEW2", file.BuildSelectedContent());
+    }
+
+    [Fact]
+    public void BuildSelectedContent_DiffHunkUnmatchedByAnyStep_DefaultsToIncluded()
+    {
+        // The step's location doesn't resolve to anywhere in the proposed content, so the actual
+        // DiffHunk the edit produced has nothing checked to exclude it - it should still be written.
+        var step = new ProposedHunk("Unresolvable step", string.Empty, "nonexistent snippet", null) { IsSelected = false };
+        var file = new ProposedFileChangeViewModel("a.txt", "new", "old") { Hunks = new[] { step } };
+
+        Assert.Equal("new", file.BuildSelectedContent());
+    }
+
+    [Fact]
+    public void MarkHunksAppliedFromSelection_SetsEachHunksIsAppliedToItsCurrentIsSelected()
+    {
+        var hunks = new[]
+        {
+            new ProposedHunk("Step 1", string.Empty, "x", null),
+            new ProposedHunk("Step 2", string.Empty, "y", null) { IsSelected = false },
+        };
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original") { Hunks = hunks };
+
+        file.MarkHunksAppliedFromSelection();
+
+        Assert.True(hunks[0].IsApplied);
+        Assert.False(hunks[1].IsApplied);
+    }
+
+    [Fact]
+    public void MarkHunksAppliedFromSelection_NoHunks_IsNoOp()
+    {
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original");
+
+        file.MarkHunksAppliedFromSelection();
+    }
+
+    [Fact]
+    public void EditedContent_ChangedAfterApply_InvalidatesEveryHunksIsApplied()
+    {
+        var hunk = new ProposedHunk("Step 1", string.Empty, "line2", new HunkLocation(1, 1));
+        var file = new ProposedFileChangeViewModel("a.txt", "line1\nline2", "line1") { Hunks = new[] { hunk } };
+        file.MarkHunksAppliedFromSelection();
+        Assert.True(hunk.IsApplied);
+
+        file.EditedContent = "line1\nline2\nline3";
+
+        Assert.False(hunk.IsApplied);
+    }
+
+    [Fact]
+    public void RefreshOriginalContent_ReadsCurrentDiskContentAndRecomputesDiff()
+    {
+        var workingDirectory = Directory.CreateTempSubdirectory("CodeGenToTutorialTests_").FullName;
+        try
+        {
+            File.WriteAllText(Path.Combine(workingDirectory, "a.txt"), "changed on disk");
+            var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original");
+
+            file.RefreshOriginalContent(workingDirectory);
+
+            Assert.Equal("changed on disk", file.OriginalContent);
+        }
+        finally
+        {
+            Directory.Delete(workingDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void RefreshOriginalContent_FileDoesNotExistYet_SetsEmptyOriginalContent()
+    {
+        var workingDirectory = Directory.CreateTempSubdirectory("CodeGenToTutorialTests_").FullName;
+        try
+        {
+            var file = new ProposedFileChangeViewModel("new-file.txt", "proposed", "original");
+
+            file.RefreshOriginalContent(workingDirectory);
+
+            Assert.Equal(string.Empty, file.OriginalContent);
+        }
+        finally
+        {
+            Directory.Delete(workingDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void RefreshOriginalContent_NoWorkingDirectory_SetsEmptyOriginalContent()
+    {
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original");
+
+        file.RefreshOriginalContent(string.Empty);
+
+        Assert.Equal(string.Empty, file.OriginalContent);
+    }
 }

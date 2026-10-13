@@ -1,33 +1,20 @@
 using CodeGenToTutorial.Core.Contracts.Services;
+using CodeGenToTutorial.Core.Helpers;
 using CodeGenToTutorial.Core.ViewModels;
 
 namespace CodeGenToTutorial.Core.Services;
 
-// Writes a proposed file's complete content to disk. A tutorial step's "Apply" button targets a single
-// snippet, but the only content we can reliably write back is the whole file, so applying any step for
-// a file applies that file's full content - EditedContent, which is the user's in-editor edits when
-// present and falls back to the LLM's ProposedContent untouched otherwise.
+// Writes a proposed file's selected content to disk. The only content we can reliably write back is
+// the whole file - there's no way to patch just one line range on a real filesystem write - but what
+// that whole-file content *is* now depends on selection (F3.3): BuildSelectedContent composes it from
+// EditedContent (the user's in-editor edits, or the LLM's ProposedContent untouched if the user hasn't
+// edited) with any deselected hunks' changes backed out, or OriginalContent untouched if the file's
+// whole-file fallback selection is off.
 public class FileChangeApplyService : IFileChangeApplyService
 {
     public void Apply(ProposedFileChangeViewModel file, string workingDirectoryPath)
     {
-        if (string.IsNullOrWhiteSpace(workingDirectoryPath))
-        {
-            throw new InvalidOperationException("A project location must be selected before applying changes.");
-        }
-
-        var root = Path.GetFullPath(workingDirectoryPath);
-        var fullPath = Path.GetFullPath(Path.Combine(root, file.FilePath));
-        var rootWithSeparator = root.EndsWith(Path.DirectorySeparatorChar)
-            ? root
-            : root + Path.DirectorySeparatorChar;
-
-        if (!fullPath.StartsWith(rootWithSeparator, StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException(
-                $"Refusing to write outside the project folder: '{file.FilePath}' resolves to '{fullPath}'.");
-        }
-
+        var fullPath = FilePathContainment.Resolve(workingDirectoryPath, file.FilePath);
         var directory = Path.GetDirectoryName(fullPath);
 
         if (!string.IsNullOrEmpty(directory))
@@ -35,6 +22,11 @@ public class FileChangeApplyService : IFileChangeApplyService
             Directory.CreateDirectory(directory);
         }
 
-        File.WriteAllText(fullPath, file.EditedContent);
+        File.WriteAllText(fullPath, file.BuildSelectedContent());
+
+        // T3.3.2: record that this write reflects the current selection, so each step's IsApplied
+        // is accurate instead of the old MarkAllStepsApplied() workaround that marked every step
+        // applied just because one of them triggered the write.
+        file.MarkHunksAppliedFromSelection();
     }
 }

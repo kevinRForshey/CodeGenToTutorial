@@ -1,3 +1,4 @@
+using CodeGenToTutorial.Core.Models;
 using CodeGenToTutorial.Core.Services;
 using CodeGenToTutorial.Core.ViewModels;
 
@@ -86,6 +87,37 @@ public class FileChangeApplyServiceTests : IDisposable
 
         var written = Path.Combine(_workingDirectory, "a.txt");
         Assert.Equal("user-edited content", File.ReadAllText(written));
+    }
+
+    [Fact]
+    public void Apply_StepDeselected_WritesOriginalLinesForThatHunkInstead()
+    {
+        var hunk = new ProposedHunk("Add line2", string.Empty, "line2", new HunkLocation(1, 1))
+        {
+            IsSelected = false,
+        };
+        var file = new ProposedFileChangeViewModel("a.txt", "line1\nline2", "line1") { Hunks = new[] { hunk } };
+
+        _service.Apply(file, _workingDirectory);
+
+        var written = Path.Combine(_workingDirectory, "a.txt");
+        Assert.Equal("line1", File.ReadAllText(written));
+    }
+
+    [Fact]
+    public void Apply_SuccessfulWrite_MarksHunksAppliedFromCurrentSelection()
+    {
+        var selected = new ProposedHunk("Step 1", string.Empty, "x", null);
+        var deselected = new ProposedHunk("Step 2", string.Empty, "y", null) { IsSelected = false };
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original")
+        {
+            Hunks = new[] { selected, deselected },
+        };
+
+        _service.Apply(file, _workingDirectory);
+
+        Assert.True(selected.IsApplied);
+        Assert.False(deselected.IsApplied);
     }
 
     [Theory]
