@@ -13,6 +13,12 @@ public enum FileApplyOutcome
 
     // The write was attempted and threw (I/O error, permissions, or the path-containment check).
     Failed,
+
+    // The target resolves inside `.git/`, `bin/`, or `obj/`, or is matched by the project's
+    // .gitignore (T4.1.2), and the caller didn't pass allowProtectedPaths: true to say the user
+    // explicitly confirmed writing there anyway. Never attempted - unlike Conflict, there's nothing
+    // to re-diff and retry; the caller has to ask again and pass allowProtectedPaths: true.
+    ProtectedPathBlocked,
 }
 
 // The outcome of attempting to apply one file's selected changes, as part of an

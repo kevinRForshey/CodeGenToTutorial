@@ -27,7 +27,7 @@ public class ApplyOrchestrationServiceTests : IDisposable
     {
         var files = new[] { new ProposedFileChangeViewModel("a.txt", "proposed", "original") { IsSelected = false } };
 
-        var preview = _service.Preview(files);
+        var preview = _service.Preview(files, _workingDirectory);
 
         Assert.Equal(new ApplyPreview(0, 0), preview);
     }
@@ -37,7 +37,7 @@ public class ApplyOrchestrationServiceTests : IDisposable
     {
         var files = new[] { new ProposedFileChangeViewModel("a.txt", "proposed", "original") };
 
-        var preview = _service.Preview(files);
+        var preview = _service.Preview(files, _workingDirectory);
 
         Assert.Equal(new ApplyPreview(1, 1), preview);
     }
@@ -53,7 +53,7 @@ public class ApplyOrchestrationServiceTests : IDisposable
         var fileWithHunks = new ProposedFileChangeViewModel("a.txt", "proposed", "original") { Hunks = hunks };
         var fileExcluded = new ProposedFileChangeViewModel("b.txt", "proposed", "original") { IsSelected = false };
 
-        var preview = _service.Preview(new[] { fileWithHunks, fileExcluded });
+        var preview = _service.Preview(new[] { fileWithHunks, fileExcluded }, _workingDirectory);
 
         Assert.Equal(new ApplyPreview(1, 1), preview);
     }
@@ -113,6 +113,7 @@ public class ApplyOrchestrationServiceTests : IDisposable
         var result = _service.ApplySelected(new[] { file }, _workingDirectory);
 
         Assert.Equal(1, result.ConflictCount);
+        Assert.Equal("a.txt", Assert.Single(result.ConflictedFiles).FilePath);
         Assert.Equal("changed on disk", File.ReadAllText(Path.Combine(_workingDirectory, "a.txt")));
     }
 
@@ -141,5 +142,87 @@ public class ApplyOrchestrationServiceTests : IDisposable
         Assert.Equal(1, result.FailedCount);
         Assert.Equal(1, result.AppliedCount);
         Assert.NotNull(Assert.Single(result.FailedFiles).ErrorMessage);
+    }
+
+    [Fact]
+    public void Preview_FileUnderBinDirectory_ReportsProtectedPath()
+    {
+        var files = new[] { new ProposedFileChangeViewModel("bin/Debug/a.dll.txt", "proposed content") };
+
+        var preview = _service.Preview(files, _workingDirectory);
+
+        Assert.Equal(1, preview.ProtectedPathCount);
+        Assert.Equal("bin/Debug/a.dll.txt", Assert.Single(preview.ProtectedPathFiles));
+    }
+
+    [Fact]
+    public void Preview_FileMatchedByGitIgnore_ReportsProtectedPath()
+    {
+        File.WriteAllText(Path.Combine(_workingDirectory, ".gitignore"), "*.log");
+        var files = new[] { new ProposedFileChangeViewModel("output.log", "proposed content") };
+
+        var preview = _service.Preview(files, _workingDirectory);
+
+        Assert.Equal(1, preview.ProtectedPathCount);
+        Assert.Equal("output.log", Assert.Single(preview.ProtectedPathFiles));
+    }
+
+    [Fact]
+    public void Preview_NoProtectedFiles_ReportsZero()
+    {
+        var files = new[] { new ProposedFileChangeViewModel("a.txt", "proposed content") };
+
+        var preview = _service.Preview(files, _workingDirectory);
+
+        Assert.Equal(0, preview.ProtectedPathCount);
+        Assert.Empty(preview.ProtectedPathFiles);
+    }
+
+    [Fact]
+    public void ApplySelected_FileUnderGitDirectory_BlocksByDefaultAndDoesNotWrite()
+    {
+        var file = new ProposedFileChangeViewModel(".git/config", "malicious");
+
+        var result = _service.ApplySelected(new[] { file }, _workingDirectory);
+
+        Assert.Equal(1, result.ProtectedPathBlockedCount);
+        Assert.Equal(".git/config", Assert.Single(result.ProtectedPathBlockedFiles).FilePath);
+        Assert.False(File.Exists(Path.Combine(_workingDirectory, ".git", "config")));
+    }
+
+    [Fact]
+    public void ApplySelected_FileMatchedByGitIgnore_BlocksByDefault()
+    {
+        File.WriteAllText(Path.Combine(_workingDirectory, ".gitignore"), "*.log");
+        var file = new ProposedFileChangeViewModel("output.log", "proposed content");
+
+        var result = _service.ApplySelected(new[] { file }, _workingDirectory);
+
+        Assert.Equal(1, result.ProtectedPathBlockedCount);
+        Assert.False(File.Exists(Path.Combine(_workingDirectory, "output.log")));
+    }
+
+    [Fact]
+    public void ApplySelected_ProtectedPathWithAllowProtectedPathsTrue_WritesAnyway()
+    {
+        var file = new ProposedFileChangeViewModel("bin/output.txt", "proposed content");
+
+        var result = _service.ApplySelected(new[] { file }, _workingDirectory, allowProtectedPaths: true);
+
+        Assert.Equal(1, result.AppliedCount);
+        Assert.Equal("proposed content", File.ReadAllText(Path.Combine(_workingDirectory, "bin", "output.txt")));
+    }
+
+    [Fact]
+    public void ApplySelected_OneProtectedOneClean_StillAppliesTheCleanOne()
+    {
+        var protectedFile = new ProposedFileChangeViewModel("obj/generated.txt", "malicious");
+        var clean = new ProposedFileChangeViewModel("clean.txt", "proposed content");
+
+        var result = _service.ApplySelected(new[] { protectedFile, clean }, _workingDirectory);
+
+        Assert.Equal(1, result.ProtectedPathBlockedCount);
+        Assert.Equal(1, result.AppliedCount);
+        Assert.True(File.Exists(Path.Combine(_workingDirectory, "clean.txt")));
     }
 }

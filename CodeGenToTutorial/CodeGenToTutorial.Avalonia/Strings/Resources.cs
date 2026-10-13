@@ -27,6 +27,11 @@ public static class Resources
         ["Tutorial_ApplySelectedResultApplied"] = "Applied {0} file(s).",
         ["Tutorial_ApplySelectedResultConflicts"] = "{0} file(s) changed on disk since this proposal and were skipped: {1}. Open the Diffs page and select one to re-diff it against the current file, then try applying again.",
         ["Tutorial_ApplySelectedResultFailures"] = "{0} file(s) failed to apply: {1}.",
+        ["Tutorial_ApplyProtectedPathsConfirmTitle"] = "Write to protected paths?",
+        ["Tutorial_ApplyProtectedPathsConfirmMessage"] = "{0} file(s) are inside .git/bin/obj or match .gitignore: {1}. Writing there is usually unintended - apply anyway?",
+        ["Tutorial_ApplyProtectedPathsConfirmButton"] = "Write anyway",
+        ["Tutorial_ApplyProtectedPathsConfirmCancelButton"] = "Skip those files",
+        ["Tutorial_ApplySelectedResultProtectedBlocked"] = "{0} file(s) were skipped because they're protected paths: {1}.",
     };
 
     public static string GetLocalized(this string resourceKey) =>

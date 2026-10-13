@@ -22,11 +22,34 @@ public class FileChangeApplyService : IFileChangeApplyService
             Directory.CreateDirectory(directory);
         }
 
-        File.WriteAllText(fullPath, file.BuildSelectedContent());
+        // Detected from the file this write is about to overwrite (not from the proposal's
+        // encoding - there isn't one), so the write round-trips whatever encoding/line endings are
+        // already on disk instead of silently normalizing to UTF-8 (no BOM) with LF endings
+        // (T4.1.3). A brand-new file has nothing to preserve, so this is just today's defaults.
+        var encodingInfo = FileEncodingDetector.Detect(fullPath);
+        var content = NormalizeNewLines(file.BuildSelectedContent(), encodingInfo.NewLine);
+
+        File.WriteAllText(fullPath, content, encodingInfo.Encoding);
 
         // T3.3.2: record that this write reflects the current selection, so each step's IsApplied
         // is accurate instead of the old MarkAllStepsApplied() workaround that marked every step
         // applied just because one of them triggered the write.
         file.MarkHunksAppliedFromSelection();
+    }
+
+    // Rewrites every line ending in `content` to `newLine`. A null `newLine` (FileEncodingDetector
+    // found nothing to preserve) leaves content untouched - BuildSelectedContent() already composes
+    // hunk-based content with bare '\n' (see DiffBuilder.ComposeContent), so a CRLF file would
+    // otherwise come back from Apply with LF endings even though nothing else about it changed.
+    private static string NormalizeNewLines(string content, string? newLine)
+    {
+        if (newLine is null)
+        {
+            return content;
+        }
+
+        // Collapse to LF first so an existing "\r\n" doesn't become "\r" + newLine.
+        var normalized = content.Replace("\r\n", "\n").Replace("\r", "\n");
+        return newLine == "\n" ? normalized : normalized.Replace("\n", newLine);
     }
 }

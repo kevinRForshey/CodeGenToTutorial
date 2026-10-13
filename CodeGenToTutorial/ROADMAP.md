@@ -457,9 +457,46 @@ committed yet — review `git status`/`git diff` before committing.
   reject absolute and rooted LLM paths. **(Security — do this early.)** — done 2026-10-02 in
   `FileChangeApplyService.Apply`; verified traversal (`../../../etc/passwd`) and absolute-path
   escapes are rejected with `InvalidOperationException`, normal relative paths still write.
-- T4.1.2 Reject writes to `.git/`, `bin/`, `obj/`, and anything matched by `.gitignore` unless
-  explicitly confirmed.
-- T4.1.3 Preserve the file's existing encoding and line endings instead of defaulting.
+- [x] T4.1.2 Reject writes to `.git/`, `bin/`, `obj/`, and anything matched by `.gitignore` unless
+  explicitly confirmed. — done 2026-10-13: added `ProtectedPathChecker.IsProtected` (true if any
+  path segment before the filename is `.git`/`bin`/`obj`, or `GitIgnoreMatcher.IsIgnored` matches)
+  and `GitIgnoreMatcher` (a minimal single-top-level-`.gitignore` matcher - comments, blank lines,
+  `!` negation with git's last-match-wins precedence, a leading `/` root anchor, a trailing `/`
+  directory marker, and `*`/`**`/`?` wildcards via hand-translated regex; deliberately doesn't
+  support `[abc]` character classes, nested per-directory `.gitignore` files, a global gitignore, or
+  `.git/info/exclude` - out of scope for an apply-time safety check). `IApplyOrchestrationService.
+  Preview` now takes `workingDirectoryPath` and reports `ApplyPreview.ProtectedPathCount`/
+  `ProtectedPathFiles` so the confirmation dialog can warn before applying; `ApplySelected` gained an
+  `allowProtectedPaths` parameter (default `false`) and `ApplyOne` short-circuits to a new
+  `FileApplyOutcome.ProtectedPathBlocked` before touching disk when a target is protected and the
+  caller hasn't confirmed, without affecting any other file in the batch (T3.3.4). `TutorialViewModel.
+  ApplySelectedAsync` shows a second, separate confirm dialog only when `ProtectedPathCount > 0`;
+  declining it only skips those files (reported via `ProtectedPathBlockedCount`) rather than
+  aborting the whole apply. Covered by `GitIgnoreMatcherTests`, `ProtectedPathCheckerTests`, new
+  `ApplyOrchestrationServiceTests` cases, and new `TutorialViewModelTests` cases (both dialogs
+  confirmed/declined independently); full solution builds with 0 warnings/errors, 208/208 tests pass
+  (170 Core + 38 Avalonia). `GitIgnoreMatcher.cs` is 92.3% line/100% branch covered - the
+  `catch (IOException)`/`catch (UnauthorizedAccessException)` arms around the `.gitignore` read are
+  left deliberately untested, same reasoning as the identical gap in `FileEncodingDetector.cs`
+  above. `ProtectedPathChecker.cs` and the new model properties are 100% line/100% branch covered.
+- [x] T4.1.3 Preserve the file's existing encoding and line endings instead of defaulting. — done
+  2026-10-13: `FileChangeApplyService.Apply` always wrote UTF-8 (no BOM), and
+  `DiffBuilder.ComposeContent` always joins hunk-composed content with bare `\n` regardless of the
+  file's actual convention - so a CRLF or BOM'd file silently flipped to LF/no-BOM on first apply.
+  Added `FileEncodingDetector.Detect` (sniffs the on-disk file's BOM - UTF-8/UTF-16 LE/BE/UTF-32
+  LE/BE - and dominant newline before the write overwrites it) and `FileEncodingInfo` (the detected
+  `Encoding` plus an optional `NewLine`, `null` when there's nothing to preserve - a brand-new file,
+  or an existing one with no newlines at all). `Apply` now normalizes `BuildSelectedContent()`'s
+  line endings to match and writes with the detected `Encoding` instead of the encoding-less
+  `File.WriteAllText` overload. Covered by `FileEncodingDetectorTests` (every BOM variant, CRLF/LF/
+  no-newline/mixed, missing file) and new `FileChangeApplyServiceTests` cases (CRLF and LF
+  round-trip through hunk composition, BOM round-trip, new-file no-regression); 174/174 tests pass
+  (141 Core + 33 Avalonia), solution builds with 0 warnings/errors.
+  `FileChangeApplyService.cs` is 100% line/100% branch covered; `FileEncodingDetector.cs` is 92.5%
+  line/100% branch — the one gap is the `catch (IOException)` arm, structurally identical to the
+  `catch (UnauthorizedAccessException)` arm next to it (both just return `.Default`), left
+  deliberately untested rather than forcing a flaky/platform-specific repro of a generic I/O failure
+  in a unit test.
 
 **F4.2 — Backup & undo**
 - T4.2.1 Snapshot each file before first write in a session-scoped backup store.

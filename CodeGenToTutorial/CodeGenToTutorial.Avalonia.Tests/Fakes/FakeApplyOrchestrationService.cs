@@ -16,16 +16,19 @@ public class FakeApplyOrchestrationService : IApplyOrchestrationService
 
     public string? LastWorkingDirectoryPath { get; private set; }
 
-    public ApplyPreview Preview(IReadOnlyList<ProposedFileChangeViewModel> files)
+    public bool? LastAllowProtectedPaths { get; private set; }
+
+    public ApplyPreview Preview(IReadOnlyList<ProposedFileChangeViewModel> files, string workingDirectoryPath)
     {
         PreviewCallCount++;
         return PreviewToReturn;
     }
 
-    public ApplyBatchResult ApplySelected(IReadOnlyList<ProposedFileChangeViewModel> files, string workingDirectoryPath)
+    public ApplyBatchResult ApplySelected(IReadOnlyList<ProposedFileChangeViewModel> files, string workingDirectoryPath, bool allowProtectedPaths = false)
     {
         ApplySelectedCallCount++;
         LastWorkingDirectoryPath = workingDirectoryPath;
+        LastAllowProtectedPaths = allowProtectedPaths;
         return ApplySelectedResultToReturn;
     }
 }

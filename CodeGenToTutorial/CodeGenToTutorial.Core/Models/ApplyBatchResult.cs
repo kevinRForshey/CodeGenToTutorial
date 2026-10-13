@@ -12,7 +12,13 @@ public record ApplyBatchResult(IReadOnlyList<FileApplyResult> Results)
 
     public int FailedCount => Results.Count(r => r.Outcome == FileApplyOutcome.Failed);
 
+    // T4.1.2: files skipped because they resolve to a protected location (.git/bin/obj or
+    // .gitignore) and the batch wasn't told the user explicitly confirmed writing there.
+    public int ProtectedPathBlockedCount => Results.Count(r => r.Outcome == FileApplyOutcome.ProtectedPathBlocked);
+
     public IEnumerable<FileApplyResult> ConflictedFiles => Results.Where(r => r.Outcome == FileApplyOutcome.Conflict);
 
     public IEnumerable<FileApplyResult> FailedFiles => Results.Where(r => r.Outcome == FileApplyOutcome.Failed);
+
+    public IEnumerable<FileApplyResult> ProtectedPathBlockedFiles => Results.Where(r => r.Outcome == FileApplyOutcome.ProtectedPathBlocked);
 }

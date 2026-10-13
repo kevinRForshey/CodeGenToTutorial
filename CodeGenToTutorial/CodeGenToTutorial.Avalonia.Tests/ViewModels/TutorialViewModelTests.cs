@@ -153,4 +153,73 @@ public class TutorialViewModelTests
         Assert.Contains("conflicted.txt", sut.ApplyStatusMessage);
         Assert.Contains("failed.txt", sut.ApplyStatusMessage);
     }
+
+    [Fact]
+    public async Task ApplySelectedAsync_NoProtectedFiles_OnlyShowsOneConfirmationDialog()
+    {
+        _applyOrchestrationService.PreviewToReturn = new ApplyPreview(1, 1) { ProtectedPathCount = 0 };
+        _dialogService.ConfirmResultToReturn = true;
+        var sut = CreateSut();
+
+        await sut.ApplySelectedCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, _dialogService.ConfirmCallCount);
+        Assert.True(_applyOrchestrationService.LastAllowProtectedPaths);
+    }
+
+    [Fact]
+    public async Task ApplySelectedAsync_ProtectedFilesAndUserConfirmsBoth_AppliesWithProtectedPathsAllowed()
+    {
+        _applyOrchestrationService.PreviewToReturn = new ApplyPreview(1, 1) { ProtectedPathCount = 1, ProtectedPathFiles = ["bin/output.txt"] };
+        _dialogService.ConfirmResultQueue.Enqueue(true);
+        _dialogService.ConfirmResultQueue.Enqueue(true);
+        var sut = CreateSut();
+
+        await sut.ApplySelectedCommand.ExecuteAsync(null);
+
+        Assert.Equal(2, _dialogService.ConfirmCallCount);
+        Assert.True(_applyOrchestrationService.LastAllowProtectedPaths);
+        Assert.Contains("bin/output.txt", _dialogService.ConfirmMessages[1]);
+    }
+
+    [Fact]
+    public async Task ApplySelectedAsync_ProtectedFilesAndUserDeclinesProtectedConfirm_StillAppliesWithoutAllowingProtectedPaths()
+    {
+        _applyOrchestrationService.PreviewToReturn = new ApplyPreview(1, 1) { ProtectedPathCount = 1, ProtectedPathFiles = ["bin/output.txt"] };
+        _dialogService.ConfirmResultQueue.Enqueue(true);
+        _dialogService.ConfirmResultQueue.Enqueue(false);
+        var sut = CreateSut();
+
+        await sut.ApplySelectedCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, _applyOrchestrationService.ApplySelectedCallCount);
+        Assert.False(_applyOrchestrationService.LastAllowProtectedPaths);
+    }
+
+    [Fact]
+    public async Task ApplySelectedAsync_UserDeclinesGeneralConfirm_NeverAsksAboutProtectedPaths()
+    {
+        _applyOrchestrationService.PreviewToReturn = new ApplyPreview(1, 1) { ProtectedPathCount = 1, ProtectedPathFiles = ["bin/output.txt"] };
+        _dialogService.ConfirmResultQueue.Enqueue(false);
+        var sut = CreateSut();
+
+        await sut.ApplySelectedCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, _dialogService.ConfirmCallCount);
+        Assert.Equal(0, _applyOrchestrationService.ApplySelectedCallCount);
+    }
+
+    [Fact]
+    public async Task ApplySelectedAsync_SomeFilesProtectedPathBlocked_MessageMentionsEachBlockedFile()
+    {
+        _applyOrchestrationService.PreviewToReturn = new ApplyPreview(1, 1);
+        _dialogService.ConfirmResultToReturn = true;
+        _applyOrchestrationService.ApplySelectedResultToReturn = new ApplyBatchResult(
+            [new FileApplyResult("bin/output.txt", FileApplyOutcome.ProtectedPathBlocked)]);
+        var sut = CreateSut();
+
+        await sut.ApplySelectedCommand.ExecuteAsync(null);
+
+        Assert.Contains("bin/output.txt", sut.ApplyStatusMessage);
+    }
 }

@@ -18,7 +18,7 @@ public class ApplyOrchestrationService : IApplyOrchestrationService
         _fileChangeApplyService = fileChangeApplyService;
     }
 
-    public ApplyPreview Preview(IReadOnlyList<ProposedFileChangeViewModel> files)
+    public ApplyPreview Preview(IReadOnlyList<ProposedFileChangeViewModel> files, string workingDirectoryPath)
     {
         var filesToApply = files.Where(f => f.HasAnySelectedChange).ToList();
 
@@ -26,23 +26,47 @@ public class ApplyOrchestrationService : IApplyOrchestrationService
         // selected step individually, matching what the per-file SelectionSummary already shows.
         var changeCount = filesToApply.Sum(f => f.HasSelectableHunks ? f.SelectedHunkCount : 1);
 
-        return new ApplyPreview(filesToApply.Count, changeCount);
+        // Surfaced up front (T4.1.2) so the confirmation prompt can warn about protected targets
+        // before ApplySelected skips them, rather than the user only finding out after the fact.
+        var protectedPathFiles = filesToApply
+            .Where(f => ProtectedPathChecker.IsProtected(workingDirectoryPath, f.FilePath))
+            .Select(f => f.FilePath)
+            .ToList();
+
+        return new ApplyPreview(filesToApply.Count, changeCount)
+        {
+            ProtectedPathCount = protectedPathFiles.Count,
+            // Array.Empty<string>() rather than the (possibly empty) List<string> above: record
+            // equality falls back to reference equality for a non-IEquatable property like
+            // IReadOnlyList<string>, and Array.Empty<string>() is a cached singleton, so this keeps
+            // "no protected files" comparing equal to ApplyPreview.ProtectedPathFiles's own default
+            // instead of failing Assert.Equal purely because one side is a List and the other an array.
+            ProtectedPathFiles = protectedPathFiles.Count == 0 ? Array.Empty<string>() : protectedPathFiles,
+        };
     }
 
-    public ApplyBatchResult ApplySelected(IReadOnlyList<ProposedFileChangeViewModel> files, string workingDirectoryPath)
+    public ApplyBatchResult ApplySelected(IReadOnlyList<ProposedFileChangeViewModel> files, string workingDirectoryPath, bool allowProtectedPaths = false)
     {
         var results = new List<FileApplyResult>();
 
         foreach (var file in files.Where(f => f.HasAnySelectedChange))
         {
-            results.Add(ApplyOne(file, workingDirectoryPath));
+            results.Add(ApplyOne(file, workingDirectoryPath, allowProtectedPaths));
         }
 
         return new ApplyBatchResult(results);
     }
 
-    private FileApplyResult ApplyOne(ProposedFileChangeViewModel file, string workingDirectoryPath)
+    private FileApplyResult ApplyOne(ProposedFileChangeViewModel file, string workingDirectoryPath, bool allowProtectedPaths)
     {
+        // Checked before touching disk at all (T4.1.2) - unlike Conflict, there's nothing to re-diff
+        // and retry here, so this short-circuits ahead of the read/write below rather than sharing
+        // their try/catch.
+        if (!allowProtectedPaths && ProtectedPathChecker.IsProtected(workingDirectoryPath, file.FilePath))
+        {
+            return new FileApplyResult(file.FilePath, FileApplyOutcome.ProtectedPathBlocked);
+        }
+
         string fullPath;
         string currentDiskContent;
 

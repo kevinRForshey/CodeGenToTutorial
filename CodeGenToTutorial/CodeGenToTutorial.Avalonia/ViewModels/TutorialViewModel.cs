@@ -83,7 +83,7 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
     [RelayCommand]
     private async Task ApplySelectedAsync()
     {
-        var preview = _applyOrchestrationService.Preview(Files);
+        var preview = _applyOrchestrationService.Preview(Files, _promptResultStore.WorkingDirectoryPath);
 
         if (preview.FileCount == 0)
         {
@@ -102,7 +102,23 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
             return;
         }
 
-        var result = _applyOrchestrationService.ApplySelected(Files, _promptResultStore.WorkingDirectoryPath);
+        // Asked separately from the general apply-confirm above (T4.1.2), so declining it only
+        // skips the protected files (reported below as ProtectedPathBlockedCount) rather than
+        // aborting the whole batch - consistent with T3.3.4's "one file's problem never stops the
+        // rest" philosophy.
+        var allowProtectedPaths = true;
+
+        if (preview.ProtectedPathCount > 0)
+        {
+            var protectedPaths = string.Join(", ", preview.ProtectedPathFiles);
+            allowProtectedPaths = await _dialogService.ConfirmAsync(
+                "Tutorial_ApplyProtectedPathsConfirmTitle".GetLocalized(),
+                string.Format("Tutorial_ApplyProtectedPathsConfirmMessage".GetLocalized(), preview.ProtectedPathCount, protectedPaths),
+                "Tutorial_ApplyProtectedPathsConfirmButton".GetLocalized(),
+                "Tutorial_ApplyProtectedPathsConfirmCancelButton".GetLocalized());
+        }
+
+        var result = _applyOrchestrationService.ApplySelected(Files, _promptResultStore.WorkingDirectoryPath, allowProtectedPaths);
 
         var messageParts = new List<string> { string.Format("Tutorial_ApplySelectedResultApplied".GetLocalized(), result.AppliedCount) };
 
@@ -116,6 +132,12 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
         {
             var failedPaths = string.Join(", ", result.FailedFiles.Select(r => r.FilePath));
             messageParts.Add(string.Format("Tutorial_ApplySelectedResultFailures".GetLocalized(), result.FailedCount, failedPaths));
+        }
+
+        if (result.ProtectedPathBlockedCount > 0)
+        {
+            var blockedPaths = string.Join(", ", result.ProtectedPathBlockedFiles.Select(r => r.FilePath));
+            messageParts.Add(string.Format("Tutorial_ApplySelectedResultProtectedBlocked".GetLocalized(), result.ProtectedPathBlockedCount, blockedPaths));
         }
 
         ApplyStatusMessage = string.Join(" ", messageParts);
