@@ -14,12 +14,18 @@ public class ApplyOrchestrationService : IApplyOrchestrationService
     private readonly IFileChangeApplyService _fileChangeApplyService;
     private readonly IApplyBackupStore _applyBackupStore;
     private readonly IApplyHistoryStore _applyHistoryStore;
+    private readonly IApplyHistoryLog _applyHistoryLog;
 
-    public ApplyOrchestrationService(IFileChangeApplyService fileChangeApplyService, IApplyBackupStore applyBackupStore, IApplyHistoryStore applyHistoryStore)
+    public ApplyOrchestrationService(
+        IFileChangeApplyService fileChangeApplyService,
+        IApplyBackupStore applyBackupStore,
+        IApplyHistoryStore applyHistoryStore,
+        IApplyHistoryLog applyHistoryLog)
     {
         _fileChangeApplyService = fileChangeApplyService;
         _applyBackupStore = applyBackupStore;
         _applyHistoryStore = applyHistoryStore;
+        _applyHistoryLog = applyHistoryLog;
     }
 
     public ApplyPreview Preview(IReadOnlyList<ProposedFileChangeViewModel> files, string workingDirectoryPath)
@@ -65,9 +71,10 @@ public class ApplyOrchestrationService : IApplyOrchestrationService
             }
         }
 
-        // RecordBatch no-ops for an empty list, so a batch that applied nothing (every file
-        // conflicted, was blocked, or failed) doesn't push an empty entry onto the undo stack.
+        // RecordBatch/Record both no-op for an empty list, so a batch that applied nothing (every
+        // file conflicted, was blocked, or failed) doesn't push an undo entry or a log entry.
         _applyHistoryStore.RecordBatch(appliedChanges);
+        _applyHistoryLog.Record(ApplyHistoryEntryKind.Applied, appliedChanges.Select(c => c.FilePath).ToList());
 
         return new ApplyBatchResult(results);
     }
@@ -84,6 +91,8 @@ public class ApplyOrchestrationService : IApplyOrchestrationService
         }
 
         result = WriteBack(changes, workingDirectoryPath);
+        _applyHistoryLog.Record(ApplyHistoryEntryKind.UndoLastApply, result.Results.Where(r => r.Succeeded).Select(r => r.FilePath).ToList());
+
         return true;
     }
 
@@ -99,6 +108,7 @@ public class ApplyOrchestrationService : IApplyOrchestrationService
 
         var result = WriteBack(changes, workingDirectoryPath);
         _applyHistoryStore.Clear();
+        _applyHistoryLog.Record(ApplyHistoryEntryKind.RevertAllApplied, result.Results.Where(r => r.Succeeded).Select(r => r.FilePath).ToList());
 
         return result;
     }

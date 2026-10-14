@@ -48,6 +48,9 @@ public static class Resources
         ["Tutorial_RevertAllAppliedResultClose"] = "OK",
         ["Tutorial_RevertResultSucceeded"] = "Reverted {0} file(s).",
         ["Tutorial_RevertResultFailures"] = "{0} file(s) failed to revert: {1}.",
+        ["Tutorial_HistoryEntryApplied"] = "{0} — Applied {1} file(s).",
+        ["Tutorial_HistoryEntryUndoLastApply"] = "{0} — Undid last apply ({1} file(s)).",
+        ["Tutorial_HistoryEntryRevertAllApplied"] = "{0} — Reverted all applied changes ({1} file(s)).",
     };
 
     public static string GetLocalized(this string resourceKey) =>

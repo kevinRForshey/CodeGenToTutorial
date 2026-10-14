@@ -540,7 +540,28 @@ committed yet — review `git status`/`git diff` before committing.
   and `RevertResult.cs` are all 100% line/100% branch covered; `ApplyOrchestrationService.cs`'s one
   remaining gap is the same pre-existing `FileApplyOutcome.Failed` catch arm in `ApplyOne` already
   documented under T4.2.1/T3.3.4, not anything new from this task.
-- T4.2.3 Apply-history log surfaced in the UI.
+- [x] T4.2.3 Apply-history log surfaced in the UI. — done 2026-10-14: added
+  `IApplyHistoryLog`/`ApplyHistoryLog` (session-scoped, append-only list of `ApplyHistoryEntry`
+  rows - timestamp, `ApplyHistoryEntryKind`, and the file paths an action actually succeeded on;
+  singleton like T4.2.1/T4.2.2's stores), kept deliberately separate from `IApplyHistoryStore`
+  (whose batches hold full pre-apply content and get popped away by undo) and `IApplyBackupStore`
+  (no concept of individual timestamped actions at all). `ApplyOrchestrationService.ApplySelected`/
+  `TryUndoLastApply`/`RevertAllApplied` each record one entry per call, filtered to succeeded files
+  only, mirroring the same success-filtering already used for backups and undo batches; an action
+  that touches nothing logs nothing. `TutorialViewModel` mirrors the log into a display-ready
+  `ObservableCollection<string> ApplyHistoryEntries` (newest first) plus a `HasApplyHistory` flag,
+  refreshed after every apply/undo/revert and on `OnNavigatedTo` so navigating away and back doesn't
+  show a stale list; `TutorialView.axaml` gained a collapsed-until-first-use history panel (bounded
+  `MaxHeight`) in a new third grid row. New `Tutorial_HistoryEntry*` keys added to `Resources.cs`.
+  Covered by new `ApplyHistoryLogTests`, `ApplyOrchestrationServiceTests` additions (logs each kind
+  with succeeded-only paths, logs nothing when nothing succeeded), and `TutorialViewModelTests`
+  additions (`HasApplyHistory` toggling, `OnNavigatedTo` re-reading the log, each command refreshing
+  the display newest-first); full solution builds with 0 warnings/errors, 263/263 tests pass (211
+  Core + 52 Avalonia). `ApplyHistoryLog.cs` and `ApplyHistoryEntry.cs` are 100% line/100% branch
+  covered; `TutorialViewModel.cs`'s only new gap is a defensive `default` arm (`ArgumentOutOfRangeException`)
+  in the entry-kind formatting switch, structurally unreachable given the enum is exhaustively
+  handled above it; `ApplyOrchestrationService.cs`'s one remaining gap is the same pre-existing
+  `ApplyOne` catch arm already documented under T4.2.1/T4.2.2.
 
 **F4.3 — Git integration**
 - T4.3.1 Detect a git repo at the working directory; show dirty state before applying.

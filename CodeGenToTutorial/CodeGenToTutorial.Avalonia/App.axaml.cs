@@ -57,6 +57,7 @@ public partial class App : Application
             services.AddTransient<IFileChangeApplyService, FileChangeApplyService>();
             services.AddSingleton<IApplyBackupStore, ApplyBackupStore>();
             services.AddSingleton<IApplyHistoryStore, ApplyHistoryStore>();
+            services.AddSingleton<IApplyHistoryLog, ApplyHistoryLog>();
             services.AddTransient<IApplyOrchestrationService, ApplyOrchestrationService>();
             services.AddTransient<INavigationViewService, NavigationViewService>();
             services.AddTransient<IDialogService, DialogService>();

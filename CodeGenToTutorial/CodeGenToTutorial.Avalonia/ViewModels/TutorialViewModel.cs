@@ -16,6 +16,7 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
 {
     private readonly IPromptResultStore _promptResultStore;
     private readonly IApplyOrchestrationService _applyOrchestrationService;
+    private readonly IApplyHistoryLog _applyHistoryLog;
     private readonly IDialogService _dialogService;
 
     [ObservableProperty]
@@ -26,10 +27,20 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
 
     public ObservableCollection<ProposedFileChangeViewModel> Files { get; } = new();
 
-    public TutorialViewModel(IPromptResultStore promptResultStore, IApplyOrchestrationService applyOrchestrationService, IDialogService dialogService)
+    // T4.2.3: display-ready rows for the apply-history log, newest first. Populated from
+    // IApplyHistoryLog rather than bound to it directly, since that store's Entries is a plain
+    // IReadOnlyList<ApplyHistoryEntry> with no change notification the view could bind to.
+    public ObservableCollection<string> ApplyHistoryEntries { get; } = new();
+
+    // Drives whether the history panel shows itself or stays collapsed - there's nothing useful to
+    // show before the first apply of the session.
+    public bool HasApplyHistory => ApplyHistoryEntries.Count > 0;
+
+    public TutorialViewModel(IPromptResultStore promptResultStore, IApplyOrchestrationService applyOrchestrationService, IApplyHistoryLog applyHistoryLog, IDialogService dialogService)
     {
         _promptResultStore = promptResultStore;
         _applyOrchestrationService = applyOrchestrationService;
+        _applyHistoryLog = applyHistoryLog;
         _dialogService = dialogService;
 
         // ObservableCollection<T> raises PropertyChanged("Count") on its own, but HasNoFiles/
@@ -40,6 +51,8 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
             OnPropertyChanged(nameof(HasNoFiles));
             OnPropertyChanged(nameof(HasFilesButNoneSelected));
         };
+
+        ApplyHistoryEntries.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasApplyHistory));
     }
 
     public void OnNavigatedTo(object parameter)
@@ -55,6 +68,11 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
         // room to show both panes side by side; the hand-built two-pane layout here always shows both,
         // so it's safe to select eagerly instead of waiting for a ViewStateChanged-equivalent signal.
         EnsureItemSelected();
+
+        // The log is session-scoped (same singleton across page visits), so re-read it every time
+        // this page is shown rather than only right after an apply/undo/revert - otherwise
+        // navigating away and back would show a stale list.
+        RefreshApplyHistoryEntries();
     }
 
     public void OnNavigatedFrom()
@@ -142,6 +160,7 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
         }
 
         ApplyStatusMessage = string.Join(" ", messageParts);
+        RefreshApplyHistoryEntries();
 
         await _dialogService.InfoAsync(
             "Tutorial_ApplySelectedResultTitle".GetLocalized(),
@@ -176,6 +195,7 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
 
         RefreshFilesAffectedBy(result);
         ApplyStatusMessage = BuildRevertStatusMessage(result);
+        RefreshApplyHistoryEntries();
 
         await _dialogService.InfoAsync(
             "Tutorial_UndoLastApplyResultTitle".GetLocalized(),
@@ -210,6 +230,7 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
 
         RefreshFilesAffectedBy(result);
         ApplyStatusMessage = BuildRevertStatusMessage(result);
+        RefreshApplyHistoryEntries();
 
         await _dialogService.InfoAsync(
             "Tutorial_RevertAllAppliedResultTitle".GetLocalized(),
@@ -242,5 +263,31 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
         {
             file.RefreshOriginalContent(_promptResultStore.WorkingDirectoryPath);
         }
+    }
+
+    // T4.2.3: re-reads IApplyHistoryLog.Entries (oldest first) and rebuilds the display list
+    // newest first, so the most recent apply/undo/revert always shows at the top.
+    private void RefreshApplyHistoryEntries()
+    {
+        ApplyHistoryEntries.Clear();
+
+        foreach (var entry in _applyHistoryLog.Entries.Reverse())
+        {
+            ApplyHistoryEntries.Add(FormatHistoryEntry(entry));
+        }
+    }
+
+    private static string FormatHistoryEntry(ApplyHistoryEntry entry)
+    {
+        var timestamp = entry.Timestamp.ToLocalTime().ToString("g");
+        var key = entry.Kind switch
+        {
+            ApplyHistoryEntryKind.Applied => "Tutorial_HistoryEntryApplied",
+            ApplyHistoryEntryKind.UndoLastApply => "Tutorial_HistoryEntryUndoLastApply",
+            ApplyHistoryEntryKind.RevertAllApplied => "Tutorial_HistoryEntryRevertAllApplied",
+            _ => throw new ArgumentOutOfRangeException(nameof(entry), entry.Kind, "Unknown apply-history entry kind."),
+        };
+
+        return string.Format(key.GetLocalized(), timestamp, entry.FileCount);
     }
 }

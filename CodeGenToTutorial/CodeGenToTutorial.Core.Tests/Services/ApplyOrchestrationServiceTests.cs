@@ -9,11 +9,12 @@ public class ApplyOrchestrationServiceTests : IDisposable
     private readonly string _workingDirectory;
     private readonly ApplyBackupStore _backupStore = new();
     private readonly ApplyHistoryStore _historyStore = new();
+    private readonly ApplyHistoryLog _historyLog = new();
     private readonly ApplyOrchestrationService _service;
 
     public ApplyOrchestrationServiceTests()
     {
-        _service = new ApplyOrchestrationService(new FileChangeApplyService(), _backupStore, _historyStore);
+        _service = new ApplyOrchestrationService(new FileChangeApplyService(), _backupStore, _historyStore, _historyLog);
         _workingDirectory = Directory.CreateTempSubdirectory("CodeGenToTutorialTests_").FullName;
     }
 
@@ -290,6 +291,30 @@ public class ApplyOrchestrationServiceTests : IDisposable
     }
 
     [Fact]
+    public void ApplySelected_NothingSelected_DoesNotAddAHistoryLogEntry()
+    {
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original") { IsSelected = false };
+
+        _service.ApplySelected(new[] { file }, _workingDirectory);
+
+        Assert.Empty(_historyLog.Entries);
+    }
+
+    [Fact]
+    public void ApplySelected_FilesApplied_AddsAnAppliedHistoryLogEntryWithSucceededFilesOnly()
+    {
+        File.WriteAllText(Path.Combine(_workingDirectory, "conflicted.txt"), "changed on disk");
+        var conflicted = new ProposedFileChangeViewModel("conflicted.txt", "proposed", "original");
+        var clean = new ProposedFileChangeViewModel("clean.txt", "proposed content");
+
+        _service.ApplySelected(new[] { conflicted, clean }, _workingDirectory);
+
+        var entry = Assert.Single(_historyLog.Entries);
+        Assert.Equal(ApplyHistoryEntryKind.Applied, entry.Kind);
+        Assert.Equal("clean.txt", Assert.Single(entry.FilePaths));
+    }
+
+    [Fact]
     public void TryUndoLastApply_NothingAppliedThisSession_ReturnsFalseWithEmptyResult()
     {
         var found = _service.TryUndoLastApply(_workingDirectory, out var result);
@@ -378,6 +403,28 @@ public class ApplyOrchestrationServiceTests : IDisposable
     }
 
     [Fact]
+    public void TryUndoLastApply_FileRestored_AddsAnUndoLastApplyHistoryLogEntry()
+    {
+        File.WriteAllText(Path.Combine(_workingDirectory, "a.txt"), "original");
+        _service.ApplySelected(new[] { new ProposedFileChangeViewModel("a.txt", "proposed", "original") }, _workingDirectory);
+
+        _service.TryUndoLastApply(_workingDirectory, out _);
+
+        Assert.Equal(2, _historyLog.Entries.Count);
+        var entry = _historyLog.Entries[1];
+        Assert.Equal(ApplyHistoryEntryKind.UndoLastApply, entry.Kind);
+        Assert.Equal("a.txt", Assert.Single(entry.FilePaths));
+    }
+
+    [Fact]
+    public void TryUndoLastApply_NothingToUndo_DoesNotAddAHistoryLogEntry()
+    {
+        _service.TryUndoLastApply(_workingDirectory, out _);
+
+        Assert.Empty(_historyLog.Entries);
+    }
+
+    [Fact]
     public void RevertAllApplied_NothingAppliedThisSession_ReturnsEmptyResult()
     {
         var result = _service.RevertAllApplied(_workingDirectory);
@@ -421,5 +468,28 @@ public class ApplyOrchestrationServiceTests : IDisposable
         _service.RevertAllApplied(_workingDirectory);
 
         Assert.False(_service.TryUndoLastApply(_workingDirectory, out _));
+    }
+
+    [Fact]
+    public void RevertAllApplied_FilesReverted_AddsARevertAllAppliedHistoryLogEntry()
+    {
+        var first = new ProposedFileChangeViewModel("a.txt", "proposed a");
+        var second = new ProposedFileChangeViewModel("b.txt", "proposed b");
+        _service.ApplySelected(new[] { first, second }, _workingDirectory);
+
+        _service.RevertAllApplied(_workingDirectory);
+
+        Assert.Equal(2, _historyLog.Entries.Count);
+        var entry = _historyLog.Entries[1];
+        Assert.Equal(ApplyHistoryEntryKind.RevertAllApplied, entry.Kind);
+        Assert.Equal(new[] { "a.txt", "b.txt" }, entry.FilePaths.OrderBy(f => f));
+    }
+
+    [Fact]
+    public void RevertAllApplied_NothingAppliedThisSession_DoesNotAddAHistoryLogEntry()
+    {
+        _service.RevertAllApplied(_workingDirectory);
+
+        Assert.Empty(_historyLog.Entries);
     }
 }

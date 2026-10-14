@@ -9,9 +9,10 @@ public class TutorialViewModelTests
 {
     private readonly FakePromptResultStore _promptResultStore = new();
     private readonly FakeApplyOrchestrationService _applyOrchestrationService = new();
+    private readonly FakeApplyHistoryLog _applyHistoryLog = new();
     private readonly FakeDialogService _dialogService = new();
 
-    private TutorialViewModel CreateSut() => new(_promptResultStore, _applyOrchestrationService, _dialogService);
+    private TutorialViewModel CreateSut() => new(_promptResultStore, _applyOrchestrationService, _applyHistoryLog, _dialogService);
 
     [Fact]
     public void HasUnsavedChanges_NoFiles_IsFalse()
@@ -343,5 +344,79 @@ public class TutorialViewModelTests
         await sut.RevertAllAppliedCommand.ExecuteAsync(null);
 
         Assert.Contains("failed.txt", sut.ApplyStatusMessage);
+    }
+
+    [Fact]
+    public void HasApplyHistory_NoHistoryLogged_IsFalse()
+    {
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+
+        Assert.False(sut.HasApplyHistory);
+        Assert.Empty(sut.ApplyHistoryEntries);
+    }
+
+    [Fact]
+    public void OnNavigatedTo_HistoryAlreadyLogged_PopulatesApplyHistoryEntries()
+    {
+        _applyHistoryLog.Record(ApplyHistoryEntryKind.Applied, new[] { "a.txt" });
+        var sut = CreateSut();
+
+        sut.OnNavigatedTo(null!);
+
+        Assert.True(sut.HasApplyHistory);
+        Assert.Single(sut.ApplyHistoryEntries);
+    }
+
+    [Fact]
+    public async Task ApplySelectedAsync_UserConfirms_AddsAnEntryToApplyHistoryEntries()
+    {
+        _applyOrchestrationService.PreviewToReturn = new ApplyPreview(1, 1);
+        _dialogService.ConfirmResultToReturn = true;
+        _applyOrchestrationService.ApplySelectedResultToReturn = new ApplyBatchResult(
+            [new FileApplyResult("a.txt", FileApplyOutcome.Applied)]);
+        _applyHistoryLog.Record(ApplyHistoryEntryKind.Applied, new[] { "a.txt" });
+        var sut = CreateSut();
+
+        await sut.ApplySelectedCommand.ExecuteAsync(null);
+
+        Assert.True(sut.HasApplyHistory);
+        Assert.Single(sut.ApplyHistoryEntries);
+    }
+
+    [Fact]
+    public async Task UndoLastApplyAsync_UserConfirms_RefreshesApplyHistoryEntriesNewestFirst()
+    {
+        // The real IApplyHistoryLog entry for this undo is recorded by ApplyOrchestrationService
+        // itself (not the fake standing in for it here), so seed the log the way it would look right
+        // after a real TryUndoLastApply call, then verify the ViewModel's post-action refresh picks it up.
+        _applyHistoryLog.Record(ApplyHistoryEntryKind.Applied, new[] { "a.txt" });
+        _applyHistoryLog.Record(ApplyHistoryEntryKind.UndoLastApply, new[] { "a.txt" });
+        _dialogService.ConfirmResultToReturn = true;
+        _applyOrchestrationService.TryUndoLastApplyResultToReturn = true;
+        _applyOrchestrationService.UndoLastApplyRevertResultToReturn = new RevertResult([new RevertFileResult("a.txt", true)]);
+        var sut = CreateSut();
+
+        await sut.UndoLastApplyCommand.ExecuteAsync(null);
+
+        Assert.Equal(2, sut.ApplyHistoryEntries.Count);
+        Assert.Contains("Undid last apply", sut.ApplyHistoryEntries[0]);
+    }
+
+    [Fact]
+    public async Task RevertAllAppliedAsync_UserConfirms_RefreshesApplyHistoryEntries()
+    {
+        // Same reasoning as the undo test above: seed the log entry the real orchestration service
+        // would have recorded, then verify the ViewModel's post-action refresh displays it.
+        _applyHistoryLog.Record(ApplyHistoryEntryKind.RevertAllApplied, new[] { "a.txt" });
+        _dialogService.ConfirmResultToReturn = true;
+        _applyOrchestrationService.RevertAllAppliedResultToReturn = new RevertResult(
+            [new RevertFileResult("a.txt", true)]);
+        var sut = CreateSut();
+
+        await sut.RevertAllAppliedCommand.ExecuteAsync(null);
+
+        Assert.True(sut.HasApplyHistory);
+        Assert.Contains("Reverted all applied changes", sut.ApplyHistoryEntries[0]);
     }
 }
