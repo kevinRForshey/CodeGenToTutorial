@@ -6,16 +6,25 @@ using CodeGenToTutorial.Core.Contracts.Services;
 using CodeGenToTutorial.Core.Helpers;
 using CodeGenToTutorial.Core.Models;
 
+using Newtonsoft.Json.Linq;
+
 namespace CodeGenToTutorial.Core.Services;
 
 public class ClaudeCliService : IClaudeCliService
 {
-    private const string ExecutableName = "claude";
+    // Fixed flags required to get NDJSON stream-json output with token-level text deltas (T6.2.1) -
+    // appended unconditionally after the user-configured arguments (T6.1.4), since streaming is now
+    // a hard requirement for this service to parse its own output, not an optional CLI choice.
+    private static readonly string[] StreamingArguments = { "--output-format", "stream-json", "--include-partial-messages", "--verbose" };
 
-    public bool IsAvailable() => ExecutablePathResolver.ExistsOnPath(ExecutableName);
+    public bool IsAvailable(ClaudeCliOptions? options = null) =>
+        ExecutablePathResolver.ExistsOnPath((options ?? ClaudeCliOptions.Default).ExecutablePath);
 
-    public async Task<ClaudeCliResult> RunPromptAsync(string prompt, string? workingDirectory = null, CancellationToken cancellationToken = default)
+    public async Task<ClaudeCliResult> RunPromptAsync(string prompt, string? workingDirectory = null, ClaudeCliOptions? options = null, Action<string>? onTextDelta = null, CancellationToken cancellationToken = default)
     {
+        options ??= ClaudeCliOptions.Default;
+        var arguments = options.Arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries).Concat(StreamingArguments);
+
         // On Windows this is routed through cmd.exe so PATH resolution picks up the claude.cmd shim installed
         // by npm; other platforms can invoke the executable directly. The prompt is written to stdin rather
         // than passed as an argument: command-line parsers break on embedded newlines, which was
@@ -24,13 +33,17 @@ public class ClaudeCliService : IClaudeCliService
             ? new ProcessStartInfo
             {
                 FileName = "cmd.exe",
-                ArgumentList = { "/c", ExecutableName, "-p" },
+                ArgumentList = { "/c", options.ExecutablePath },
             }
             : new ProcessStartInfo
             {
-                FileName = ExecutableName,
-                ArgumentList = { "-p" },
+                FileName = options.ExecutablePath,
             };
+
+        foreach (var argument in arguments)
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
 
         startInfo.RedirectStandardInput = true;
         startInfo.RedirectStandardOutput = true;
@@ -48,14 +61,57 @@ public class ClaudeCliService : IClaudeCliService
 
         using var process = new Process { StartInfo = startInfo };
 
-        var standardOutput = new StringBuilder();
+        var assistantText = new StringBuilder();
         var standardError = new StringBuilder();
+        double? totalCostUsd = null;
+        long? durationMs = null;
+        int? inputTokens = null;
+        int? outputTokens = null;
 
+        // Each line of stdout is one NDJSON object (T6.2.1) rather than plain text now that the CLI
+        // is invoked with --output-format stream-json. A line that isn't a well-formed JSON object
+        // is swallowed rather than crashing the run - the CLI shouldn't produce one, but this is an
+        // external process's output, not something this code controls.
         process.OutputDataReceived += (_, e) =>
         {
-            if (e.Data != null)
+            if (e.Data == null)
             {
-                standardOutput.AppendLine(e.Data);
+                return;
+            }
+
+            JObject line;
+
+            try
+            {
+                line = JObject.Parse(e.Data);
+            }
+            catch (Newtonsoft.Json.JsonException)
+            {
+                return;
+            }
+
+            switch (line["type"]?.ToString())
+            {
+                case "stream_event":
+                    var streamEvent = line["event"] as JObject;
+
+                    if (streamEvent?["type"]?.ToString() == "content_block_delta" &&
+                        streamEvent["delta"] is JObject delta &&
+                        delta["type"]?.ToString() == "text_delta")
+                    {
+                        var text = delta["text"]?.ToString() ?? string.Empty;
+                        assistantText.Append(text);
+                        onTextDelta?.Invoke(text);
+                    }
+
+                    break;
+
+                case "result":
+                    totalCostUsd = line["total_cost_usd"]?.ToObject<double?>();
+                    durationMs = line["duration_ms"]?.ToObject<long?>();
+                    inputTokens = (line["usage"] as JObject)?["input_tokens"]?.ToObject<int?>();
+                    outputTokens = (line["usage"] as JObject)?["output_tokens"]?.ToObject<int?>();
+                    break;
             }
         };
 
@@ -94,8 +150,12 @@ public class ClaudeCliService : IClaudeCliService
         return new ClaudeCliResult
         {
             ExitCode = process.ExitCode,
-            StandardOutput = standardOutput.ToString().TrimEnd(),
+            StandardOutput = assistantText.ToString().TrimEnd(),
             StandardError = standardError.ToString().TrimEnd(),
+            TotalCostUsd = totalCostUsd,
+            DurationMs = durationMs,
+            InputTokens = inputTokens,
+            OutputTokens = outputTokens,
         };
     }
 }

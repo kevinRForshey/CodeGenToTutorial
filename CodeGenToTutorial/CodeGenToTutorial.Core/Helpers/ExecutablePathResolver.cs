@@ -12,19 +12,27 @@ public static class ExecutablePathResolver
     // can point this at a temp directory instead of mutating process-wide state.
     public static bool ExistsOnPath(string executableName, string? pathVariable = null)
     {
-        pathVariable ??= Environment.GetEnvironmentVariable("PATH");
-
-        if (string.IsNullOrEmpty(pathVariable))
-        {
-            return false;
-        }
-
         // Windows resolves a bare command name against these extensions in order (cmd.exe's
         // PATHEXT behavior); npm installs CLI shims as .cmd, so that has to be checked explicitly
         // rather than relying only on an exact, extension-less match like other platforms use.
         var extensions = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
             ? new[] { ".exe", ".cmd", ".bat", string.Empty }
             : new[] { string.Empty };
+
+        // A name containing a path separator (an absolute path, or something like "./claude") is
+        // used as-is rather than searched for on PATH, matching shell behavior - this lets T6.1.4's
+        // configurable CLI path point at a specific file instead of only a bare command name.
+        if (executableName.Contains(Path.DirectorySeparatorChar) || executableName.Contains(Path.AltDirectorySeparatorChar))
+        {
+            return extensions.Any(extension => File.Exists(executableName + extension));
+        }
+
+        pathVariable ??= Environment.GetEnvironmentVariable("PATH");
+
+        if (string.IsNullOrEmpty(pathVariable))
+        {
+            return false;
+        }
 
         foreach (var directory in pathVariable.Split(Path.PathSeparator))
         {

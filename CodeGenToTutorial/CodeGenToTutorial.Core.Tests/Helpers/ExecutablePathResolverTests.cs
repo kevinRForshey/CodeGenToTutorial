@@ -60,4 +60,37 @@ public class ExecutablePathResolverTests
             executableDirectory.Delete(recursive: true);
         }
     }
+
+    [Fact]
+    public void ExistsOnPath_AbsolutePathToExistingFile_ReturnsTrueWithoutConsultingPath()
+    {
+        var executableDirectory = Directory.CreateTempSubdirectory();
+        var executablePath = Path.Combine(executableDirectory.FullName, "mytool");
+        File.WriteAllText(executablePath, string.Empty);
+
+        try
+        {
+            Assert.True(ExecutablePathResolver.ExistsOnPath(executablePath, pathVariable: string.Empty));
+        }
+        finally
+        {
+            executableDirectory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ExistsOnPath_AbsolutePathToMissingFile_ReturnsFalse()
+    {
+        var executableDirectory = Directory.CreateTempSubdirectory();
+        var executablePath = Path.Combine(executableDirectory.FullName, "mytool");
+
+        try
+        {
+            Assert.False(ExecutablePathResolver.ExistsOnPath(executablePath));
+        }
+        finally
+        {
+            executableDirectory.Delete(recursive: true);
+        }
+    }
 }

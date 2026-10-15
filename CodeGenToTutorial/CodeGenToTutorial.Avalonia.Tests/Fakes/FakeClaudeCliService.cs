@@ -24,13 +24,19 @@ public class FakeClaudeCliService : IClaudeCliService
 
     public bool AvailableToReturn { get; set; } = true;
 
-    public bool IsAvailable() => AvailableToReturn;
+    public ClaudeCliOptions? LastOptions { get; private set; }
 
-    public async Task<ClaudeCliResult> RunPromptAsync(string prompt, string? workingDirectory = null, CancellationToken cancellationToken = default)
+    // T6.2.1: text chunks RunPromptAsync should hand to onTextDelta, in order, before returning.
+    public IReadOnlyList<string> TextDeltasToEmit { get; set; } = Array.Empty<string>();
+
+    public bool IsAvailable(ClaudeCliOptions? options = null) => AvailableToReturn;
+
+    public async Task<ClaudeCliResult> RunPromptAsync(string prompt, string? workingDirectory = null, ClaudeCliOptions? options = null, Action<string>? onTextDelta = null, CancellationToken cancellationToken = default)
     {
         CallCount++;
         LastPrompt = prompt;
         LastWorkingDirectory = workingDirectory;
+        LastOptions = options;
         LastCancellationToken = cancellationToken;
 
         if (ExceptionToThrow != null)
@@ -41,6 +47,11 @@ public class FakeClaudeCliService : IClaudeCliService
         if (!CompleteImmediately)
         {
             await Task.Delay(Timeout.Infinite, cancellationToken);
+        }
+
+        foreach (var delta in TextDeltasToEmit)
+        {
+            onTextDelta?.Invoke(delta);
         }
 
         return ResultToReturn;

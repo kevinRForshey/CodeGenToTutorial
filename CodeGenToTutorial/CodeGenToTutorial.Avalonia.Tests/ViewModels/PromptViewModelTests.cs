@@ -209,6 +209,32 @@ public class PromptViewModelTests
     }
 
     [Fact]
+    public async Task RunPromptAsync_NoSavedCliSettings_UsesDefaultClaudeCliOptions()
+    {
+        var sut = CreateSut();
+        sut.PromptText = "Do something";
+
+        await sut.RunPromptCommand.ExecuteAsync(null);
+
+        Assert.Equal("claude", _claudeCliService.LastOptions?.ExecutablePath);
+        Assert.Equal("-p", _claudeCliService.LastOptions?.Arguments);
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_SavedCliSettings_PassesConfiguredExecutablePathAndArguments()
+    {
+        await _localSettingsService.SaveSettingAsync("ClaudeCliExecutablePath", "/usr/local/bin/claude");
+        await _localSettingsService.SaveSettingAsync("ClaudeCliArguments", "-p --model=opus");
+        var sut = CreateSut();
+        sut.PromptText = "Do something";
+
+        await sut.RunPromptCommand.ExecuteAsync(null);
+
+        Assert.Equal("/usr/local/bin/claude", _claudeCliService.LastOptions?.ExecutablePath);
+        Assert.Equal("-p --model=opus", _claudeCliService.LastOptions?.Arguments);
+    }
+
+    [Fact]
     public void CanRunPrompt_EmptyPromptText_CannotExecute()
     {
         var sut = CreateSut();
@@ -260,6 +286,95 @@ public class PromptViewModelTests
         await sut.BrowseWorkingDirectoryCommand.ExecuteAsync(null);
 
         Assert.Equal("/existing/path", sut.WorkingDirectoryPath);
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_StreamedTextDeltas_AppendToCliOutputAsTheyArrive()
+    {
+        var sut = CreateSut();
+        sut.PromptText = "Add a Foo class";
+        _claudeCliService.TextDeltasToEmit = new[] { "Hello", ", world" };
+        _claudeCliService.ResultToReturn = new ClaudeCliResult { ExitCode = 0, StandardOutput = "Hello, world" };
+
+        await sut.RunPromptCommand.ExecuteAsync(null);
+
+        Assert.Equal("Hello, world", sut.CliOutput);
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_StreamedTextDeltasCompleteAFileBlock_SurfacesItBeforeTheRunFinishes()
+    {
+        var sut = CreateSut();
+        sut.PromptText = "Add a Foo class";
+        const string streamed =
+            """
+            ## Tutorial
+            Adds a Foo class.
+
+            ## Files
+
+            ### File: Foo.cs
+            ```
+            class Foo {}
+            ```
+            """;
+        _claudeCliService.TextDeltasToEmit = new[] { streamed };
+        _claudeCliService.ResultToReturn = new ClaudeCliResult { ExitCode = 0, StandardOutput = streamed };
+
+        var seenFileCountsBeforeCompletion = new List<int>();
+        _promptResultStore.OnSetResult = () => seenFileCountsBeforeCompletion.Add(_promptResultStore.Files.Count);
+
+        await sut.RunPromptCommand.ExecuteAsync(null);
+
+        Assert.Contains(1, seenFileCountsBeforeCompletion);
+        Assert.Single(_promptResultStore.Files);
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_ResultWithUsageData_PopulatesUsageSummary()
+    {
+        var sut = CreateSut();
+        sut.PromptText = "Do something";
+        _claudeCliService.ResultToReturn = new ClaudeCliResult
+        {
+            ExitCode = 0,
+            StandardOutput = "done",
+            TotalCostUsd = 0.0056,
+            DurationMs = 1234,
+            InputTokens = 10,
+            OutputTokens = 5,
+        };
+
+        await sut.RunPromptCommand.ExecuteAsync(null);
+
+        Assert.Contains("0.0056", sut.UsageSummary);
+        Assert.Contains("10", sut.UsageSummary);
+        Assert.Contains("5", sut.UsageSummary);
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_ResultWithoutUsageData_LeavesUsageSummaryEmpty()
+    {
+        var sut = CreateSut();
+        sut.PromptText = "Do something";
+        _claudeCliService.ResultToReturn = new ClaudeCliResult { ExitCode = 0, StandardOutput = "done" };
+
+        await sut.RunPromptCommand.ExecuteAsync(null);
+
+        Assert.Equal(string.Empty, sut.UsageSummary);
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_WhileRunning_SetsElapsedTimeDisplay()
+    {
+        var sut = CreateSut();
+        sut.PromptText = "Do something";
+
+        Assert.Equal(string.Empty, sut.ElapsedTimeDisplay);
+
+        await sut.RunPromptCommand.ExecuteAsync(null);
+
+        Assert.Equal("0s", sut.ElapsedTimeDisplay);
     }
 
     [Fact]

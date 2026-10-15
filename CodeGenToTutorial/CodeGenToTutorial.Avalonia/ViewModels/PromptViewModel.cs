@@ -1,8 +1,14 @@
+using System.Diagnostics;
+
+using Avalonia.Threading;
+
 using CodeGenToTutorial.Avalonia.Contracts.Services;
 using CodeGenToTutorial.Avalonia.Contracts.ViewModels;
+using CodeGenToTutorial.Avalonia.Services;
 using CodeGenToTutorial.Avalonia.Strings;
 using CodeGenToTutorial.Core.Contracts.Services;
 using CodeGenToTutorial.Core.Helpers;
+using CodeGenToTutorial.Core.Models;
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -82,6 +88,14 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
     [ObservableProperty]
     private int timeoutSeconds = DefaultTimeoutSeconds;
 
+    // T6.2.3: live "Xs" readout ticking while a run is in progress, and a post-run cost/token
+    // summary once the CLI's final result line has been parsed.
+    [ObservableProperty]
+    private string elapsedTimeDisplay = string.Empty;
+
+    [ObservableProperty]
+    private string usageSummary = string.Empty;
+
     // T6.1.1: lives only for the duration of one RunPromptAsync call, so CancelPromptCommand has
     // something to cancel and the run's own cleanup has something to dispose - null the rest of
     // the time (including CanCancelPrompt's guard) rather than relying solely on IsRunning, in case
@@ -92,6 +106,11 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
     // can tell *why* the run stopped - checking which of the two sources actually requested
     // cancellation - rather than guessing from a single shared token.
     private CancellationTokenSource? _timeoutCancellationTokenSource;
+
+    // T6.2.3: ticks ElapsedTimeDisplay once a second while a run is in progress.
+    private DispatcherTimer? _elapsedTimer;
+
+    private Stopwatch? _runStopwatch;
 
     public PromptViewModel(IClaudeCliService claudeCliService, ILocalSettingsService localSettingsService, IFolderPickerService folderPickerService, IPromptResultStore promptResultStore)
     {
@@ -139,7 +158,9 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
     [RelayCommand(CanExecute = nameof(CanRunPrompt))]
     private async Task RunPromptAsync()
     {
-        if (!_claudeCliService.IsAvailable())
+        var cliOptions = await LoadClaudeCliOptionsAsync();
+
+        if (!_claudeCliService.IsAvailable(cliOptions))
         {
             StatusMessage = "Prompt_ClaudeCliNotFound".GetLocalized();
             return;
@@ -147,11 +168,18 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
 
         IsRunning = true;
         CliOutput = string.Empty;
+        UsageSummary = string.Empty;
         StatusMessage = "Prompt_Running".GetLocalized();
 
         _runCancellationTokenSource = new CancellationTokenSource();
         _timeoutCancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds(TimeoutSeconds));
         CancelPromptCommand.NotifyCanExecuteChanged();
+
+        _runStopwatch = Stopwatch.StartNew();
+        ElapsedTimeDisplay = "0s";
+        _elapsedTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _elapsedTimer.Tick += (_, _) => ElapsedTimeDisplay = $"{(int)_runStopwatch.Elapsed.TotalSeconds}s";
+        _elapsedTimer.Start();
 
         using var linkedCancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(
             _runCancellationTokenSource.Token, _timeoutCancellationTokenSource.Token);
@@ -165,11 +193,35 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
                 fullPrompt += $"\n\nThe working directory is: {WorkingDirectoryPath}";
             }
 
-            var result = await _claudeCliService.RunPromptAsync(fullPrompt, WorkingDirectoryPath, linkedCancellationTokenSource.Token);
+            // T6.2.1/T6.2.2: fires on a background thread as the CLI streams assistant text, so UI
+            // state is only ever touched after marshaling onto the UI thread. Re-parsing the
+            // growing CliOutput on every delta is safe because ClaudeResponseParser only matches
+            // complete (closed-fence) sections - partial/in-progress blocks are naturally ignored
+            // until they finish, so this surfaces newly-completed files as soon as they're emitted
+            // instead of waiting for the whole run to finish.
+            void OnTextDelta(string text) => Dispatcher.UIThread.Post(() =>
+            {
+                CliOutput += text;
+
+                var streamedSoFar = ClaudeResponseParser.Parse(CliOutput);
+                _promptResultStore.SetResult(streamedSoFar.Tutorial, streamedSoFar.Files, WorkingDirectoryPath);
+            });
+
+            var result = await _claudeCliService.RunPromptAsync(fullPrompt, WorkingDirectoryPath, cliOptions, OnTextDelta, linkedCancellationTokenSource.Token);
 
             CliOutput = result.ExitCode == 0 || string.IsNullOrWhiteSpace(result.StandardError)
                 ? result.StandardOutput
                 : result.StandardError;
+
+            if (result.TotalCostUsd.HasValue)
+            {
+                UsageSummary = string.Format(
+                    "Prompt_UsageSummary".GetLocalized(),
+                    result.TotalCostUsd.Value,
+                    result.InputTokens ?? 0,
+                    result.OutputTokens ?? 0,
+                    (result.DurationMs ?? 0) / 1000.0);
+            }
 
             if (result.ExitCode == 0)
             {
@@ -205,6 +257,9 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
             _runCancellationTokenSource = null;
             _timeoutCancellationTokenSource?.Dispose();
             _timeoutCancellationTokenSource = null;
+            _elapsedTimer?.Stop();
+            _elapsedTimer = null;
+            _runStopwatch = null;
             CancelPromptCommand.NotifyCanExecuteChanged();
         }
     }
@@ -221,4 +276,16 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
     partial void OnIsRunningChanged(bool value) => RunPromptCommand.NotifyCanExecuteChanged();
 
     partial void OnTimeoutSecondsChanged(int value) => _localSettingsService.SaveSettingAsync(TimeoutSecondsSettingsKey, value);
+
+    // T6.1.4: reads the Settings page's CLI path/arguments on every run rather than caching them,
+    // so a change made there takes effect on the next run without requiring a page revisit here.
+    private async Task<ClaudeCliOptions> LoadClaudeCliOptionsAsync()
+    {
+        var executablePath = await _localSettingsService.ReadSettingAsync<string>(ClaudeCliSettingsKeys.ExecutablePath);
+        var arguments = await _localSettingsService.ReadSettingAsync<string>(ClaudeCliSettingsKeys.Arguments);
+
+        return new ClaudeCliOptions(
+            string.IsNullOrWhiteSpace(executablePath) ? ClaudeCliOptions.Default.ExecutablePath : executablePath,
+            string.IsNullOrWhiteSpace(arguments) ? ClaudeCliOptions.Default.Arguments : arguments);
+    }
 }

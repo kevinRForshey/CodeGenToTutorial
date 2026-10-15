@@ -692,12 +692,107 @@ committed yet — review `git status`/`git diff` before committing.
   Avalonia). The Windows-only extension-search branch in `ExecutablePathResolver` is untested on this
   (Linux) development machine - same class of platform-conditional gap as `ClaudeCliService`'s
   existing `cmd.exe` branch.
-- T6.1.4 Configurable CLI path/arguments in Settings.
+- [x] T6.1.4 Configurable CLI path/arguments in Settings. — done 2026-10-15: added
+  `ClaudeCliOptions` (`ExecutablePath`/`Arguments`, with `ClaudeCliOptions.Default` = `"claude"`/
+  `"-p"`) to Core, and threaded an optional `ClaudeCliOptions? options` parameter through
+  `IClaudeCliService.RunPromptAsync` and `IsAvailable` (defaulting to `ClaudeCliOptions.Default`
+  when not supplied, so T6.1.1-T6.1.3's existing call sites stay correct without change).
+  `ClaudeCliService` now builds its `ProcessStartInfo.FileName` from `options.ExecutablePath` and
+  splits `options.Arguments` on whitespace into the argument list - naive, no quoting support, but
+  sufficient for simple flags like `-p --model=opus`. `ExecutablePathResolver.ExistsOnPath` gained a
+  branch so a path containing a directory separator (e.g. an absolute path to a custom build) is
+  checked directly with `File.Exists` instead of being searched for on `PATH`, matching how a shell
+  treats a command name containing a slash. On the Settings page, `SettingsViewModel` now
+  implements `INavigationAware` and exposes `ClaudeCliExecutablePath`/`ClaudeCliArguments`
+  (persisted immediately on change, restored in `OnNavigatedTo`, falling back to
+  `ClaudeCliOptions.Default` when unset) bound to two new `TextBox`es under a "Claude Code CLI"
+  heading. `PromptViewModel.RunPromptAsync` reads those same two settings keys (shared via a new
+  `ClaudeCliSettingsKeys` constants class so the Settings and Prompt pages can't drift apart) on
+  every run - rather than caching them - so a change made on the Settings page takes effect on the
+  very next run without needing to revisit the Prompt page first; the resulting `ClaudeCliOptions`
+  feeds both the `IsAvailable` preflight check (T6.1.3) and the actual `RunPromptAsync` call.
+  Covered by new `ExecutablePathResolverTests` cases (absolute path to an existing file resolves
+  without consulting `PATH`; absolute path to a missing file is `false`), new
+  `SettingsViewModelTests` (defaults, persisting a change, restoring a saved value, restoring with
+  nothing saved yet - using a new `FakeThemeSelectorService` alongside the existing
+  `FakeLocalSettingsService`), and new `PromptViewModelTests` cases (no saved settings passes
+  `ClaudeCliOptions.Default` through to the CLI service; saved settings pass the configured
+  executable path and arguments through) via a new `FakeClaudeCliService.LastOptions` capture.
+  `ClaudeCliService.cs` itself still has no direct test coverage for the actual process-start
+  behavior, consistent with the gap already noted under T6.1.1 - it shells out to a real external
+  process, so exercising the new argument-splitting/path-selection logic end-to-end isn't something
+  a unit test can safely do. Full solution builds with 0 warnings/errors, 298/298 tests pass (227
+  Core + 71 Avalonia). Manually launched the app after these changes and confirmed no Avalonia
+  binding exceptions on startup; couldn't visually confirm the new Settings page `TextBox`es render
+  as intended since this sandbox's Wayland compositor refuses screenshot capture, so a quick manual
+  look is worth doing.
 
 **F6.2 — Streaming & progress**
-- T6.2.1 Stream stdout into the output pane as it arrives rather than buffering to completion.
-- T6.2.2 Parse incrementally so files appear as they are emitted.
-- T6.2.3 Elapsed-time and token/cost readout.
+- [x] T6.2.1 Stream stdout into the output pane as it arrives rather than buffering to completion. —
+  done 2026-10-15: `ClaudeCliService` now always appends `--output-format stream-json
+  --include-partial-messages --verbose` after the user-configured arguments (T6.1.4) - stream-json
+  with partial messages is a hard requirement for this service's own parsing to work, not an optional
+  CLI choice, so it's unconditional rather than user-configurable. Verified the NDJSON schema for
+  free by reading the embedded strings in the installed `claude` CLI binary (`strings -a`) rather
+  than spending a real/paid API call: each stdout line is one JSON object; `{"type":"stream_event",
+  "event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"..."}}}` carries one
+  chunk of assistant text, and a final `{"type":"result",...}` line carries cost/usage/duration
+  (T6.2.3). `OutputDataReceived`'s handler now parses each line with `Newtonsoft.Json.Linq.JObject`
+  (matching the project's existing `Json.cs` convention) instead of accumulating raw text, and a
+  line that fails to parse as JSON is swallowed rather than crashing the run. `IClaudeCliService.
+  RunPromptAsync` gained an `Action<string>? onTextDelta` parameter invoked once per text-delta
+  chunk, in order, as it arrives - on the process's background output-reading thread, so
+  `PromptViewModel` marshals onto the UI thread via `Dispatcher.UIThread.Post` before touching
+  `CliOutput`. `ClaudeCliResult.StandardOutput` is now the concatenation of streamed text deltas
+  (previously the raw stdout text); for this app's single-turn, no-tool-use prompts that's
+  equivalent to the old behavior, just assembled incrementally. Covered by a new
+  `ClaudeCliServiceTests` (Core.Tests) that stands a small POSIX shell script in for the `claude`
+  binary - the same approach `GitStatusServiceTests` already takes with a real `git` binary -
+  asserting deltas are accumulated into `StandardOutput` and that `onTextDelta` is invoked for each
+  chunk in order; this closes the test-coverage gap called out under T6.1.1/T6.1.4 (process-start
+  behavior had no direct unit test before, since the executable couldn't be substituted). Also a new
+  `PromptViewModelTests` case asserting streamed deltas append to `CliOutput` live via
+  `FakeClaudeCliService.TextDeltasToEmit`. Known gap: if the CLI ever invokes a tool mid-turn
+  (interleaving `tool_use` content blocks with text blocks), deltas are concatenated in arrival order
+  regardless of content-block index, which could interleave text from different blocks - not an
+  issue today since this app's prompts explicitly ask for a direct text response with no tool use.
+- [x] T6.2.2 Parse incrementally so files appear as they are emitted. — done 2026-10-15:
+  `PromptViewModel`'s `onTextDelta` callback re-runs `ClaudeResponseParser.Parse` against the
+  growing `CliOutput` after every chunk and calls `_promptResultStore.SetResult` with whatever it
+  finds - safe to do on every delta because the parser only matches complete, closed-fence `###
+  File:` sections (confirmed by reading `ClaudeResponseParser.cs`), so an in-progress file block is
+  silently ignored until it closes rather than appearing truncated. This means `DiffsView`/
+  `TutorialView` (both bound to the shared `PromptResultStore`) can show a file as soon as its block
+  finishes streaming, instead of waiting for the whole CLI run to exit. The existing end-of-run
+  `SetResult` call (gated on `ExitCode == 0`) is unchanged and simply re-confirms the same data once
+  the run finishes. Covered by a new `PromptViewModelTests` case that streams a complete `## Tutorial`
+  /`## Files` response as a single delta chunk and asserts `PromptResultStore.Files` already has the
+  file before the run command's `Task` completes (via a new `FakePromptResultStore.OnSetResult` hook
+  so the test can observe the intermediate call, not just the final state). Known/accepted gap: if a
+  run streams one or more complete file blocks and then the CLI ultimately fails (non-zero exit
+  code), those files remain visible in `PromptResultStore` - there's no rollback, since the store has
+  no such concept and the approved plan for this task didn't call for one.
+- [x] T6.2.3 Elapsed-time and token/cost readout. — done 2026-10-15: `PromptViewModel` starts a
+  `Stopwatch` and an Avalonia `DispatcherTimer` (1-second tick) when a run begins, exposing a new
+  `ElapsedTimeDisplay` string property (e.g. `"12s"`) bound next to the progress ring on
+  `PromptView`, visible only while `IsRunning`. On the Core side, `ClaudeCliResult` gained nullable
+  `TotalCostUsd`/`DurationMs`/`InputTokens`/`OutputTokens` fields, populated from the final
+  `{"type":"result",...}` NDJSON line's `total_cost_usd`/`duration_ms`/`usage.input_tokens`/
+  `usage.output_tokens` fields (null if that line was never seen, e.g. the run was cancelled before
+  finishing). `PromptViewModel` turns a successful result with cost data into a new `UsageSummary`
+  string (new `Prompt_UsageSummary` resource string: `"Cost: ${0:F4} • {1:N0} in / {2:N0} out tokens
+  • {3:F1}s"`), displayed under the status message. Covered by new `ClaudeCliServiceTests` (the
+  fake-script `result` line's cost/duration/usage fields land on `ClaudeCliResult` correctly) and new
+  `PromptViewModelTests` cases (a result with usage data populates `UsageSummary`; one without leaves
+  it empty; `ElapsedTimeDisplay` is set once a run completes). Full solution builds with 0
+  warnings/errors, 306/306 tests pass (230 Core + 76 Avalonia). Manually launched the app and
+  confirmed no Avalonia binding exceptions after adding the `ElapsedTimeDisplay`/`UsageSummary`
+  bindings; couldn't visually confirm their on-screen layout since this sandbox's Wayland compositor
+  refuses screenshot capture, so a quick manual look is worth doing. Also worth a real (paid) manual
+  smoke test against the actual `claude` CLI at some point - the NDJSON schema here was verified via
+  the installed binary's embedded strings rather than a live call, per the user's explicit preference
+  to avoid spending real API usage on verification, so it hasn't been exercised end-to-end against
+  the real CLI yet.
 
 **F6.3 — Provider abstraction**
 - T6.3.1 Abstract behind an `ILlmRunner` so the CLI is one implementation.
