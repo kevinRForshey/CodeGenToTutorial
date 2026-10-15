@@ -13,6 +13,8 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
 {
     private const string PromptSettingsKey = "SavedPrompt";
     private const string WorkingDirectorySettingsKey = "SavedWorkingDirectory";
+    private const string TimeoutSecondsSettingsKey = "PromptTimeoutSeconds";
+    private const int DefaultTimeoutSeconds = 300;
 
     // Hard-coded instructions prepended to every prompt sent to Claude Code. Refine as the tutorial/diff workflow evolves.
     private const string TutorialInstructionPrompt =
@@ -77,11 +79,19 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
     [ObservableProperty]
     private string workingDirectoryPath = string.Empty;
 
+    [ObservableProperty]
+    private int timeoutSeconds = DefaultTimeoutSeconds;
+
     // T6.1.1: lives only for the duration of one RunPromptAsync call, so CancelPromptCommand has
     // something to cancel and the run's own cleanup has something to dispose - null the rest of
     // the time (including CanCancelPrompt's guard) rather than relying solely on IsRunning, in case
     // a run finishes and clears it in the same moment the user clicks Cancel.
     private CancellationTokenSource? _runCancellationTokenSource;
+
+    // T6.1.2: cancels independently of _runCancellationTokenSource so RunPromptAsync's catch block
+    // can tell *why* the run stopped - checking which of the two sources actually requested
+    // cancellation - rather than guessing from a single shared token.
+    private CancellationTokenSource? _timeoutCancellationTokenSource;
 
     public PromptViewModel(IClaudeCliService claudeCliService, ILocalSettingsService localSettingsService, IFolderPickerService folderPickerService, IPromptResultStore promptResultStore)
     {
@@ -95,6 +105,10 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
     {
         PromptText = await _localSettingsService.ReadSettingAsync<string>(PromptSettingsKey) ?? string.Empty;
         WorkingDirectoryPath = await _localSettingsService.ReadSettingAsync<string>(WorkingDirectorySettingsKey) ?? string.Empty;
+
+        var savedTimeoutSeconds = await _localSettingsService.ReadSettingAsync<int>(TimeoutSecondsSettingsKey);
+        TimeoutSeconds = savedTimeoutSeconds > 0 ? savedTimeoutSeconds : DefaultTimeoutSeconds;
+
         StatusMessage = string.Empty;
     }
 
@@ -136,7 +150,11 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
         StatusMessage = "Prompt_Running".GetLocalized();
 
         _runCancellationTokenSource = new CancellationTokenSource();
+        _timeoutCancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds(TimeoutSeconds));
         CancelPromptCommand.NotifyCanExecuteChanged();
+
+        using var linkedCancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(
+            _runCancellationTokenSource.Token, _timeoutCancellationTokenSource.Token);
 
         try
         {
@@ -147,7 +165,7 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
                 fullPrompt += $"\n\nThe working directory is: {WorkingDirectoryPath}";
             }
 
-            var result = await _claudeCliService.RunPromptAsync(fullPrompt, WorkingDirectoryPath, _runCancellationTokenSource.Token);
+            var result = await _claudeCliService.RunPromptAsync(fullPrompt, WorkingDirectoryPath, linkedCancellationTokenSource.Token);
 
             CliOutput = result.ExitCode == 0 || string.IsNullOrWhiteSpace(result.StandardError)
                 ? result.StandardOutput
@@ -169,7 +187,12 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
         }
         catch (OperationCanceledException)
         {
-            StatusMessage = "Prompt_RunCancelled".GetLocalized();
+            // Both sources funnel into the same linked token, so the only way to tell a timeout
+            // apart from a user-initiated cancel (T6.1.2) is which underlying source actually
+            // requested it.
+            StatusMessage = _timeoutCancellationTokenSource.IsCancellationRequested
+                ? string.Format("Prompt_RunTimedOut".GetLocalized(), TimeoutSeconds)
+                : "Prompt_RunCancelled".GetLocalized();
         }
         catch (Exception ex)
         {
@@ -180,6 +203,8 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
             IsRunning = false;
             _runCancellationTokenSource?.Dispose();
             _runCancellationTokenSource = null;
+            _timeoutCancellationTokenSource?.Dispose();
+            _timeoutCancellationTokenSource = null;
             CancelPromptCommand.NotifyCanExecuteChanged();
         }
     }
@@ -194,4 +219,6 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
     partial void OnPromptTextChanged(string value) => RunPromptCommand.NotifyCanExecuteChanged();
 
     partial void OnIsRunningChanged(bool value) => RunPromptCommand.NotifyCanExecuteChanged();
+
+    partial void OnTimeoutSecondsChanged(int value) => _localSettingsService.SaveSettingAsync(TimeoutSecondsSettingsKey, value);
 }

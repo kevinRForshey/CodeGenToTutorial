@@ -151,6 +151,50 @@ public class PromptViewModelTests
     }
 
     [Fact]
+    public async Task RunPromptAsync_TimeoutElapses_ReportsTimeoutMessageAndCancelsTheCliCall()
+    {
+        var sut = CreateSut();
+        sut.PromptText = "Do something";
+        sut.TimeoutSeconds = 0;
+        _claudeCliService.CompleteImmediately = false;
+
+        await sut.RunPromptCommand.ExecuteAsync(null);
+
+        Assert.False(sut.IsRunning);
+        Assert.Equal("Timed out after 0 second(s). You can increase the timeout on the Settings page.", sut.StatusMessage);
+        Assert.True(_claudeCliService.LastCancellationToken.IsCancellationRequested);
+    }
+
+    [Fact]
+    public void TimeoutSeconds_DefaultsTo300()
+    {
+        var sut = CreateSut();
+
+        Assert.Equal(300, sut.TimeoutSeconds);
+    }
+
+    [Fact]
+    public async Task TimeoutSeconds_WhenChanged_PersistsToSettings()
+    {
+        var sut = CreateSut();
+        sut.TimeoutSeconds = 600;
+
+        Assert.Equal(600, await _localSettingsService.ReadSettingAsync<int>("PromptTimeoutSeconds"));
+    }
+
+    [Fact]
+    public async Task OnNavigatedTo_RestoresSavedTimeoutSeconds()
+    {
+        await _localSettingsService.SaveSettingAsync("PromptTimeoutSeconds", 120);
+        var sut = CreateSut();
+
+        sut.OnNavigatedTo(null!);
+        await Task.Yield();
+
+        Assert.Equal(120, sut.TimeoutSeconds);
+    }
+
+    [Fact]
     public async Task RunPromptAsync_CliNotAvailable_ReportsActionableMessageAndDoesNotRun()
     {
         var sut = CreateSut();

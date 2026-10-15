@@ -648,7 +648,28 @@ committed yet — review `git status`/`git diff` before committing.
   `ClaudeCliService.RunPromptAsync` has no direct unit test coverage, since the hardcoded `claude`
   executable can't be substituted for a real long-running process in a test yet - revisit once T6.1.4
   makes the executable path injectable.
-- T6.1.2 Configurable timeout with a clear timeout message.
+- [x] T6.1.2 Configurable timeout with a clear timeout message. — done 2026-10-15: `PromptViewModel`
+  now has a `TimeoutSeconds` property (default 300, persisted to local settings under
+  `PromptTimeoutSeconds` and restored in `OnNavigatedTo`), exposed on `PromptView` as a
+  `NumericUpDown` next to the Cancel button. `RunPromptAsync` runs two independent
+  `CancellationTokenSource`s - the existing user-cancel one from T6.1.1, plus a new one constructed
+  with `TimeSpan.FromSeconds(TimeoutSeconds)` so it cancels itself once the timeout elapses - linked
+  via `CancellationTokenSource.CreateLinkedTokenSource` into the single token actually passed to
+  `IClaudeCliService.RunPromptAsync`. Both paths still end up throwing the same
+  `OperationCanceledException`, so the catch block distinguishes a timeout from a user cancel by
+  checking which of the two underlying sources has `IsCancellationRequested` set, rather than
+  guessing from the single linked token - reporting the new `Prompt_RunTimedOut` resource string
+  (naming the elapsed seconds and pointing at the Settings page) instead of `Prompt_RunCancelled`.
+  Covered by new `PromptViewModelTests` cases (timeout elapsing reports the timeout message and
+  still cancels the underlying CLI call via `FakeClaudeCliService.CompleteImmediately = false`;
+  `TimeoutSeconds` defaults to 300; changing it persists to settings; `OnNavigatedTo` restores a
+  previously saved value) - the timeout test uses `TimeoutSeconds = 0` so the timer fires
+  immediately rather than slowing the suite down with a real wait. The existing T6.1.1 cancel tests
+  were unaffected since they run well within the 300-second default timeout. Full solution builds
+  with 0 warnings/errors, 289/289 tests pass (225 Core + 64 Avalonia). Manually launched the app to
+  confirm it starts without any Avalonia binding exceptions after adding the `NumericUpDown`
+  binding, but couldn't visually confirm the control's on-screen layout - this sandbox's Wayland
+  compositor refuses screenshot capture, so a quick manual look is still worth doing.
 - [x] T6.1.3 Preflight check that the CLI exists; actionable error with install guidance if not. —
   done 2026-10-15: added `ExecutablePathResolver.ExistsOnPath`, a helper that searches the `PATH`
   environment variable for an executable the same way the OS shell would resolve a bare command name
