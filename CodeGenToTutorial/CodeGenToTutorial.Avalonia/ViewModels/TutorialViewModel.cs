@@ -121,6 +121,25 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
             return;
         }
 
+        // Asked separately from the general apply-confirm above (T4.3.2): unlike protected paths,
+        // overwriting a file that's already dirty in git isn't something a per-file skip can make
+        // safe - there's no commit to fall back on for it either way - so declining here cancels
+        // the whole apply rather than just excluding those files from the batch.
+        if (preview.IsGitRepository && preview.GitDirtyFileCount > 0)
+        {
+            var dirtyPaths = string.Join(", ", preview.GitDirtyFiles);
+            var proceedDespiteDirtyFiles = await _dialogService.ConfirmAsync(
+                "Tutorial_ApplyGitDirtyConfirmTitle".GetLocalized(),
+                string.Format("Tutorial_ApplyGitDirtyConfirmMessage".GetLocalized(), preview.GitDirtyFileCount, dirtyPaths),
+                "Tutorial_ApplyGitDirtyConfirmButton".GetLocalized(),
+                "Tutorial_ApplyGitDirtyConfirmCancelButton".GetLocalized());
+
+            if (!proceedDespiteDirtyFiles)
+            {
+                return;
+            }
+        }
+
         // Asked separately from the general apply-confirm above (T4.1.2), so declining it only
         // skips the protected files (reported below as ProtectedPathBlockedCount) rather than
         // aborting the whole batch - consistent with T3.3.4's "one file's problem never stops the

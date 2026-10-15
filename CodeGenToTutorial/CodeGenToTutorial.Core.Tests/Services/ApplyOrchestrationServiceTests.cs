@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 using CodeGenToTutorial.Core.Models;
 using CodeGenToTutorial.Core.Services;
 using CodeGenToTutorial.Core.ViewModels;
@@ -14,7 +16,7 @@ public class ApplyOrchestrationServiceTests : IDisposable
 
     public ApplyOrchestrationServiceTests()
     {
-        _service = new ApplyOrchestrationService(new FileChangeApplyService(), _backupStore, _historyStore, _historyLog);
+        _service = new ApplyOrchestrationService(new FileChangeApplyService(), _backupStore, _historyStore, _historyLog, new GitStatusService());
         _workingDirectory = Directory.CreateTempSubdirectory("CodeGenToTutorialTests_").FullName;
     }
 
@@ -180,6 +182,98 @@ public class ApplyOrchestrationServiceTests : IDisposable
 
         Assert.Equal(0, preview.ProtectedPathCount);
         Assert.Empty(preview.ProtectedPathFiles);
+    }
+
+    [Fact]
+    public void Preview_WorkingDirectoryNotAGitRepository_ReportsNotARepositoryAndNoDirtyFiles()
+    {
+        var files = new[] { new ProposedFileChangeViewModel("a.txt", "proposed content") };
+
+        var preview = _service.Preview(files, _workingDirectory);
+
+        Assert.False(preview.IsGitRepository);
+        Assert.Equal(0, preview.GitDirtyFileCount);
+        Assert.Empty(preview.GitDirtyFiles);
+    }
+
+    [Fact]
+    public void Preview_CleanGitRepository_ReportsIsRepositoryWithNoDirtyFiles()
+    {
+        InitRepository();
+        File.WriteAllText(Path.Combine(_workingDirectory, "a.txt"), "committed");
+        CommitAll();
+        var files = new[] { new ProposedFileChangeViewModel("a.txt", "proposed content") };
+
+        var preview = _service.Preview(files, _workingDirectory);
+
+        Assert.True(preview.IsGitRepository);
+        Assert.Equal(0, preview.GitDirtyFileCount);
+        Assert.Empty(preview.GitDirtyFiles);
+    }
+
+    [Fact]
+    public void Preview_SelectedFileIsDirtyInGit_ReportsIt()
+    {
+        InitRepository();
+        File.WriteAllText(Path.Combine(_workingDirectory, "a.txt"), "original");
+        CommitAll();
+        File.WriteAllText(Path.Combine(_workingDirectory, "a.txt"), "uncommitted edit");
+        var files = new[] { new ProposedFileChangeViewModel("a.txt", "proposed content") };
+
+        var preview = _service.Preview(files, _workingDirectory);
+
+        Assert.True(preview.IsGitRepository);
+        Assert.Equal(1, preview.GitDirtyFileCount);
+        Assert.Equal("a.txt", Assert.Single(preview.GitDirtyFiles));
+    }
+
+    [Fact]
+    public void Preview_DirtyFileNotAmongSelectedFiles_IsNotReported()
+    {
+        InitRepository();
+        File.WriteAllText(Path.Combine(_workingDirectory, "unrelated.txt"), "uncommitted, never added to git");
+        var files = new[] { new ProposedFileChangeViewModel("a.txt", "proposed content") };
+
+        var preview = _service.Preview(files, _workingDirectory);
+
+        Assert.True(preview.IsGitRepository);
+        Assert.Equal(0, preview.GitDirtyFileCount);
+        Assert.Empty(preview.GitDirtyFiles);
+    }
+
+    private void InitRepository() => RunGit("init");
+
+    private void CommitAll()
+    {
+        RunGit("add", "-A");
+        RunGit("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "test commit");
+    }
+
+    private void RunGit(params string[] arguments)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = "git",
+            WorkingDirectory = _workingDirectory,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+
+        foreach (var argument in arguments)
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        using var process = Process.Start(startInfo)!;
+        process.WaitForExit();
+
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"git {string.Join(' ', arguments)} failed: {process.StandardError.ReadToEnd()}");
+        }
     }
 
     [Fact]

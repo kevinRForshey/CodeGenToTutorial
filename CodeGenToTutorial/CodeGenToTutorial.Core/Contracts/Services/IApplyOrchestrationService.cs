@@ -7,7 +7,9 @@ public interface IApplyOrchestrationService
 {
     // Summary for a confirmation prompt before ApplySelected actually touches disk. Reads
     // .gitignore under workingDirectoryPath (T4.1.2) to report ProtectedPathCount/ProtectedPathFiles,
-    // so no longer strictly I/O-free, but still cheap (one file read, no writes).
+    // and shells out to git (T4.3.1) to report IsGitRepository/GitDirtyFileCount/GitDirtyFiles for
+    // the files about to be applied, so no longer strictly I/O-free, but still cheap (one file
+    // read, one git invocation, no writes).
     ApplyPreview Preview(IReadOnlyList<ProposedFileChangeViewModel> files, string workingDirectoryPath);
 
     // Applies every file that has something selected, independently of the others - one file's

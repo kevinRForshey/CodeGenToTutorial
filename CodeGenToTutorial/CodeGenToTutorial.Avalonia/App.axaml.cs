@@ -58,6 +58,7 @@ public partial class App : Application
             services.AddSingleton<IApplyBackupStore, ApplyBackupStore>();
             services.AddSingleton<IApplyHistoryStore, ApplyHistoryStore>();
             services.AddSingleton<IApplyHistoryLog, ApplyHistoryLog>();
+            services.AddTransient<IGitStatusService, GitStatusService>();
             services.AddTransient<IApplyOrchestrationService, ApplyOrchestrationService>();
             services.AddTransient<INavigationViewService, NavigationViewService>();
             services.AddTransient<IDialogService, DialogService>();

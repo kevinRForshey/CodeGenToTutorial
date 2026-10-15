@@ -564,8 +564,40 @@ committed yet — review `git status`/`git diff` before committing.
   `ApplyOne` catch arm already documented under T4.2.1/T4.2.2.
 
 **F4.3 — Git integration**
-- T4.3.1 Detect a git repo at the working directory; show dirty state before applying.
-- T4.3.2 Warn when applying over uncommitted work.
+- [x] T4.3.1 Detect a git repo at the working directory; show dirty state before applying. — done
+  2026-10-14: added `IGitStatusService`/`GitStatusService`, which shells out to `git status
+  --porcelain` (matching `ClaudeCliService`'s convention of treating an external CLI as the source
+  of truth rather than taking a LibGit2Sharp-style native dependency) to report whether
+  `workingDirectoryPath` is inside a git working tree and which files are dirty there; any failure
+  to run git at all (not installed, not a repository, directory missing) is treated the same as
+  "not a repository" since this is an informational warning, not a security boundary.
+  `ApplyOrchestrationService.Preview` now also takes an `IGitStatusService` dependency and reports
+  `ApplyPreview.IsGitRepository`/`GitDirtyFileCount`/`GitDirtyFiles` - scoped the same way
+  `ProtectedPathCount`/`Files` already are (T4.1.2): only files among the ones actually selected for
+  this apply, not every dirty file in the repository, since an unrelated dirty file elsewhere isn't
+  this apply's problem. Registered as `AddTransient<IGitStatusService, GitStatusService>()` in
+  `App.axaml.cs`. Covered by new `GitStatusServiceTests` (not-a-repo, missing directory,
+  null/whitespace path, clean repo, a modified tracked file, an untracked file - using a real `git
+  init`/`commit` in a temp directory, consistent with this test project's no-mocking convention) and
+  new `ApplyOrchestrationServiceTests` cases (not-a-repo default, clean repo, a dirty selected file
+  reported, a dirty file outside the selected batch not reported). Full solution builds with 0
+  warnings/errors, 273/273 tests pass (221 Core + 52 Avalonia - before T4.3.2's additions).
+  `GitStatusService.cs` is 89.1% line/80% branch covered - the gap is the `process is null`/
+  `catch (Win32Exception or IOException)` arms for a missing `git` executable, the same class of
+  deliberately-untested defensive branch as `FileEncodingDetector`'s I/O catch arms (T4.1.3):
+  forcing it would mean temporarily hiding `git` from `PATH` mid-test-run, which is flaky and
+  platform-specific rather than a real repro.
+- [x] T4.3.2 Warn when applying over uncommitted work. — done 2026-10-14: `TutorialViewModel.
+  ApplySelectedAsync` now shows a dedicated confirm dialog (new `Tutorial_ApplyGitDirtyConfirm*`
+  resource keys) whenever `preview.IsGitRepository && preview.GitDirtyFileCount > 0`, naming the
+  affected files. Unlike the T4.1.2 protected-paths confirm, declining here cancels the *whole*
+  apply rather than just excluding those files from the batch - overwriting a file that's already
+  dirty in git isn't something a per-file skip can make safe (there's no commit to fall back on for
+  it either way), so it's a whole-batch decision like the general apply-confirm rather than a
+  per-file one like protected paths. Covered by new `TutorialViewModelTests` cases (no dirty files
+  skips the extra dialog, confirming both dialogs applies, declining the git-dirty dialog cancels
+  without calling `ApplySelected`, declining the general confirm never even asks about dirty files).
+  Full solution builds with 0 warnings/errors, 277/277 tests pass (221 Core + 56 Avalonia).
 - T4.3.3 Optional: stage applied files, or create a branch/commit per apply batch.
 
 ---

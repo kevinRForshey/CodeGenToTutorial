@@ -211,6 +211,61 @@ public class TutorialViewModelTests
     }
 
     [Fact]
+    public async Task ApplySelectedAsync_NoGitDirtyFiles_OnlyShowsOneConfirmationDialog()
+    {
+        _applyOrchestrationService.PreviewToReturn = new ApplyPreview(1, 1) { IsGitRepository = true, GitDirtyFileCount = 0 };
+        _dialogService.ConfirmResultToReturn = true;
+        var sut = CreateSut();
+
+        await sut.ApplySelectedCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, _dialogService.ConfirmCallCount);
+        Assert.Equal(1, _applyOrchestrationService.ApplySelectedCallCount);
+    }
+
+    [Fact]
+    public async Task ApplySelectedAsync_GitDirtyFilesAndUserConfirmsBoth_Applies()
+    {
+        _applyOrchestrationService.PreviewToReturn = new ApplyPreview(1, 1) { IsGitRepository = true, GitDirtyFileCount = 1, GitDirtyFiles = ["a.txt"] };
+        _dialogService.ConfirmResultQueue.Enqueue(true);
+        _dialogService.ConfirmResultQueue.Enqueue(true);
+        var sut = CreateSut();
+
+        await sut.ApplySelectedCommand.ExecuteAsync(null);
+
+        Assert.Equal(2, _dialogService.ConfirmCallCount);
+        Assert.Equal(1, _applyOrchestrationService.ApplySelectedCallCount);
+        Assert.Contains("a.txt", _dialogService.ConfirmMessages[1]);
+    }
+
+    [Fact]
+    public async Task ApplySelectedAsync_GitDirtyFilesAndUserDeclinesDirtyConfirm_CancelsTheWholeApply()
+    {
+        _applyOrchestrationService.PreviewToReturn = new ApplyPreview(1, 1) { IsGitRepository = true, GitDirtyFileCount = 1, GitDirtyFiles = ["a.txt"] };
+        _dialogService.ConfirmResultQueue.Enqueue(true);
+        _dialogService.ConfirmResultQueue.Enqueue(false);
+        var sut = CreateSut();
+
+        await sut.ApplySelectedCommand.ExecuteAsync(null);
+
+        Assert.Equal(2, _dialogService.ConfirmCallCount);
+        Assert.Equal(0, _applyOrchestrationService.ApplySelectedCallCount);
+    }
+
+    [Fact]
+    public async Task ApplySelectedAsync_UserDeclinesGeneralConfirm_NeverAsksAboutGitDirtyFiles()
+    {
+        _applyOrchestrationService.PreviewToReturn = new ApplyPreview(1, 1) { IsGitRepository = true, GitDirtyFileCount = 1, GitDirtyFiles = ["a.txt"] };
+        _dialogService.ConfirmResultQueue.Enqueue(false);
+        var sut = CreateSut();
+
+        await sut.ApplySelectedCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, _dialogService.ConfirmCallCount);
+        Assert.Equal(0, _applyOrchestrationService.ApplySelectedCallCount);
+    }
+
+    [Fact]
     public async Task ApplySelectedAsync_SomeFilesProtectedPathBlocked_MessageMentionsEachBlockedFile()
     {
         _applyOrchestrationService.PreviewToReturn = new ApplyPreview(1, 1);

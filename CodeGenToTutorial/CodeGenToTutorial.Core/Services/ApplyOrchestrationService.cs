@@ -15,17 +15,20 @@ public class ApplyOrchestrationService : IApplyOrchestrationService
     private readonly IApplyBackupStore _applyBackupStore;
     private readonly IApplyHistoryStore _applyHistoryStore;
     private readonly IApplyHistoryLog _applyHistoryLog;
+    private readonly IGitStatusService _gitStatusService;
 
     public ApplyOrchestrationService(
         IFileChangeApplyService fileChangeApplyService,
         IApplyBackupStore applyBackupStore,
         IApplyHistoryStore applyHistoryStore,
-        IApplyHistoryLog applyHistoryLog)
+        IApplyHistoryLog applyHistoryLog,
+        IGitStatusService gitStatusService)
     {
         _fileChangeApplyService = fileChangeApplyService;
         _applyBackupStore = applyBackupStore;
         _applyHistoryStore = applyHistoryStore;
         _applyHistoryLog = applyHistoryLog;
+        _gitStatusService = gitStatusService;
     }
 
     public ApplyPreview Preview(IReadOnlyList<ProposedFileChangeViewModel> files, string workingDirectoryPath)
@@ -43,6 +46,17 @@ public class ApplyOrchestrationService : IApplyOrchestrationService
             .Select(f => f.FilePath)
             .ToList();
 
+        // T4.3.1: warn about files this apply would overwrite that git already sees as dirty, not
+        // every dirty file in the repository - a stray unrelated uncommitted file elsewhere isn't
+        // this apply's problem. GitStatus.NotARepository (no repo, git missing, or the call failed)
+        // naturally yields IsGitRepository = false and an empty intersection below.
+        var gitStatus = _gitStatusService.GetStatus(workingDirectoryPath);
+        var dirtyFileSet = gitStatus.DirtyFiles.Select(Normalize).ToHashSet();
+        var gitDirtyFiles = filesToApply
+            .Select(f => f.FilePath)
+            .Where(path => dirtyFileSet.Contains(Normalize(path)))
+            .ToList();
+
         return new ApplyPreview(filesToApply.Count, changeCount)
         {
             ProtectedPathCount = protectedPathFiles.Count,
@@ -52,8 +66,13 @@ public class ApplyOrchestrationService : IApplyOrchestrationService
             // "no protected files" comparing equal to ApplyPreview.ProtectedPathFiles's own default
             // instead of failing Assert.Equal purely because one side is a List and the other an array.
             ProtectedPathFiles = protectedPathFiles.Count == 0 ? Array.Empty<string>() : protectedPathFiles,
+            IsGitRepository = gitStatus.IsRepository,
+            GitDirtyFileCount = gitDirtyFiles.Count,
+            GitDirtyFiles = gitDirtyFiles.Count == 0 ? Array.Empty<string>() : gitDirtyFiles,
         };
     }
+
+    private static string Normalize(string relativeFilePath) => relativeFilePath.Replace('\\', '/').TrimStart('/');
 
     public ApplyBatchResult ApplySelected(IReadOnlyList<ProposedFileChangeViewModel> files, string workingDirectoryPath, bool allowProtectedPaths = false)
     {
