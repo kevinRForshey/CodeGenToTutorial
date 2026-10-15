@@ -110,6 +110,61 @@ public class PromptViewModelTests
     }
 
     [Fact]
+    public async Task CancelPromptAsync_WhileRunning_CancelsTheCliCallAndReportsCancelled()
+    {
+        var sut = CreateSut();
+        sut.PromptText = "Do something";
+        _claudeCliService.CompleteImmediately = false;
+
+        var runTask = sut.RunPromptCommand.ExecuteAsync(null);
+        while (!sut.IsRunning)
+        {
+            await Task.Yield();
+        }
+
+        Assert.True(sut.CancelPromptCommand.CanExecute(null));
+        sut.CancelPromptCommand.Execute(null);
+        await runTask;
+
+        Assert.False(sut.IsRunning);
+        Assert.Equal("Cancelled.", sut.StatusMessage);
+        Assert.True(_claudeCliService.LastCancellationToken.IsCancellationRequested);
+    }
+
+    [Fact]
+    public void CanCancelPrompt_NotRunning_CannotExecute()
+    {
+        var sut = CreateSut();
+
+        Assert.False(sut.CancelPromptCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task CancelPromptCommand_CannotExecuteAfterRunCompletes()
+    {
+        var sut = CreateSut();
+        sut.PromptText = "Do something";
+
+        await sut.RunPromptCommand.ExecuteAsync(null);
+
+        Assert.False(sut.CancelPromptCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_CliNotAvailable_ReportsActionableMessageAndDoesNotRun()
+    {
+        var sut = CreateSut();
+        sut.PromptText = "Do something";
+        _claudeCliService.AvailableToReturn = false;
+
+        await sut.RunPromptCommand.ExecuteAsync(null);
+
+        Assert.False(sut.IsRunning);
+        Assert.Equal("Claude Code CLI not found on PATH. Install it with: npm install -g @anthropic-ai/claude-code", sut.StatusMessage);
+        Assert.Equal(0, _claudeCliService.CallCount);
+    }
+
+    [Fact]
     public void CanRunPrompt_EmptyPromptText_CannotExecute()
     {
         var sut = CreateSut();

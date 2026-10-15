@@ -15,17 +15,34 @@ public class FakeClaudeCliService : IClaudeCliService
 
     public int CallCount { get; private set; }
 
-    public Task<ClaudeCliResult> RunPromptAsync(string prompt, string? workingDirectory = null, CancellationToken cancellationToken = default)
+    public CancellationToken LastCancellationToken { get; private set; }
+
+    // When false, RunPromptAsync blocks until cancellationToken is cancelled instead of returning
+    // immediately - stands in for a real `claude` invocation that's still running, so tests can
+    // exercise PromptViewModel.CancelPromptCommand without a real process.
+    public bool CompleteImmediately { get; set; } = true;
+
+    public bool AvailableToReturn { get; set; } = true;
+
+    public bool IsAvailable() => AvailableToReturn;
+
+    public async Task<ClaudeCliResult> RunPromptAsync(string prompt, string? workingDirectory = null, CancellationToken cancellationToken = default)
     {
         CallCount++;
         LastPrompt = prompt;
         LastWorkingDirectory = workingDirectory;
+        LastCancellationToken = cancellationToken;
 
         if (ExceptionToThrow != null)
         {
             throw ExceptionToThrow;
         }
 
-        return Task.FromResult(ResultToReturn);
+        if (!CompleteImmediately)
+        {
+            await Task.Delay(Timeout.Infinite, cancellationToken);
+        }
+
+        return ResultToReturn;
     }
 }

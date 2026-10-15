@@ -629,9 +629,48 @@ committed yet — review `git status`/`git diff` before committing.
 ### EPIC 6 — LLM runner robustness *(P1)*
 
 **F6.1 — Lifecycle control**
-- T6.1.1 Cancel button wired to a real `CancellationTokenSource`; kill the child process on cancel.
+- [x] T6.1.1 Cancel button wired to a real `CancellationTokenSource`; kill the child process on
+  cancel. — done 2026-10-15: `PromptViewModel` now creates a `CancellationTokenSource` per
+  `RunPromptAsync` call, passes its token through to `IClaudeCliService.RunPromptAsync`, and exposes
+  a `CancelPromptCommand` (enabled only while a run is in flight) that cancels it. A `Cancel` button
+  next to "Send to Claude Code" is visible only while `IsRunning`. Catching `OperationCanceledException`
+  around the await reports `Prompt_RunCancelled` ("Cancelled.") instead of falling into the generic
+  error handler. Critically, `ClaudeCliService.RunPromptAsync` now wraps `process.WaitForExitAsync` in
+  a try/catch for `OperationCanceledException` that calls `process.Kill(entireProcessTree: true)`
+  before rethrowing - cancelling the await alone does not stop the child process (or, on Windows, the
+  cmd.exe wrapper's own child), so without this the `claude` process would keep running in the
+  background after cancel. Covered by new `PromptViewModelTests` cases using a `FakeClaudeCliService.
+  CompleteImmediately = false` flag that blocks on `Task.Delay(Timeout.Infinite, cancellationToken)`
+  until cancelled, standing in for a real long-running CLI call (cancel while running stops the run
+  and reports "Cancelled.", cancel command can't execute when not running, cancel command can't
+  execute once a run completes). Full solution builds with 0 warnings/errors, 280/280 tests pass (221
+  Core + 59 Avalonia - before T6.1.3's additions). The actual process-kill behavior inside
+  `ClaudeCliService.RunPromptAsync` has no direct unit test coverage, since the hardcoded `claude`
+  executable can't be substituted for a real long-running process in a test yet - revisit once T6.1.4
+  makes the executable path injectable.
 - T6.1.2 Configurable timeout with a clear timeout message.
-- T6.1.3 Preflight check that the CLI exists; actionable error with install guidance if not.
+- [x] T6.1.3 Preflight check that the CLI exists; actionable error with install guidance if not. —
+  done 2026-10-15: added `ExecutablePathResolver.ExistsOnPath`, a helper that searches the `PATH`
+  environment variable for an executable the same way the OS shell would resolve a bare command name
+  (checking `.exe`/`.cmd`/`.bat` on Windows, since npm installs the `claude` CLI as a `.cmd` shim
+  there, and an extension-less exact match on other platforms) - this avoids actually starting a
+  process just to check availability. `IClaudeCliService` gained an `IsAvailable()` method;
+  `ClaudeCliService.IsAvailable()` delegates to `ExecutablePathResolver.ExistsOnPath("claude")`.
+  `PromptViewModel.RunPromptAsync` now checks `IsAvailable()` first and, if false, sets
+  `StatusMessage` to the new `Prompt_ClaudeCliNotFound` resource string (which names the install
+  command, `npm install -g @anthropic-ai/claude-code`) and returns without starting a run - `IsRunning`
+  is never set to true for this path, so the cancel button/progress ring don't appear for a run that
+  never started. `ExecutablePathResolver.ExistsOnPath` takes an optional `pathVariable` parameter
+  (defaulting to the real `PATH` env var) purely for testability, so tests can point it at a temp
+  directory instead of mutating process-wide state. Covered by new `ExecutablePathResolverTests`
+  (executable found among several PATH directories, not found, empty PATH, blank PATH entries
+  skipped without throwing) and a new `PromptViewModelTests` case
+  (`RunPromptAsync_CliNotAvailable_ReportsActionableMessageAndDoesNotRun`) using a new
+  `FakeClaudeCliService.AvailableToReturn` flag (defaults to `true` so existing tests are
+  unaffected). Full solution builds with 0 warnings/errors, 285/285 tests pass (225 Core + 60
+  Avalonia). The Windows-only extension-search branch in `ExecutablePathResolver` is untested on this
+  (Linux) development machine - same class of platform-conditional gap as `ClaudeCliService`'s
+  existing `cmd.exe` branch.
 - T6.1.4 Configurable CLI path/arguments in Settings.
 
 **F6.2 — Streaming & progress**

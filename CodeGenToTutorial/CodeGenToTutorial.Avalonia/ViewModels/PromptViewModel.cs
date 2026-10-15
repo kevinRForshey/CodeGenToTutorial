@@ -77,6 +77,12 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
     [ObservableProperty]
     private string workingDirectoryPath = string.Empty;
 
+    // T6.1.1: lives only for the duration of one RunPromptAsync call, so CancelPromptCommand has
+    // something to cancel and the run's own cleanup has something to dispose - null the rest of
+    // the time (including CanCancelPrompt's guard) rather than relying solely on IsRunning, in case
+    // a run finishes and clears it in the same moment the user clicks Cancel.
+    private CancellationTokenSource? _runCancellationTokenSource;
+
     public PromptViewModel(IClaudeCliService claudeCliService, ILocalSettingsService localSettingsService, IFolderPickerService folderPickerService, IPromptResultStore promptResultStore)
     {
         _claudeCliService = claudeCliService;
@@ -119,9 +125,18 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
     [RelayCommand(CanExecute = nameof(CanRunPrompt))]
     private async Task RunPromptAsync()
     {
+        if (!_claudeCliService.IsAvailable())
+        {
+            StatusMessage = "Prompt_ClaudeCliNotFound".GetLocalized();
+            return;
+        }
+
         IsRunning = true;
         CliOutput = string.Empty;
         StatusMessage = "Prompt_Running".GetLocalized();
+
+        _runCancellationTokenSource = new CancellationTokenSource();
+        CancelPromptCommand.NotifyCanExecuteChanged();
 
         try
         {
@@ -132,7 +147,7 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
                 fullPrompt += $"\n\nThe working directory is: {WorkingDirectoryPath}";
             }
 
-            var result = await _claudeCliService.RunPromptAsync(fullPrompt, WorkingDirectoryPath);
+            var result = await _claudeCliService.RunPromptAsync(fullPrompt, WorkingDirectoryPath, _runCancellationTokenSource.Token);
 
             CliOutput = result.ExitCode == 0 || string.IsNullOrWhiteSpace(result.StandardError)
                 ? result.StandardOutput
@@ -152,6 +167,10 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
                 StatusMessage = string.Format("Prompt_RunFailed".GetLocalized(), result.ExitCode);
             }
         }
+        catch (OperationCanceledException)
+        {
+            StatusMessage = "Prompt_RunCancelled".GetLocalized();
+        }
         catch (Exception ex)
         {
             StatusMessage = string.Format("Prompt_RunError".GetLocalized(), ex.Message);
@@ -159,10 +178,18 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
         finally
         {
             IsRunning = false;
+            _runCancellationTokenSource?.Dispose();
+            _runCancellationTokenSource = null;
+            CancelPromptCommand.NotifyCanExecuteChanged();
         }
     }
 
+    [RelayCommand(CanExecute = nameof(CanCancelPrompt))]
+    private void CancelPrompt() => _runCancellationTokenSource?.Cancel();
+
     private bool CanRunPrompt() => !IsRunning && !string.IsNullOrWhiteSpace(PromptText);
+
+    private bool CanCancelPrompt() => _runCancellationTokenSource is not null;
 
     partial void OnPromptTextChanged(string value) => RunPromptCommand.NotifyCanExecuteChanged();
 

@@ -15,6 +15,8 @@ public static class Resources
         ["Prompt_RunCompletedWithFiles"] = "Claude Code finished. {0} file(s) ready to review on the Diffs page.",
         ["Prompt_RunFailed"] = "Claude Code exited with code {0}.",
         ["Prompt_RunError"] = "Failed to run Claude Code: {0}",
+        ["Prompt_RunCancelled"] = "Cancelled.",
+        ["Prompt_ClaudeCliNotFound"] = "Claude Code CLI not found on PATH. Install it with: npm install -g @anthropic-ai/claude-code",
         ["Tutorial_ChangeApplied"] = "Applied the changes to {0}.",
         ["Tutorial_ApplyFailed"] = "Failed to apply the change: {0}",
         ["Tutorial_ApplySelectedNoneSelected"] = "No changes are selected to apply.",

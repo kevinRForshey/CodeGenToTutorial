@@ -38,6 +38,7 @@
         <StackPanel Grid.Row="3" Margin="0,8,0,0" Orientation="Horizontal" Spacing="8">
             <Button Content="Save prompt" Command="{Binding SavePromptCommand}" />
             <Button Content="Send to Claude Code" Command="{Binding RunPromptCommand}" Classes="accent" />
+            <Button Content="Cancel" Command="{Binding CancelPromptCommand}" IsVisible="{Binding IsRunning}" />
             <ui:ProgressRing Width="20" Height="20" VerticalAlignment="Center" IsIndeterminate="True" IsActive="{Binding IsRunning}" />
         </StackPanel>
 

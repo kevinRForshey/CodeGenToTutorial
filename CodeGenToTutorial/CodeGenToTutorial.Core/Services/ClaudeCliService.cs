@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 
 using CodeGenToTutorial.Core.Contracts.Services;
+using CodeGenToTutorial.Core.Helpers;
 using CodeGenToTutorial.Core.Models;
 
 namespace CodeGenToTutorial.Core.Services;
@@ -10,6 +11,8 @@ namespace CodeGenToTutorial.Core.Services;
 public class ClaudeCliService : IClaudeCliService
 {
     private const string ExecutableName = "claude";
+
+    public bool IsAvailable() => ExecutablePathResolver.ExistsOnPath(ExecutableName);
 
     public async Task<ClaudeCliResult> RunPromptAsync(string prompt, string? workingDirectory = null, CancellationToken cancellationToken = default)
     {
@@ -71,7 +74,22 @@ public class ClaudeCliService : IClaudeCliService
         await process.StandardInput.WriteAsync(prompt);
         process.StandardInput.Close();
 
-        await process.WaitForExitAsync(cancellationToken);
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            // WaitForExitAsync throwing doesn't stop the child process on its own (T6.1.1) - without
+            // this, cancelling (or a timeout firing) would leave `claude` - and, on Windows, the
+            // cmd.exe wrapper's own child - running in the background after this call returns.
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+
+            throw;
+        }
 
         return new ClaudeCliResult
         {
