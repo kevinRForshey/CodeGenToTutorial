@@ -2,8 +2,12 @@ using CodeGenToTutorial.Core.Helpers;
 
 namespace CodeGenToTutorial.Core.Tests.Helpers;
 
-public class StructuredResponseParserTests
+public class StructuredResponseParserTests : IDisposable
 {
+    private readonly string _workingDirectory = Directory.CreateTempSubdirectory("CodeGenToTutorialTests_").FullName;
+
+    public void Dispose() => Directory.Delete(_workingDirectory, recursive: true);
+
     [Fact]
     public void Parse_ValidJson_DoesNotUseFallbackAndHasNoValidationError()
     {
@@ -48,5 +52,25 @@ public class StructuredResponseParserTests
         Assert.True(result.UsedFallback);
         Assert.Equal(text, result.Response.Tutorial);
         Assert.Empty(result.Response.Files);
+    }
+
+    [Fact]
+    public void Parse_FileWithEdits_ThreadsTheWorkingDirectoryThroughAndResolvesThem()
+    {
+        var path = Path.Combine(_workingDirectory, "a.txt");
+        File.WriteAllText(path, "one\ntwo\nthree");
+
+        const string json = """
+            {"responseType": "development", "tutorial": "t", "files": [
+              {"path": "a.txt", "edits": [{"title": "x", "search": "two", "replace": "TWO"}]}
+            ]}
+            """;
+
+        var result = StructuredResponseParser.Parse(json, _workingDirectory);
+
+        Assert.False(result.UsedFallback);
+        var file = Assert.Single(result.Response.Files);
+        Assert.Equal("one\nTWO\nthree", file.ProposedContent);
+        Assert.Equal("one\ntwo\nthree", file.OriginalContent);
     }
 }

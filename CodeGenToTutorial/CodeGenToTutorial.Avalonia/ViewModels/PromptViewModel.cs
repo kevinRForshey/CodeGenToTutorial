@@ -27,7 +27,11 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
     // parsed without depending on the model never reformatting a fence - see
     // CodeGenToTutorial.Core.Helpers.ClaudeJsonResponseParser. The old markdown parser
     // (ClaudeResponseParser) is kept only as a last-resort fallback for whatever the model actually
-    // returns (T5.1.3), via StructuredResponseParser.
+    // returns (T5.1.3), via StructuredResponseParser. F5.2: for a file that already exists, the model is
+    // asked for "edits" (search/replace blocks) instead of its whole "content" - cutting tokens and
+    // avoiding the whole-file-echo truncation failure mode (T5.2.1) - applied locally against the real
+    // file by SearchReplaceEditApplier (T5.2.2); an edit whose "search" text doesn't match is treated as
+    // a validation failure and fed back on the same one-shot retry as any other schema problem (T5.2.3).
     private const string TutorialInstructionPrompt =
         """
         You are being called from a desktop app. Respond with a single JSON object only - no markdown
@@ -49,19 +53,23 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
              "files": [
                {
                  "path": "<path to the file, relative to the working directory>",
-                 "content": "<the complete contents of the file with the proposed changes applied - the whole file, not a diff>",
-                 "steps": [
+                 "edits": [
                    {
                      "title": "<short title for this part of the change>",
                      "explanation": "<one or more paragraphs explaining, in detail, the reasoning behind this specific part of the change and how it works, written so someone learning to code with an LLM can follow along>",
-                     "snippet": "<only the new or changed code that this step introduces, not the whole file>"
+                     "search": "<the exact lines currently in the file that this step changes, copied verbatim including whitespace - include enough surrounding context that this text appears only once in the file>",
+                     "replace": "<the new lines that replace \"search\" - use an empty string to delete \"search\" with nothing>"
                    }
-                 ]
+                 ],
+                 "content": "<only for a file that does not exist yet: its complete contents>"
                }
              ]
            }
-           Repeat the "steps" entries for every distinct part of a file's change. If no existing files
-           need changes, set "files" to an empty array.
+           Use "edits" for every change to a file that already exists in the working directory - never
+           repeat a whole file's contents just to change a few lines of it. Use "content" only when
+           creating a brand-new file, and never include both "edits" and "content" for the same file.
+           Repeat the "edits" entries for every distinct part of a file's change. If no files need
+           changes, set "files" to an empty array.
 
         Only use the "development" shape when the request actually requires code changes. Every string
         value must be valid JSON (escape newlines, quotes, and backslashes). Here is the user's request:
@@ -216,7 +224,7 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
 
             if (result.Success)
             {
-                parseResult = StructuredResponseParser.Parse(result.Output);
+                parseResult = StructuredResponseParser.Parse(result.Output, WorkingDirectoryPath);
 
                 // T5.1.2: one retry, feeding the schema validation error back to the model, before
                 // settling for the markdown fallback (T5.1.3). A failed retry call (cancelled, CLI
@@ -230,7 +238,7 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
                     if (retryResult.Success)
                     {
                         result = CombineUsage(result, retryResult);
-                        parseResult = StructuredResponseParser.Parse(retryResult.Output);
+                        parseResult = StructuredResponseParser.Parse(retryResult.Output, WorkingDirectoryPath);
                     }
                 }
             }

@@ -58,6 +58,48 @@ public class PromptViewModelTests
     }
 
     [Fact]
+    public async Task RunPromptAsync_ResponseWithEdits_AppliesThemAgainstTheRealWorkingDirectoryFile()
+    {
+        var workingDirectory = Directory.CreateTempSubdirectory("CodeGenToTutorialTests_").FullName;
+
+        try
+        {
+            File.WriteAllText(Path.Combine(workingDirectory, "Foo.cs"), "class Foo\n{\n    int Bar() => 1;\n}");
+
+            var sut = CreateSut();
+            sut.PromptText = "Change Bar to return 2";
+            sut.WorkingDirectoryPath = workingDirectory;
+            const string output =
+                """
+                {
+                  "responseType": "development",
+                  "tutorial": "Changes Bar to return 2.",
+                  "files": [
+                    {
+                      "path": "Foo.cs",
+                      "edits": [
+                        { "title": "Change Bar", "search": "    int Bar() => 1;", "replace": "    int Bar() => 2;" }
+                      ]
+                    }
+                  ]
+                }
+                """;
+            _llmRunner.ResultToReturn = new LlmRunResult { Success = true, Output = output };
+
+            await sut.RunPromptCommand.ExecuteAsync(null);
+
+            Assert.Equal("Claude Code finished. 1 file(s) ready to review on the Diffs page.", sut.StatusMessage);
+            var file = Assert.Single(_promptResultStore.Files);
+            Assert.Equal("class Foo\n{\n    int Bar() => 2;\n}", file.ProposedContent);
+            Assert.Equal("class Foo\n{\n    int Bar() => 1;\n}", file.OriginalContent);
+        }
+        finally
+        {
+            Directory.Delete(workingDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task RunPromptAsync_NonZeroExitCode_ReportsFailureAndDoesNotStoreResult()
     {
         var sut = CreateSut();

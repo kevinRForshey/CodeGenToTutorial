@@ -8,9 +8,9 @@ namespace CodeGenToTutorial.Core.Helpers;
 // before accepting the fallback as final.
 public static class StructuredResponseParser
 {
-    public static StructuredParseResult Parse(string cliOutput)
+    public static StructuredParseResult Parse(string cliOutput, string? workingDirectoryPath = null)
     {
-        if (ClaudeJsonResponseParser.TryParse(cliOutput, out var response, out var error))
+        if (ClaudeJsonResponseParser.TryParse(cliOutput, out var response, out var error, workingDirectoryPath))
         {
             return new StructuredParseResult(response!, UsedFallback: false, ValidationError: null);
         }

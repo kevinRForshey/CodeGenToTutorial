@@ -3,8 +3,20 @@ using CodeGenToTutorial.Core.Models;
 
 namespace CodeGenToTutorial.Core.Tests.Helpers;
 
-public class ClaudeJsonResponseParserTests
+public class ClaudeJsonResponseParserTests : IDisposable
 {
+    private readonly string _workingDirectory = Directory.CreateTempSubdirectory("CodeGenToTutorialTests_").FullName;
+
+    public void Dispose() => Directory.Delete(_workingDirectory, recursive: true);
+
+    private string WriteFile(string relativePath, string content)
+    {
+        var path = Path.Combine(_workingDirectory, relativePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, content);
+        return path;
+    }
+
     [Fact]
     public void TryParse_AnswerShape_ReturnsAnswerAsTutorialWithNoFiles()
     {
@@ -216,5 +228,106 @@ public class ClaudeJsonResponseParserTests
         Assert.False(success);
         Assert.Null(response);
         Assert.NotNull(error);
+    }
+
+    [Fact]
+    public void TryParse_FileWithEdits_AppliesThemAgainstTheRealFileAndSetsOriginalContent()
+    {
+        WriteFile("src/Foo.cs", "public class Foo\n{\n    public int Bar() => 1;\n}");
+
+        const string json = """
+            {
+              "responseType": "development",
+              "tutorial": "Changes Bar to return 2.",
+              "files": [
+                {
+                  "path": "src/Foo.cs",
+                  "edits": [
+                    { "title": "Change Bar", "explanation": "Returns 2 instead of 1.", "search": "    public int Bar() => 1;", "replace": "    public int Bar() => 2;" }
+                  ]
+                }
+              ]
+            }
+            """;
+
+        var success = ClaudeJsonResponseParser.TryParse(json, out var response, out var error, _workingDirectory);
+
+        Assert.True(success);
+        Assert.Null(error);
+        var file = Assert.Single(response!.Files);
+        Assert.Equal("public class Foo\n{\n    public int Bar() => 2;\n}", file.ProposedContent);
+        Assert.Equal("public class Foo\n{\n    public int Bar() => 1;\n}", file.OriginalContent);
+        var hunk = Assert.Single(file.Hunks);
+        Assert.Equal("Change Bar", hunk.Title);
+        Assert.Equal(new HunkLocation(2, 2), hunk.Location);
+    }
+
+    [Fact]
+    public void TryParse_FileWithUnmatchableEdit_ReturnsFalseWithError()
+    {
+        WriteFile("src/Foo.cs", "public class Foo {}");
+
+        const string json = """
+            {"responseType": "development", "tutorial": "t", "files": [
+              {"path": "src/Foo.cs", "edits": [{"title": "Change", "search": "this text is not in the file", "replace": "x"}]}
+            ]}
+            """;
+
+        var success = ClaudeJsonResponseParser.TryParse(json, out var response, out var error, _workingDirectory);
+
+        Assert.False(success);
+        Assert.Null(response);
+        Assert.Contains("src/Foo.cs", error);
+    }
+
+    [Fact]
+    public void TryParse_EditMissingSearch_ReturnsFalseWithError()
+    {
+        const string json = """{"responseType": "development", "tutorial": "t", "files": [{"path": "a.txt", "edits": [{"title": "x"}]}]}""";
+
+        var success = ClaudeJsonResponseParser.TryParse(json, out var response, out var error);
+
+        Assert.False(success);
+        Assert.Contains("search", error);
+    }
+
+    [Fact]
+    public void TryParse_EditMissingTitle_ReturnsFalseWithError()
+    {
+        const string json = """{"responseType": "development", "tutorial": "t", "files": [{"path": "a.txt", "edits": [{"search": "x", "replace": "y"}]}]}""";
+
+        var success = ClaudeJsonResponseParser.TryParse(json, out var response, out var error);
+
+        Assert.False(success);
+        Assert.Contains("title", error);
+    }
+
+    [Fact]
+    public void TryParse_FileWithEditsButNoWorkingDirectory_TreatsOriginalAsEmptyAndFailsToMatch()
+    {
+        const string json = """{"responseType": "development", "tutorial": "t", "files": [{"path": "a.txt", "edits": [{"title": "x", "search": "something", "replace": "y"}]}]}""";
+
+        var success = ClaudeJsonResponseParser.TryParse(json, out var response, out var error);
+
+        Assert.False(success);
+        Assert.NotNull(error);
+    }
+
+    [Fact]
+    public void TryParse_FileWithEditsIgnoresContentWhenBothPresent()
+    {
+        WriteFile("a.txt", "one\ntwo\nthree");
+
+        const string json = """
+            {"responseType": "development", "tutorial": "t", "files": [
+              {"path": "a.txt", "content": "ignored", "edits": [{"title": "x", "search": "two", "replace": "TWO"}]}
+            ]}
+            """;
+
+        var success = ClaudeJsonResponseParser.TryParse(json, out var response, out var error, _workingDirectory);
+
+        Assert.True(success);
+        var file = Assert.Single(response!.Files);
+        Assert.Equal("one\nTWO\nthree", file.ProposedContent);
     }
 }

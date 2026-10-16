@@ -23,6 +23,11 @@ public class ClaudeJsonFile
     public string? Content { get; set; }
 
     public List<ClaudeJsonStep>? Steps { get; set; }
+
+    // F5.2 / T5.2.1: a cheaper alternative to "content" for files that already exist - each entry is
+    // a search/replace block instead of the whole file, applied locally against the file's current
+    // on-disk content by SearchReplaceEditApplier. Takes priority over "content" when non-empty.
+    public List<ClaudeJsonEdit>? Edits { get; set; }
 }
 
 public class ClaudeJsonStep
@@ -32,4 +37,16 @@ public class ClaudeJsonStep
     public string? Explanation { get; set; }
 
     public string? Snippet { get; set; }
+}
+
+// F5.2: one search/replace edit block within a file's "edits" list.
+public class ClaudeJsonEdit
+{
+    public string? Title { get; set; }
+
+    public string? Explanation { get; set; }
+
+    public string? Search { get; set; }
+
+    public string? Replace { get; set; }
 }

@@ -660,10 +660,62 @@ committed yet — review `git status`/`git diff` before committing.
   model is unverified; worth a manual smoke test at some point.
 
 **F5.2 — Diffs over the wire, not whole files**
-- T5.2.1 Ask for unified diffs / search-replace edit blocks instead of full file contents to cut
-  tokens and avoid truncation.
-- T5.2.2 Apply those patches locally with fuzz/context matching.
-- T5.2.3 Detect truncated or incomplete responses and refuse to apply them.
+- [x] T5.2.1 Ask for unified diffs / search-replace edit blocks instead of full file contents to cut
+  tokens and avoid truncation. — done 2026-10-16: `PromptViewModel.TutorialInstructionPrompt`'s
+  `"development"` schema replaces each file's per-step `"content"`/`"steps"` shape with an `"edits"`
+  list — `{"title", "explanation", "search", "replace"}` — and tells the model to use it for every
+  file that already exists, reserving `"content"` for brand-new files only. New `ClaudeJsonEdit`
+  (Core/Models, alongside a new `Edits` list on `ClaudeJsonFile`) is the wire DTO; the two shapes are
+  not mutually exclusive in the parser (a file with both is treated as edit-mode, `content` ignored)
+  to avoid a hard validation failure for a model that doesn't follow the instruction precisely.
+- [x] T5.2.2 Apply those patches locally with fuzz/context matching. — done 2026-10-16: new
+  `SearchReplaceEditApplier.Apply` (Core/Helpers) applies a file's edits, in order, against its real
+  content — splitting into lines and locating each edit's `search` block with three progressively
+  fuzzier strategies (exact; per-line trimmed, for indentation drift; per-line whitespace-collapsed,
+  for reformatted internal spacing) before giving up. A `search` that matches more than once under a
+  given strategy is treated the same as zero matches — rather than guessing which occurrence was
+  meant — since a fuzzier strategy can only ever match a superset of lines, an ambiguous exact match
+  stays ambiguous all the way down and the edit is reported unresolved rather than mis-applied.
+  `ClaudeJsonResponseParser.TryParse` gained an optional `workingDirectoryPath` parameter (trailing,
+  defaults to `null`, so every pre-existing call site is unaffected) and now reads a file's current
+  content via the existing `FileContentReader.ReadOrEmpty` and runs the applier *during validation*,
+  not mapping — resolving edits requires the real file, so there's no way to validate an edit-mode
+  file without doing the apply. `StructuredResponseParser.Parse` grew the same trailing optional
+  parameter and `PromptViewModel` now passes its `WorkingDirectoryPath` through on both the initial
+  parse and the T5.1.2 retry's. A nice side effect: since the applier already read the file's real
+  content to resolve the edits, edit-mode files get `ProposedFileChangeViewModel.OriginalContent` set
+  eagerly at parse time instead of waiting for the Diffs/Tutorial pages to lazily read it on
+  selection (`RefreshOriginalContent`) — the diff is correct the moment the response is parsed, and
+  the later lazy refresh (unchanged) just re-reads the same content.
+- [x] T5.2.3 Detect truncated or incomplete responses and refuse to apply them. — done 2026-10-16: an
+  edit whose `search` text can't be matched under any of the applier's strategies is treated as a
+  **schema validation failure** for the whole response — `"The \"search\" text for edit ... could not
+  be matched to that file's current content - it may be incomplete, or the file may have changed
+  since the request was made."` — reusing T5.1.2's existing one-shot-retry-with-error-fed-back
+  mechanism rather than a parallel "partially apply, flag the rest" path: there's no way to tell a
+  step that failed to resolve apart from one that genuinely didn't need to touch the file, so a
+  response with even one unresolvable edit is treated as untrustworthy as a whole and is either
+  corrected on retry or handed to the markdown fallback (T5.1.3), never partially trusted. A missing
+  or blank `WorkingDirectoryPath` is not special-cased — the file is read as empty, which makes any
+  non-empty `search` fail to match and surfaces the same validation error, since an edit genuinely
+  can't be resolved without knowing which file to resolve it against. Covered by new
+  `SearchReplaceEditApplierTests` (exact/multi-line match, multiple edits applied in sequence against
+  each other's result, indentation-drift and whitespace-collapse fuzzy fallbacks, not-found, ambiguous
+  match, deletion via empty `replace`, null `search`/`replace`, search longer than the file, an
+  earlier successful edit surviving a later failed one), new `ClaudeJsonResponseParserTests` cases
+  (edit-mode end-to-end against a real temp-directory file including `OriginalContent`, an unmatchable
+  edit failing validation, missing `search`/`title`, no working directory, `content`+`edits` both
+  present preferring `edits`), a `StructuredResponseParserTests` case threading the working directory
+  through, and a new `PromptViewModelTests` case running an edit-mode response end-to-end against a
+  real temp working directory via `RunPromptCommand`. Full solution builds with 0 warnings/errors,
+  353/353 tests pass (271 Core + 82 Avalonia). `SearchReplaceEditApplier.cs` is 100% line/branch
+  covered; `ClaudeJsonResponseParser.cs` is 98.3% line/90.9% branch covered (up from 97.8%/89.4% before
+  this task) — the only gap is the same pre-existing defensive `parsed is null` check noted under
+  T5.1.3, plus a couple of `?? string.Empty`/`?? []` null-coalescing branches in the content-mode
+  mapping path whose null side validation already rules out (e.g. `file.Content` can't be null once
+  `TryValidate` has passed) — same class of gap, left untested rather than forced. Not run against the
+  real `claude` CLI, same caveat as T5.1.3 — the new `"edits"` instruction's actual compliance rate
+  with a live model (especially whether it reliably copies `search` text verbatim) is unverified.
 
 **F5.3 — Prompt template management**
 - T5.3.1 Move `TutorialInstructionPrompt` out of `PromptViewModel` into a versioned template file.
