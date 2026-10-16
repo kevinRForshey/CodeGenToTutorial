@@ -8,7 +8,7 @@ namespace CodeGenToTutorial.Core.Services;
 
 // Detects whether workingDirectoryPath sits inside a git working tree and, if so, which files are
 // currently dirty there (T4.3.1), by shelling out to `git status --porcelain` rather than taking a
-// LibGit2Sharp-style native dependency - matching the ClaudeCliService convention of treating an
+// LibGit2Sharp-style native dependency - matching the ClaudeCliRunner convention of treating an
 // external CLI as the source of truth. Any failure to run git at all (not installed, directory
 // missing, not a repository) is treated the same as "not a repository": this is an informational
 // warning, not a security boundary, so it fails open rather than blocking an apply.

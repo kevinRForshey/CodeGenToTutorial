@@ -6,20 +6,20 @@ namespace CodeGenToTutorial.Avalonia.Tests.ViewModels;
 
 public class PromptViewModelTests
 {
-    private readonly FakeClaudeCliService _claudeCliService = new();
+    private readonly FakeLlmRunner _llmRunner = new();
     private readonly FakeLocalSettingsService _localSettingsService = new();
     private readonly FakeFolderPickerService _folderPickerService = new();
     private readonly FakePromptResultStore _promptResultStore = new();
 
     private PromptViewModel CreateSut() =>
-        new(_claudeCliService, _localSettingsService, _folderPickerService, _promptResultStore);
+        new(_llmRunner, _localSettingsService, _folderPickerService, _promptResultStore);
 
     [Fact]
     public async Task RunPromptAsync_SuccessWithNoFiles_StoresTutorialAndReportsCompletion()
     {
         var sut = CreateSut();
         sut.PromptText = "Explain recursion";
-        _claudeCliService.ResultToReturn = new ClaudeCliResult { ExitCode = 0, StandardOutput = "Recursion is when a function calls itself." };
+        _llmRunner.ResultToReturn = new LlmRunResult { Success = true, Output = "Recursion is when a function calls itself." };
 
         await sut.RunPromptCommand.ExecuteAsync(null);
 
@@ -46,7 +46,7 @@ public class PromptViewModelTests
             class Foo {}
             ```
             """;
-        _claudeCliService.ResultToReturn = new ClaudeCliResult { ExitCode = 0, StandardOutput = output };
+        _llmRunner.ResultToReturn = new LlmRunResult { Success = true, Output = output };
 
         await sut.RunPromptCommand.ExecuteAsync(null);
 
@@ -60,7 +60,7 @@ public class PromptViewModelTests
     {
         var sut = CreateSut();
         sut.PromptText = "Do something";
-        _claudeCliService.ResultToReturn = new ClaudeCliResult { ExitCode = 1, StandardError = "boom" };
+        _llmRunner.ResultToReturn = new LlmRunResult { Success = false, ExitCode = 1, ErrorMessage = "boom" };
 
         await sut.RunPromptCommand.ExecuteAsync(null);
 
@@ -71,11 +71,11 @@ public class PromptViewModelTests
     }
 
     [Fact]
-    public async Task RunPromptAsync_CliServiceThrows_ReportsErrorAndResetsIsRunning()
+    public async Task RunPromptAsync_LlmRunnerThrows_ReportsErrorAndResetsIsRunning()
     {
         var sut = CreateSut();
         sut.PromptText = "Do something";
-        _claudeCliService.ExceptionToThrow = new InvalidOperationException("claude not found");
+        _llmRunner.ExceptionToThrow = new InvalidOperationException("claude not found");
 
         await sut.RunPromptCommand.ExecuteAsync(null);
 
@@ -85,7 +85,7 @@ public class PromptViewModelTests
     }
 
     [Fact]
-    public async Task RunPromptAsync_PassesInstructionPreambleAndWorkingDirectoryToCliService()
+    public async Task RunPromptAsync_PassesInstructionPreambleAndWorkingDirectoryToLlmRunner()
     {
         var sut = CreateSut();
         sut.PromptText = "Add a Foo class";
@@ -93,9 +93,9 @@ public class PromptViewModelTests
 
         await sut.RunPromptCommand.ExecuteAsync(null);
 
-        Assert.Equal("/tmp/my-project", _claudeCliService.LastWorkingDirectory);
-        Assert.Contains("Add a Foo class", _claudeCliService.LastPrompt);
-        Assert.Contains("The working directory is: /tmp/my-project", _claudeCliService.LastPrompt);
+        Assert.Equal("/tmp/my-project", _llmRunner.LastWorkingDirectory);
+        Assert.Contains("Add a Foo class", _llmRunner.LastPrompt);
+        Assert.Contains("The working directory is: /tmp/my-project", _llmRunner.LastPrompt);
     }
 
     [Fact]
@@ -106,15 +106,15 @@ public class PromptViewModelTests
 
         await sut.RunPromptCommand.ExecuteAsync(null);
 
-        Assert.DoesNotContain("The working directory is:", _claudeCliService.LastPrompt);
+        Assert.DoesNotContain("The working directory is:", _llmRunner.LastPrompt);
     }
 
     [Fact]
-    public async Task CancelPromptAsync_WhileRunning_CancelsTheCliCallAndReportsCancelled()
+    public async Task CancelPromptAsync_WhileRunning_CancelsTheRunAndReportsCancelled()
     {
         var sut = CreateSut();
         sut.PromptText = "Do something";
-        _claudeCliService.CompleteImmediately = false;
+        _llmRunner.CompleteImmediately = false;
 
         var runTask = sut.RunPromptCommand.ExecuteAsync(null);
         while (!sut.IsRunning)
@@ -128,7 +128,7 @@ public class PromptViewModelTests
 
         Assert.False(sut.IsRunning);
         Assert.Equal("Cancelled.", sut.StatusMessage);
-        Assert.True(_claudeCliService.LastCancellationToken.IsCancellationRequested);
+        Assert.True(_llmRunner.LastCancellationToken.IsCancellationRequested);
     }
 
     [Fact]
@@ -151,18 +151,18 @@ public class PromptViewModelTests
     }
 
     [Fact]
-    public async Task RunPromptAsync_TimeoutElapses_ReportsTimeoutMessageAndCancelsTheCliCall()
+    public async Task RunPromptAsync_TimeoutElapses_ReportsTimeoutMessageAndCancelsTheRun()
     {
         var sut = CreateSut();
         sut.PromptText = "Do something";
         sut.TimeoutSeconds = 0;
-        _claudeCliService.CompleteImmediately = false;
+        _llmRunner.CompleteImmediately = false;
 
         await sut.RunPromptCommand.ExecuteAsync(null);
 
         Assert.False(sut.IsRunning);
         Assert.Equal("Timed out after 0 second(s). You can increase the timeout on the Settings page.", sut.StatusMessage);
-        Assert.True(_claudeCliService.LastCancellationToken.IsCancellationRequested);
+        Assert.True(_llmRunner.LastCancellationToken.IsCancellationRequested);
     }
 
     [Fact]
@@ -195,43 +195,17 @@ public class PromptViewModelTests
     }
 
     [Fact]
-    public async Task RunPromptAsync_CliNotAvailable_ReportsActionableMessageAndDoesNotRun()
+    public async Task RunPromptAsync_RunnerNotAvailable_ReportsActionableMessageAndDoesNotRun()
     {
         var sut = CreateSut();
         sut.PromptText = "Do something";
-        _claudeCliService.AvailableToReturn = false;
+        _llmRunner.AvailableToReturn = false;
 
         await sut.RunPromptCommand.ExecuteAsync(null);
 
         Assert.False(sut.IsRunning);
         Assert.Equal("Claude Code CLI not found on PATH. Install it with: npm install -g @anthropic-ai/claude-code", sut.StatusMessage);
-        Assert.Equal(0, _claudeCliService.CallCount);
-    }
-
-    [Fact]
-    public async Task RunPromptAsync_NoSavedCliSettings_UsesDefaultClaudeCliOptions()
-    {
-        var sut = CreateSut();
-        sut.PromptText = "Do something";
-
-        await sut.RunPromptCommand.ExecuteAsync(null);
-
-        Assert.Equal("claude", _claudeCliService.LastOptions?.ExecutablePath);
-        Assert.Equal("-p", _claudeCliService.LastOptions?.Arguments);
-    }
-
-    [Fact]
-    public async Task RunPromptAsync_SavedCliSettings_PassesConfiguredExecutablePathAndArguments()
-    {
-        await _localSettingsService.SaveSettingAsync("ClaudeCliExecutablePath", "/usr/local/bin/claude");
-        await _localSettingsService.SaveSettingAsync("ClaudeCliArguments", "-p --model=opus");
-        var sut = CreateSut();
-        sut.PromptText = "Do something";
-
-        await sut.RunPromptCommand.ExecuteAsync(null);
-
-        Assert.Equal("/usr/local/bin/claude", _claudeCliService.LastOptions?.ExecutablePath);
-        Assert.Equal("-p --model=opus", _claudeCliService.LastOptions?.Arguments);
+        Assert.Equal(0, _llmRunner.CallCount);
     }
 
     [Fact]
@@ -293,8 +267,8 @@ public class PromptViewModelTests
     {
         var sut = CreateSut();
         sut.PromptText = "Add a Foo class";
-        _claudeCliService.TextDeltasToEmit = new[] { "Hello", ", world" };
-        _claudeCliService.ResultToReturn = new ClaudeCliResult { ExitCode = 0, StandardOutput = "Hello, world" };
+        _llmRunner.TextDeltasToEmit = new[] { "Hello", ", world" };
+        _llmRunner.ResultToReturn = new LlmRunResult { Success = true, Output = "Hello, world" };
 
         await sut.RunPromptCommand.ExecuteAsync(null);
 
@@ -318,8 +292,8 @@ public class PromptViewModelTests
             class Foo {}
             ```
             """;
-        _claudeCliService.TextDeltasToEmit = new[] { streamed };
-        _claudeCliService.ResultToReturn = new ClaudeCliResult { ExitCode = 0, StandardOutput = streamed };
+        _llmRunner.TextDeltasToEmit = new[] { streamed };
+        _llmRunner.ResultToReturn = new LlmRunResult { Success = true, Output = streamed };
 
         var seenFileCountsBeforeCompletion = new List<int>();
         _promptResultStore.OnSetResult = () => seenFileCountsBeforeCompletion.Add(_promptResultStore.Files.Count);
@@ -335,10 +309,10 @@ public class PromptViewModelTests
     {
         var sut = CreateSut();
         sut.PromptText = "Do something";
-        _claudeCliService.ResultToReturn = new ClaudeCliResult
+        _llmRunner.ResultToReturn = new LlmRunResult
         {
-            ExitCode = 0,
-            StandardOutput = "done",
+            Success = true,
+            Output = "done",
             TotalCostUsd = 0.0056,
             DurationMs = 1234,
             InputTokens = 10,
@@ -357,7 +331,7 @@ public class PromptViewModelTests
     {
         var sut = CreateSut();
         sut.PromptText = "Do something";
-        _claudeCliService.ResultToReturn = new ClaudeCliResult { ExitCode = 0, StandardOutput = "done" };
+        _llmRunner.ResultToReturn = new LlmRunResult { Success = true, Output = "done" };
 
         await sut.RunPromptCommand.ExecuteAsync(null);
 

@@ -10,19 +10,34 @@ using Newtonsoft.Json.Linq;
 
 namespace CodeGenToTutorial.Core.Services;
 
-public class ClaudeCliService : IClaudeCliService
+// The CLI implementation of ILlmRunner (T6.3.1) - a direct Anthropic API runner (T6.3.2) is meant
+// to be a second one. CLI-specific configuration (executable path/arguments) is resolved through
+// optionsProvider rather than taken as a per-call parameter, since Core can't depend on the
+// Avalonia-layer settings service that actually stores it (see ClaudeCliOptionsProvider).
+public class ClaudeCliRunner : ILlmRunner
 {
     // Fixed flags required to get NDJSON stream-json output with token-level text deltas (T6.2.1) -
     // appended unconditionally after the user-configured arguments (T6.1.4), since streaming is now
     // a hard requirement for this service to parse its own output, not an optional CLI choice.
     private static readonly string[] StreamingArguments = { "--output-format", "stream-json", "--include-partial-messages", "--verbose" };
 
-    public bool IsAvailable(ClaudeCliOptions? options = null) =>
-        ExecutablePathResolver.ExistsOnPath((options ?? ClaudeCliOptions.Default).ExecutablePath);
+    private readonly Func<Task<ClaudeCliOptions>> _optionsProvider;
 
-    public async Task<ClaudeCliResult> RunPromptAsync(string prompt, string? workingDirectory = null, ClaudeCliOptions? options = null, Action<string>? onTextDelta = null, CancellationToken cancellationToken = default)
+    public ClaudeCliRunner(Func<Task<ClaudeCliOptions>>? optionsProvider = null)
     {
-        options ??= ClaudeCliOptions.Default;
+        _optionsProvider = optionsProvider ?? (() => Task.FromResult(ClaudeCliOptions.Default));
+    }
+
+    public async Task<bool> IsAvailableAsync()
+    {
+        var options = await _optionsProvider();
+
+        return ExecutablePathResolver.ExistsOnPath(options.ExecutablePath);
+    }
+
+    public async Task<LlmRunResult> RunPromptAsync(string prompt, string? workingDirectory = null, Action<string>? onTextDelta = null, CancellationToken cancellationToken = default)
+    {
+        var options = await _optionsProvider();
         var arguments = options.Arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries).Concat(StreamingArguments);
 
         // On Windows this is routed through cmd.exe so PATH resolution picks up the claude.cmd shim installed
@@ -147,11 +162,12 @@ public class ClaudeCliService : IClaudeCliService
             throw;
         }
 
-        return new ClaudeCliResult
+        return new LlmRunResult
         {
+            Success = process.ExitCode == 0,
+            Output = assistantText.ToString().TrimEnd(),
+            ErrorMessage = standardError.ToString().TrimEnd(),
             ExitCode = process.ExitCode,
-            StandardOutput = assistantText.ToString().TrimEnd(),
-            StandardError = standardError.ToString().TrimEnd(),
             TotalCostUsd = totalCostUsd,
             DurationMs = durationMs,
             InputTokens = inputTokens,

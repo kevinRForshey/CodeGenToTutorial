@@ -11,7 +11,7 @@ namespace CodeGenToTutorial.Core.Tests.Services;
 // Stands a POSIX shell script in for the `claude` CLI (same approach GitStatusServiceTests takes with a
 // real `git` binary) so RunPromptAsync's stream-json NDJSON parsing (T6.2.1/T6.2.3) can be exercised
 // without invoking the real, paid Claude Code CLI.
-public class ClaudeCliServiceTests : IDisposable
+public class ClaudeCliRunnerTests : IDisposable
 {
     private const string FakeClaudeScript = """
         #!/bin/sh
@@ -26,12 +26,15 @@ public class ClaudeCliServiceTests : IDisposable
         """;
 
     private readonly string _scriptPath = Path.Combine(Path.GetTempPath(), $"fake-claude-{Guid.NewGuid()}.sh");
-    private readonly ClaudeCliService _service = new();
+    private readonly ClaudeCliRunner _runner;
 
-    public ClaudeCliServiceTests()
+    public ClaudeCliRunnerTests()
     {
         File.WriteAllText(_scriptPath, FakeClaudeScript);
         File.SetUnixFileMode(_scriptPath, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
+        var options = new ClaudeCliOptions(_scriptPath, string.Empty);
+        _runner = new ClaudeCliRunner(() => Task.FromResult(options));
     }
 
     public void Dispose()
@@ -43,11 +46,13 @@ public class ClaudeCliServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task RunPromptAsync_StreamJsonTextDeltas_AccumulatesThemAsStandardOutput()
+    public async Task RunPromptAsync_StreamJsonTextDeltas_AccumulatesThemAsOutput()
     {
-        var result = await _service.RunPromptAsync("prompt", options: new ClaudeCliOptions(_scriptPath, string.Empty));
+        var result = await _runner.RunPromptAsync("prompt");
 
-        Assert.Equal("Hello, world", result.StandardOutput);
+        Assert.Equal("Hello, world", result.Output);
+        Assert.True(result.Success);
+        Assert.Equal(0, result.ExitCode);
     }
 
     [Fact]
@@ -55,7 +60,7 @@ public class ClaudeCliServiceTests : IDisposable
     {
         var received = new List<string>();
 
-        await _service.RunPromptAsync("prompt", options: new ClaudeCliOptions(_scriptPath, string.Empty), onTextDelta: received.Add);
+        await _runner.RunPromptAsync("prompt", onTextDelta: received.Add);
 
         Assert.Equal(new[] { "Hello", ", world" }, received);
     }
@@ -63,11 +68,25 @@ public class ClaudeCliServiceTests : IDisposable
     [Fact]
     public async Task RunPromptAsync_ResultLine_PopulatesCostAndUsageFields()
     {
-        var result = await _service.RunPromptAsync("prompt", options: new ClaudeCliOptions(_scriptPath, string.Empty));
+        var result = await _runner.RunPromptAsync("prompt");
 
         Assert.Equal(0.0056, result.TotalCostUsd);
         Assert.Equal(1234, result.DurationMs);
         Assert.Equal(10, result.InputTokens);
         Assert.Equal(5, result.OutputTokens);
+    }
+
+    [Fact]
+    public async Task IsAvailableAsync_ScriptExists_ReturnsTrue()
+    {
+        Assert.True(await _runner.IsAvailableAsync());
+    }
+
+    [Fact]
+    public async Task IsAvailableAsync_ExecutableMissing_ReturnsFalse()
+    {
+        var runner = new ClaudeCliRunner(() => Task.FromResult(new ClaudeCliOptions("/no/such/claude-binary", string.Empty)));
+
+        Assert.False(await runner.IsAvailableAsync());
     }
 }

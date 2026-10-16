@@ -51,7 +51,8 @@ public partial class App : Application
             // Services
             services.AddSingleton<ILocalSettingsService, LocalSettingsService>();
             services.AddSingleton<IThemeSelectorService, ThemeSelectorService>();
-            services.AddSingleton<IClaudeCliService, ClaudeCliService>();
+            services.AddSingleton<ClaudeCliOptionsProvider>();
+            services.AddSingleton<ILlmRunner>(sp => new ClaudeCliRunner(sp.GetRequiredService<ClaudeCliOptionsProvider>().GetOptionsAsync));
             services.AddTransient<IFolderPickerService, FolderPickerService>();
             services.AddSingleton<IPromptResultStore, PromptResultStore>();
             services.AddTransient<IFileChangeApplyService, FileChangeApplyService>();

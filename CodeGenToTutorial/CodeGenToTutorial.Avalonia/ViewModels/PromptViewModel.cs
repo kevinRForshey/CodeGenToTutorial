@@ -4,7 +4,6 @@ using Avalonia.Threading;
 
 using CodeGenToTutorial.Avalonia.Contracts.Services;
 using CodeGenToTutorial.Avalonia.Contracts.ViewModels;
-using CodeGenToTutorial.Avalonia.Services;
 using CodeGenToTutorial.Avalonia.Strings;
 using CodeGenToTutorial.Core.Contracts.Services;
 using CodeGenToTutorial.Core.Helpers;
@@ -65,7 +64,7 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
         user's request:
         """ + "\n\n";
 
-    private readonly IClaudeCliService _claudeCliService;
+    private readonly ILlmRunner _llmRunner;
     private readonly ILocalSettingsService _localSettingsService;
     private readonly IFolderPickerService _folderPickerService;
     private readonly IPromptResultStore _promptResultStore;
@@ -112,9 +111,9 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
 
     private Stopwatch? _runStopwatch;
 
-    public PromptViewModel(IClaudeCliService claudeCliService, ILocalSettingsService localSettingsService, IFolderPickerService folderPickerService, IPromptResultStore promptResultStore)
+    public PromptViewModel(ILlmRunner llmRunner, ILocalSettingsService localSettingsService, IFolderPickerService folderPickerService, IPromptResultStore promptResultStore)
     {
-        _claudeCliService = claudeCliService;
+        _llmRunner = llmRunner;
         _localSettingsService = localSettingsService;
         _folderPickerService = folderPickerService;
         _promptResultStore = promptResultStore;
@@ -158,9 +157,7 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
     [RelayCommand(CanExecute = nameof(CanRunPrompt))]
     private async Task RunPromptAsync()
     {
-        var cliOptions = await LoadClaudeCliOptionsAsync();
-
-        if (!_claudeCliService.IsAvailable(cliOptions))
+        if (!await _llmRunner.IsAvailableAsync())
         {
             StatusMessage = "Prompt_ClaudeCliNotFound".GetLocalized();
             return;
@@ -207,11 +204,11 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
                 _promptResultStore.SetResult(streamedSoFar.Tutorial, streamedSoFar.Files, WorkingDirectoryPath);
             });
 
-            var result = await _claudeCliService.RunPromptAsync(fullPrompt, WorkingDirectoryPath, cliOptions, OnTextDelta, linkedCancellationTokenSource.Token);
+            var result = await _llmRunner.RunPromptAsync(fullPrompt, WorkingDirectoryPath, OnTextDelta, linkedCancellationTokenSource.Token);
 
-            CliOutput = result.ExitCode == 0 || string.IsNullOrWhiteSpace(result.StandardError)
-                ? result.StandardOutput
-                : result.StandardError;
+            CliOutput = result.Success || string.IsNullOrWhiteSpace(result.ErrorMessage)
+                ? result.Output
+                : result.ErrorMessage;
 
             if (result.TotalCostUsd.HasValue)
             {
@@ -223,7 +220,7 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
                     (result.DurationMs ?? 0) / 1000.0);
             }
 
-            if (result.ExitCode == 0)
+            if (result.Success)
             {
                 var parsed = ClaudeResponseParser.Parse(CliOutput);
                 _promptResultStore.SetResult(parsed.Tutorial, parsed.Files, WorkingDirectoryPath);
@@ -276,16 +273,4 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
     partial void OnIsRunningChanged(bool value) => RunPromptCommand.NotifyCanExecuteChanged();
 
     partial void OnTimeoutSecondsChanged(int value) => _localSettingsService.SaveSettingAsync(TimeoutSecondsSettingsKey, value);
-
-    // T6.1.4: reads the Settings page's CLI path/arguments on every run rather than caching them,
-    // so a change made there takes effect on the next run without requiring a page revisit here.
-    private async Task<ClaudeCliOptions> LoadClaudeCliOptionsAsync()
-    {
-        var executablePath = await _localSettingsService.ReadSettingAsync<string>(ClaudeCliSettingsKeys.ExecutablePath);
-        var arguments = await _localSettingsService.ReadSettingAsync<string>(ClaudeCliSettingsKeys.Arguments);
-
-        return new ClaudeCliOptions(
-            string.IsNullOrWhiteSpace(executablePath) ? ClaudeCliOptions.Default.ExecutablePath : executablePath,
-            string.IsNullOrWhiteSpace(arguments) ? ClaudeCliOptions.Default.Arguments : arguments);
-    }
 }

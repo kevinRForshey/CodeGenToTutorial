@@ -3,9 +3,9 @@ using CodeGenToTutorial.Core.Models;
 
 namespace CodeGenToTutorial.Avalonia.Tests.Fakes;
 
-public class FakeClaudeCliService : IClaudeCliService
+public class FakeLlmRunner : ILlmRunner
 {
-    public ClaudeCliResult ResultToReturn { get; set; } = new() { ExitCode = 0, StandardOutput = string.Empty };
+    public LlmRunResult ResultToReturn { get; set; } = new() { Success = true, Output = string.Empty };
 
     public Exception? ExceptionToThrow { get; set; }
 
@@ -24,19 +24,16 @@ public class FakeClaudeCliService : IClaudeCliService
 
     public bool AvailableToReturn { get; set; } = true;
 
-    public ClaudeCliOptions? LastOptions { get; private set; }
-
     // T6.2.1: text chunks RunPromptAsync should hand to onTextDelta, in order, before returning.
     public IReadOnlyList<string> TextDeltasToEmit { get; set; } = Array.Empty<string>();
 
-    public bool IsAvailable(ClaudeCliOptions? options = null) => AvailableToReturn;
+    public Task<bool> IsAvailableAsync() => Task.FromResult(AvailableToReturn);
 
-    public async Task<ClaudeCliResult> RunPromptAsync(string prompt, string? workingDirectory = null, ClaudeCliOptions? options = null, Action<string>? onTextDelta = null, CancellationToken cancellationToken = default)
+    public async Task<LlmRunResult> RunPromptAsync(string prompt, string? workingDirectory = null, Action<string>? onTextDelta = null, CancellationToken cancellationToken = default)
     {
         CallCount++;
         LastPrompt = prompt;
         LastWorkingDirectory = workingDirectory;
-        LastOptions = options;
         LastCancellationToken = cancellationToken;
 
         if (ExceptionToThrow != null)

@@ -795,7 +795,36 @@ committed yet — review `git status`/`git diff` before committing.
   the real CLI yet.
 
 **F6.3 — Provider abstraction**
-- T6.3.1 Abstract behind an `ILlmRunner` so the CLI is one implementation.
+- [x] T6.3.1 Abstract behind an `ILlmRunner` so the CLI is one implementation. — done 2026-10-16:
+  added `ILlmRunner` (Core) with just `RunPromptAsync(prompt, workingDirectory, onTextDelta,
+  cancellationToken)` and `IsAvailableAsync()` - nothing CLI-specific (an executable path, process
+  arguments) appears on it, so a future direct Anthropic API runner (T6.3.2) can be a second
+  implementation without the interface leaking CLI concepts. Renamed `ClaudeCliService` to
+  `ClaudeCliRunner` as the CLI's implementation of it, and replaced `ClaudeCliResult` with a
+  provider-agnostic `LlmRunResult` (Core) - `Success`/`Output`/`ErrorMessage` are the fields callers
+  should branch on, while `ExitCode` stays as a nullable CLI-only diagnostic a non-CLI runner can
+  leave null. The CLI-specific configuration that used to flow in as a per-call `ClaudeCliOptions`
+  parameter (T6.1.4) couldn't just move onto the new interface without reintroducing a CLI-shaped
+  parameter on it, and Core has no reference to `ILocalSettingsService` (it lives in the Avalonia
+  project) to resolve it internally either - so `ClaudeCliRunner` now takes a
+  `Func<Task<ClaudeCliOptions>>? optionsProvider` constructor parameter instead (defaulting to
+  `ClaudeCliOptions.Default` when not supplied) and calls it fresh on every `RunPromptAsync`/
+  `IsAvailableAsync` call. The actual settings-reading that used to live in
+  `PromptViewModel.LoadClaudeCliOptionsAsync` moved into a new `ClaudeCliOptionsProvider`
+  (Avalonia), which `App.axaml.cs` wires into `ClaudeCliRunner` as that `Func` when registering
+  `ILlmRunner` - this is the one seam where Avalonia's settings storage reaches into the otherwise
+  settings-agnostic Core runner. `PromptViewModel` now depends on `ILlmRunner` and no longer knows
+  about `ClaudeCliOptions`/`ClaudeCliSettingsKeys` at all; `SettingsViewModel` is unaffected since it
+  only edits those settings; `IsAvailable` becoming `IsAvailableAsync` (now that it has to resolve
+  options via the provider) is the only other signature change callers had to adjust for. Updated
+  `ClaudeCliServiceTests` (renamed `ClaudeCliRunnerTests`, now constructing the runner with an
+  options-provider lambda instead of passing `options:` per call, plus two new `IsAvailableAsync`
+  cases) and `FakeClaudeCliService` (renamed `FakeLlmRunner`, implementing `ILlmRunner` - dropped
+  `LastOptions` since the fake no longer receives options at all). The two `PromptViewModelTests`
+  cases that asserted settings flow into CLI options (`...UsesDefaultClaudeCliOptions`/
+  `...PassesConfiguredExecutablePathAndArguments`) moved to a new `ClaudeCliOptionsProviderTests`,
+  since that's `ClaudeCliOptionsProvider`'s responsibility now, not `PromptViewModel`'s. Full
+  solution builds with 0 warnings/errors, 308/308 tests pass (232 Core + 76 Avalonia).
 - T6.3.2 Add a direct Anthropic API runner (API key in secure storage, model selection).
 - T6.3.3 Model picker in Settings.
 
