@@ -19,6 +19,7 @@ public static class Resources
         ["Prompt_RunTimedOut"] = "Timed out after {0} second(s). You can increase the timeout on the Settings page.",
         ["Prompt_ClaudeCliNotFound"] = "Claude Code CLI not found on PATH. Install it with: npm install -g @anthropic-ai/claude-code",
         ["Prompt_UsageSummary"] = "Cost: ${0:F4} • {1:N0} in / {2:N0} out tokens • {3:F1}s",
+        ["Prompt_FallbackParseNotice"] = "(Response wasn't valid structured JSON; parsed with the legacy text parser.)",
         ["Tutorial_ChangeApplied"] = "Applied the changes to {0}.",
         ["Tutorial_ApplyFailed"] = "Failed to apply the change: {0}",
         ["Tutorial_ApplySelectedNoneSelected"] = "No changes are selected to apply.",

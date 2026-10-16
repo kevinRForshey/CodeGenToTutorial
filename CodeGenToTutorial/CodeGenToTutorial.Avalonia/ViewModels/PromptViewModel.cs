@@ -21,48 +21,54 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
     private const string TimeoutSecondsSettingsKey = "PromptTimeoutSeconds";
     private const int DefaultTimeoutSeconds = 300;
 
-    // Hard-coded instructions prepended to every prompt sent to Claude Code. Refine as the tutorial/diff workflow evolves.
+    // Hard-coded instructions prepended to every prompt sent to Claude Code. Refine as the tutorial/diff
+    // workflow evolves. Epic 5 / F5.1: the response contract is a single JSON object
+    // (CodeGenToTutorial.Core.Models.ClaudeJsonResponse) instead of markdown headers, so it can be
+    // parsed without depending on the model never reformatting a fence - see
+    // CodeGenToTutorial.Core.Helpers.ClaudeJsonResponseParser. The old markdown parser
+    // (ClaudeResponseParser) is kept only as a last-resort fallback for whatever the model actually
+    // returns (T5.1.3), via StructuredResponseParser.
     private const string TutorialInstructionPrompt =
         """
-        You are being called from a desktop app. First decide what kind of request the user made below:
+        You are being called from a desktop app. Respond with a single JSON object only - no markdown
+        fences, no commentary before or after it - matching exactly one of these two shapes, depending on
+        what kind of request the user made below:
 
-        1. General question (math, trivia, "explain X", anything that does not require changing files in this
-           codebase): just answer it directly and concisely. Do not produce a tutorial or file list for these.
+        1. General question (math, trivia, "explain X", anything that does not require changing files in
+           this codebase):
+           {
+             "responseType": "answer",
+             "answer": "<your answer, as plain text>"
+           }
 
-        2. Development request (asks for a feature, fix, or change to this codebase): do NOT modify any files.
-           Instead respond with exactly two top-level sections, using these headers so they can be parsed:
+        2. Development request (asks for a feature, fix, or change to this codebase) - do NOT modify any
+           files yourself:
+           {
+             "responseType": "development",
+             "tutorial": "<a short paragraph summarizing the overall change>",
+             "files": [
+               {
+                 "path": "<path to the file, relative to the working directory>",
+                 "content": "<the complete contents of the file with the proposed changes applied - the whole file, not a diff>",
+                 "steps": [
+                   {
+                     "title": "<short title for this part of the change>",
+                     "explanation": "<one or more paragraphs explaining, in detail, the reasoning behind this specific part of the change and how it works, written so someone learning to code with an LLM can follow along>",
+                     "snippet": "<only the new or changed code that this step introduces, not the whole file>"
+                   }
+                 ]
+               }
+             ]
+           }
+           Repeat the "steps" entries for every distinct part of a file's change. If no existing files
+           need changes, set "files" to an empty array.
 
-           ## Tutorial
-           A short paragraph summarizing the overall change.
-
-           ## Files
-           For every file that needs to change, add a subsection formatted exactly like this, repeated for each
-           file:
-
-           ### File: <path to the file, relative to the working directory>
-           ```
-           <the complete contents of the file with the proposed changes applied - the whole file, not a diff>
-           ```
-
-           #### Tutorial
-           Break down why and how this file is changing into one or more ordered steps, each formatted exactly
-           like this:
-
-           ##### Step: <short title for this part of the change>
-           One or more paragraphs explaining, in detail, the reasoning behind this specific part of the change
-           and how it works, written so someone learning to code with an LLM can follow along.
-           ```
-           <only the new or changed code that this step introduces, not the whole file>
-           ```
-
-           Repeat the "##### Step" block for every distinct part of the file's change.
-
-           Do not put a language tag after the three backticks. If no existing files need changes, write
-           "No files need changes." instead of any file subsections.
-
-        Only use the Development request format when the request actually requires code changes. Here is the
-        user's request:
+        Only use the "development" shape when the request actually requires code changes. Every string
+        value must be valid JSON (escape newlines, quotes, and backslashes). Here is the user's request:
         """ + "\n\n";
+
+    private const string RetryInstructionSuffix =
+        "\n\nYour previous response could not be parsed: {0}\n\nRespond again with ONLY a single corrected JSON object matching the schema above - no markdown fences, no commentary.";
 
     private readonly ILlmRunner _llmRunner;
     private readonly ILocalSettingsService _localSettingsService;
@@ -191,11 +197,12 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
             }
 
             // T6.2.1/T6.2.2: fires on a background thread as the CLI streams assistant text, so UI
-            // state is only ever touched after marshaling onto the UI thread. Re-parsing the
-            // growing CliOutput on every delta is safe because ClaudeResponseParser only matches
-            // complete (closed-fence) sections - partial/in-progress blocks are naturally ignored
-            // until they finish, so this surfaces newly-completed files as soon as they're emitted
-            // instead of waiting for the whole run to finish.
+            // state is only ever touched after marshaling onto the UI thread. Re-parsing the growing
+            // CliOutput on every delta with the legacy markdown parser is a harmless no-op under the
+            // Epic 5 JSON contract - a single top-level JSON object can't be meaningfully parsed until
+            // it's fully closed, so the live file-reveal T6.2.2 added only still fires for a model that
+            // (incorrectly) reverts to the old markdown shape. The authoritative parse happens once,
+            // below, via StructuredResponseParser against the complete output.
             void OnTextDelta(string text) => Dispatcher.UIThread.Post(() =>
             {
                 CliOutput += text;
@@ -205,6 +212,28 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
             });
 
             var result = await _llmRunner.RunPromptAsync(fullPrompt, WorkingDirectoryPath, OnTextDelta, linkedCancellationTokenSource.Token);
+            StructuredParseResult? parseResult = null;
+
+            if (result.Success)
+            {
+                parseResult = StructuredResponseParser.Parse(result.Output);
+
+                // T5.1.2: one retry, feeding the schema validation error back to the model, before
+                // settling for the markdown fallback (T5.1.3). A failed retry call (cancelled, CLI
+                // error) keeps the original attempt's already-fallback-parsed result rather than
+                // discarding it for an error state.
+                if (parseResult.UsedFallback && parseResult.ValidationError is not null)
+                {
+                    var retryPrompt = fullPrompt + string.Format(RetryInstructionSuffix, parseResult.ValidationError);
+                    var retryResult = await _llmRunner.RunPromptAsync(retryPrompt, WorkingDirectoryPath, OnTextDelta, linkedCancellationTokenSource.Token);
+
+                    if (retryResult.Success)
+                    {
+                        result = CombineUsage(result, retryResult);
+                        parseResult = StructuredResponseParser.Parse(retryResult.Output);
+                    }
+                }
+            }
 
             CliOutput = result.Success || string.IsNullOrWhiteSpace(result.ErrorMessage)
                 ? result.Output
@@ -222,12 +251,16 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
 
             if (result.Success)
             {
-                var parsed = ClaudeResponseParser.Parse(CliOutput);
+                var parsed = parseResult!.Response;
                 _promptResultStore.SetResult(parsed.Tutorial, parsed.Files, WorkingDirectoryPath);
 
-                StatusMessage = parsed.Files.Count > 0
+                var completionMessage = parsed.Files.Count > 0
                     ? string.Format("Prompt_RunCompletedWithFiles".GetLocalized(), parsed.Files.Count)
                     : "Prompt_RunCompleted".GetLocalized();
+
+                StatusMessage = parseResult.UsedFallback
+                    ? completionMessage + " " + "Prompt_FallbackParseNotice".GetLocalized()
+                    : completionMessage;
             }
             else
             {
@@ -263,6 +296,27 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
 
     [RelayCommand(CanExecute = nameof(CanCancelPrompt))]
     private void CancelPrompt() => _runCancellationTokenSource?.Cancel();
+
+    // T5.1.2's retry is a second full LLM call, so cost/token/duration reporting (T6.2.3) has to add
+    // both calls together rather than silently reporting only the retry's - otherwise a schema-failure
+    // retry would under-report what the run actually spent.
+    private static LlmRunResult CombineUsage(LlmRunResult original, LlmRunResult retry) => new()
+    {
+        Success = retry.Success,
+        Output = retry.Output,
+        ErrorMessage = retry.ErrorMessage,
+        ExitCode = retry.ExitCode,
+        TotalCostUsd = SumNullable(original.TotalCostUsd, retry.TotalCostUsd),
+        DurationMs = SumNullable(original.DurationMs, retry.DurationMs),
+        InputTokens = SumNullable(original.InputTokens, retry.InputTokens),
+        OutputTokens = SumNullable(original.OutputTokens, retry.OutputTokens),
+    };
+
+    private static double? SumNullable(double? a, double? b) => a.HasValue || b.HasValue ? (a ?? 0) + (b ?? 0) : null;
+
+    private static long? SumNullable(long? a, long? b) => a.HasValue || b.HasValue ? (a ?? 0) + (b ?? 0) : null;
+
+    private static int? SumNullable(int? a, int? b) => a.HasValue || b.HasValue ? (a ?? 0) + (b ?? 0) : null;
 
     private bool CanRunPrompt() => !IsRunning && !string.IsNullOrWhiteSpace(PromptText);
 

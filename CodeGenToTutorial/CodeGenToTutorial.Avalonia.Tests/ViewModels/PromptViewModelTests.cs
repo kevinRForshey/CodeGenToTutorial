@@ -19,7 +19,11 @@ public class PromptViewModelTests
     {
         var sut = CreateSut();
         sut.PromptText = "Explain recursion";
-        _llmRunner.ResultToReturn = new LlmRunResult { Success = true, Output = "Recursion is when a function calls itself." };
+        _llmRunner.ResultToReturn = new LlmRunResult
+        {
+            Success = true,
+            Output = """{"responseType": "answer", "answer": "Recursion is when a function calls itself."}""",
+        };
 
         await sut.RunPromptCommand.ExecuteAsync(null);
 
@@ -36,15 +40,13 @@ public class PromptViewModelTests
         sut.PromptText = "Add a Foo class";
         const string output =
             """
-            ## Tutorial
-            Adds a Foo class.
-
-            ## Files
-
-            ### File: Foo.cs
-            ```
-            class Foo {}
-            ```
+            {
+              "responseType": "development",
+              "tutorial": "Adds a Foo class.",
+              "files": [
+                { "path": "Foo.cs", "content": "class Foo {}", "steps": [] }
+              ]
+            }
             """;
         _llmRunner.ResultToReturn = new LlmRunResult { Success = true, Output = output };
 
@@ -209,6 +211,129 @@ public class PromptViewModelTests
     }
 
     [Fact]
+    public async Task RunPromptAsync_InvalidJsonThenCorrectedJsonOnRetry_UsesTheRetriedResultWithoutFallbackNotice()
+    {
+        var sut = CreateSut();
+        sut.PromptText = "Add a Foo class";
+        _llmRunner.ResultsToReturnInOrder = new Queue<LlmRunResult>(
+        [
+            new LlmRunResult { Success = true, Output = "Here you go, no JSON today." },
+            new LlmRunResult
+            {
+                Success = true,
+                Output = """{"responseType": "development", "tutorial": "Adds a Foo class.", "files": [{"path": "Foo.cs", "content": "class Foo {}", "steps": []}]}""",
+            },
+        ]);
+
+        await sut.RunPromptCommand.ExecuteAsync(null);
+
+        Assert.Equal(2, _llmRunner.CallCount);
+        Assert.Equal("Claude Code finished. 1 file(s) ready to review on the Diffs page.", sut.StatusMessage);
+        Assert.Single(_promptResultStore.Files);
+        Assert.Equal("Foo.cs", _promptResultStore.Files[0].FilePath);
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_RetryPrompt_IncludesTheOriginalRequestAndTheValidationError()
+    {
+        var sut = CreateSut();
+        sut.PromptText = "Add a Foo class";
+        _llmRunner.ResultsToReturnInOrder = new Queue<LlmRunResult>(
+        [
+            new LlmRunResult { Success = true, Output = "not json" },
+            new LlmRunResult { Success = true, Output = """{"responseType": "answer", "answer": "ok"}""" },
+        ]);
+
+        await sut.RunPromptCommand.ExecuteAsync(null);
+
+        Assert.Equal(2, _llmRunner.AllPrompts.Count);
+        Assert.Contains("Add a Foo class", _llmRunner.AllPrompts[1]);
+        Assert.Contains("No JSON object was found", _llmRunner.AllPrompts[1]);
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_InvalidJsonOnBothAttempts_FallsBackToMarkdownParsingAndNotesIt()
+    {
+        var sut = CreateSut();
+        sut.PromptText = "Add a Foo class";
+        const string markdown =
+            """
+            ## Tutorial
+            Adds a Foo class.
+
+            ## Files
+            ### File: Foo.cs
+            ```
+            class Foo {}
+            ```
+            """;
+        _llmRunner.ResultToReturn = new LlmRunResult { Success = true, Output = markdown };
+
+        await sut.RunPromptCommand.ExecuteAsync(null);
+
+        Assert.Equal(2, _llmRunner.CallCount);
+        Assert.Contains("wasn't valid structured JSON", sut.StatusMessage);
+        Assert.Single(_promptResultStore.Files);
+        Assert.Equal("Foo.cs", _promptResultStore.Files[0].FilePath);
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_RetryCallFails_KeepsTheFirstAttemptsFallbackParsedResult()
+    {
+        var sut = CreateSut();
+        sut.PromptText = "Add a Foo class";
+        const string markdown =
+            """
+            ## Tutorial
+            Adds a Foo class.
+
+            ## Files
+            ### File: Foo.cs
+            ```
+            class Foo {}
+            ```
+            """;
+        _llmRunner.ResultsToReturnInOrder = new Queue<LlmRunResult>(
+        [
+            new LlmRunResult { Success = true, Output = markdown },
+            new LlmRunResult { Success = false, ExitCode = 1, ErrorMessage = "retry failed" },
+        ]);
+
+        await sut.RunPromptCommand.ExecuteAsync(null);
+
+        Assert.Equal(2, _llmRunner.CallCount);
+        Assert.Contains("wasn't valid structured JSON", sut.StatusMessage);
+        Assert.Single(_promptResultStore.Files);
+        Assert.Equal(markdown, sut.CliOutput);
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_RetryOccurs_SumsCostAndTokensAcrossBothCalls()
+    {
+        var sut = CreateSut();
+        sut.PromptText = "Do something";
+        _llmRunner.ResultsToReturnInOrder = new Queue<LlmRunResult>(
+        [
+            new LlmRunResult { Success = true, Output = "not json", TotalCostUsd = 0.001, InputTokens = 10, OutputTokens = 5, DurationMs = 100 },
+            new LlmRunResult
+            {
+                Success = true,
+                Output = """{"responseType": "answer", "answer": "ok"}""",
+                TotalCostUsd = 0.002,
+                InputTokens = 20,
+                OutputTokens = 8,
+                DurationMs = 200,
+            },
+        ]);
+
+        await sut.RunPromptCommand.ExecuteAsync(null);
+
+        Assert.Contains("0.0030", sut.UsageSummary);
+        Assert.Contains("30", sut.UsageSummary);
+        Assert.Contains("13", sut.UsageSummary);
+    }
+
+    [Fact]
     public void CanRunPrompt_EmptyPromptText_CannotExecute()
     {
         var sut = CreateSut();
@@ -312,7 +437,7 @@ public class PromptViewModelTests
         _llmRunner.ResultToReturn = new LlmRunResult
         {
             Success = true,
-            Output = "done",
+            Output = """{"responseType": "answer", "answer": "done"}""",
             TotalCostUsd = 0.0056,
             DurationMs = 1234,
             InputTokens = 10,
@@ -331,7 +456,7 @@ public class PromptViewModelTests
     {
         var sut = CreateSut();
         sut.PromptText = "Do something";
-        _llmRunner.ResultToReturn = new LlmRunResult { Success = true, Output = "done" };
+        _llmRunner.ResultToReturn = new LlmRunResult { Success = true, Output = """{"responseType": "answer", "answer": "done"}""" };
 
         await sut.RunPromptCommand.ExecuteAsync(null);
 

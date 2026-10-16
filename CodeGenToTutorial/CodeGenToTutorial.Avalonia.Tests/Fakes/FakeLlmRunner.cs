@@ -7,9 +7,18 @@ public class FakeLlmRunner : ILlmRunner
 {
     public LlmRunResult ResultToReturn { get; set; } = new() { Success = true, Output = string.Empty };
 
+    // T5.1.2: when set, each successive call to RunPromptAsync dequeues the next result instead of
+    // always returning ResultToReturn - lets retry tests give the first (schema-invalid) and second
+    // (corrected) call different outputs. Falls back to ResultToReturn once exhausted.
+    public Queue<LlmRunResult>? ResultsToReturnInOrder { get; set; }
+
     public Exception? ExceptionToThrow { get; set; }
 
     public string? LastPrompt { get; private set; }
+
+    public IReadOnlyList<string> AllPrompts => _allPrompts;
+
+    private readonly List<string> _allPrompts = [];
 
     public string? LastWorkingDirectory { get; private set; }
 
@@ -33,6 +42,7 @@ public class FakeLlmRunner : ILlmRunner
     {
         CallCount++;
         LastPrompt = prompt;
+        _allPrompts.Add(prompt);
         LastWorkingDirectory = workingDirectory;
         LastCancellationToken = cancellationToken;
 
@@ -51,6 +61,6 @@ public class FakeLlmRunner : ILlmRunner
             onTextDelta?.Invoke(delta);
         }
 
-        return ResultToReturn;
+        return ResultsToReturnInOrder is { Count: > 0 } queue ? queue.Dequeue() : ResultToReturn;
     }
 }

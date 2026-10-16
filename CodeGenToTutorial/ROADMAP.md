@@ -605,9 +605,59 @@ committed yet — review `git status`/`git diff` before committing.
 ### EPIC 5 — Harden the LLM protocol *(P1)*
 
 **F5.1 — Structured output instead of markdown scraping**
-- T5.1.1 Move the response contract to JSON (or CLI structured output) with an explicit schema.
-- T5.1.2 Validate against the schema; on failure, retry once with the error fed back.
-- T5.1.3 Keep the markdown parser as a fallback and cover it with tests.
+- [x] T5.1.1 Move the response contract to JSON (or CLI structured output) with an explicit schema. —
+  done 2026-10-16: `PromptViewModel.TutorialInstructionPrompt` now asks for a single JSON object
+  (`{"responseType": "answer", "answer": ...}` or `{"responseType": "development", "tutorial": ...,
+  "files": [{"path", "content", "steps": [{"title", "explanation", "snippet"}]}]}`) instead of the
+  `## Tutorial`/`## Files` markdown headers. New `ClaudeJsonResponse`/`ClaudeJsonFile`/
+  `ClaudeJsonStep` (Core/Models) are the wire DTOs; `ClaudeJsonResponseParser.TryParse`
+  (Core/Helpers) extracts the first balanced top-level `{...}` object from the raw text via a
+  quote/escape-aware brace scan (so a file's `content` string can contain its own braces or
+  triple-backtick fences without truncating the object early — the exact fragility class
+  `ClaudeResponseParserTests` pinned under the old markdown parser) before deserializing with
+  `Newtonsoft.Json` and mapping into the existing `ClaudeParsedResponse`/
+  `ProposedFileChangeViewModel`/`ProposedHunk` graph, reusing `HunkLocationResolver` unchanged.
+- [x] T5.1.2 Validate against the schema; on failure, retry once with the error fed back. — done
+  2026-10-16: `ClaudeJsonResponseParser.TryParse` validates required fields per `responseType`
+  (`answer` requires non-empty `answer`; `development` requires non-empty `tutorial`, and every file
+  needs a `path`/`content`, every step a `title`) and returns a specific error message rather than
+  just pass/fail. `PromptViewModel.RunPromptAsync` now calls the new
+  `StructuredResponseParser.Parse` after a successful CLI run; if that had to fall back (see T5.1.3)
+  it issues exactly one retry call to `ILlmRunner` with the original prompt plus a new
+  `RetryInstructionSuffix` naming the validation error, then re-parses the retry's output as the
+  final result. A failed retry call (cancelled, CLI error) keeps the first attempt's
+  already-fallback-parsed result rather than discarding it for an error state. Cost/token/duration
+  reporting (T6.2.3) sums both calls via a new `CombineUsage`/`SumNullable` helper so a retry's cost
+  isn't silently under-reported.
+- [x] T5.1.3 Keep the markdown parser as a fallback and cover it with tests. — done 2026-10-16:
+  `ClaudeResponseParser` is untouched and still fully covered by `ClaudeResponseParserTests`; new
+  `StructuredResponseParser.Parse` is the entry point that prefers `ClaudeJsonResponseParser` and
+  only falls through to `ClaudeResponseParser.Parse` (reporting `UsedFallback = true` plus the JSON
+  validation error) when the JSON contract couldn't be satisfied even after the T5.1.2 retry — so a
+  model that reverts to the old markdown shape, or answers in plain prose, still produces a usable
+  result instead of an error. `PromptViewModel` surfaces a `Prompt_FallbackParseNotice` suffix on the
+  status message whenever the final result came from the fallback, so the user can tell the response
+  wasn't strictly schema-conformant. Known/accepted regression: the live incremental file-reveal
+  added in T6.2.2 re-parses the growing `CliOutput` with the markdown parser on every streamed delta
+  — harmless but now mostly a no-op under the JSON contract, since a single top-level JSON object
+  can't be meaningfully parsed until it's fully closed, so files no longer appear mid-stream the way
+  they did under the markdown protocol; the authoritative parse still happens once, at the end, via
+  `StructuredResponseParser`. Covered by new `ClaudeJsonResponseParserTests` (both response shapes,
+  JSON wrapped in commentary/fences, file content containing its own braces/fences, every validation
+  failure path, malformed JSON syntax), `StructuredResponseParserTests` (JSON success, markdown
+  fallback, unstructured-text fallback), and new `PromptViewModelTests` cases (invalid-JSON-then-
+  corrected-JSON retry succeeding, the retry prompt containing the original request and the
+  validation error, both attempts failing and falling back to markdown with the notice shown, a
+  failed retry call keeping the first attempt's fallback result, and cost/token summing across a
+  retry). Full solution builds with 0 warnings/errors, 332/332 tests pass (251 Core + 81 Avalonia).
+  `ClaudeJsonResponseParser.cs` is 97.8% line/89.4% branch covered — the one gap is a defensive
+  `parsed is null` check after a successful deserialize, which `Newtonsoft.Json` can only hit for the
+  literal JSON text `"null"` that the brace-scanning extractor can never produce (it only ever
+  returns a balanced `{...}` object); left deliberately untested rather than forcing a contrived
+  repro, same class of gap as other defensive branches noted earlier in this document. Not run
+  against the real `claude` CLI — per the user's standing preference (noted under T6.2.3) to avoid
+  spending real API usage on verification — so the new prompt's actual compliance rate with a live
+  model is unverified; worth a manual smoke test at some point.
 
 **F5.2 — Diffs over the wire, not whole files**
 - T5.2.1 Ask for unified diffs / search-replace edit blocks instead of full file contents to cut
