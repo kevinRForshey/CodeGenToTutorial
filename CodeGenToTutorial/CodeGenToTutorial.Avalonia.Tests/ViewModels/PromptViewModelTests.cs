@@ -1,6 +1,7 @@
 using CodeGenToTutorial.Avalonia.Tests.Fakes;
 using CodeGenToTutorial.Avalonia.ViewModels;
 using CodeGenToTutorial.Core.Models;
+using CodeGenToTutorial.Core.Services;
 
 namespace CodeGenToTutorial.Avalonia.Tests.ViewModels;
 
@@ -10,9 +11,10 @@ public class PromptViewModelTests
     private readonly FakeLocalSettingsService _localSettingsService = new();
     private readonly FakeFolderPickerService _folderPickerService = new();
     private readonly FakePromptResultStore _promptResultStore = new();
+    private readonly PromptTemplateProvider _promptTemplateProvider = new();
 
     private PromptViewModel CreateSut() =>
-        new(_llmRunner, _localSettingsService, _folderPickerService, _promptResultStore);
+        new(_llmRunner, _localSettingsService, _folderPickerService, _promptResultStore, _promptTemplateProvider);
 
     [Fact]
     public async Task RunPromptAsync_SuccessWithNoFiles_StoresTutorialAndReportsCompletion()

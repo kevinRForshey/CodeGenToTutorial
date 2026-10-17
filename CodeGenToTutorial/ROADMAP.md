@@ -718,7 +718,28 @@ committed yet — review `git status`/`git diff` before committing.
   with a live model (especially whether it reliably copies `search` text verbatim) is unverified.
 
 **F5.3 — Prompt template management**
-- T5.3.1 Move `TutorialInstructionPrompt` out of `PromptViewModel` into a versioned template file.
+- [x] T5.3.1 Move `TutorialInstructionPrompt` out of `PromptViewModel` into a versioned template file. —
+  done 2026-10-16: the instruction text is now `CodeGenToTutorial.Core/Prompts/TutorialInstructionPromptV1.txt`,
+  embedded as a resource (`<EmbeddedResource Include="Prompts\*.txt" />` in `.Core`'s csproj) rather
+  than a `.csproj`-copied loose file, since Core has no "content root" concept the way the Avalonia
+  app's `appsettings.json` does and an embedded resource ships correctly regardless of working
+  directory. New `IPromptTemplateProvider`/`PromptTemplateProvider` (Core) reads it via
+  `Assembly.GetManifestResourceStream`, caching the content after the first read, and exposes
+  `CurrentVersion` (`PromptTemplateProvider.LatestVersion = 1`) so a future schema change can ship as
+  a new `TutorialInstructionPromptV2.txt` without mutating the one every past response was parsed
+  against - the versioning T5.3.2's settings override will need to pick a version from, not just a
+  file-organization nicety. `PromptViewModel` now takes `IPromptTemplateProvider` as a fifth
+  constructor parameter and builds `fullPrompt` from `GetTutorialInstructionPrompt() + "\n\n" +
+  PromptText`, replacing the old hard-coded `const string TutorialInstructionPrompt`; `RetryInstructionSuffix`
+  is untouched (it's a short retry-only message, not the schema contract). Registered
+  `IPromptTemplateProvider` as a singleton in `App.axaml.cs`, next to `IPromptResultStore`.
+  `PromptViewModelTests.CreateSut()` now constructs a real `PromptTemplateProvider` rather than a fake,
+  the same way other tests use real pure/side-effect-free Core services directly; its existing
+  `LastPrompt` assertions (`Contains`/`DoesNotContain`) needed no changes since they never depended on
+  the exact template text. Added `PromptTemplateProviderTests` (version number, embedded content
+  contains both JSON response shapes, repeated calls return identical content). Full solution builds
+  with 0 warnings/errors, 356/356 tests pass (274 Core + 82 Avalonia, up from 353 before this task's
+  3 new Core tests).
 - T5.3.2 Let the user view and override the system preamble in Settings.
 - T5.3.3 Named prompt presets (feature / bugfix / refactor / explain) with a tutorial-depth control.
 

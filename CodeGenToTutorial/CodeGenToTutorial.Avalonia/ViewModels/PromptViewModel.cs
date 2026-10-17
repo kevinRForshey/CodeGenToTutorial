@@ -21,60 +21,15 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
     private const string TimeoutSecondsSettingsKey = "PromptTimeoutSeconds";
     private const int DefaultTimeoutSeconds = 300;
 
-    // Hard-coded instructions prepended to every prompt sent to Claude Code. Refine as the tutorial/diff
-    // workflow evolves. Epic 5 / F5.1: the response contract is a single JSON object
-    // (CodeGenToTutorial.Core.Models.ClaudeJsonResponse) instead of markdown headers, so it can be
-    // parsed without depending on the model never reformatting a fence - see
-    // CodeGenToTutorial.Core.Helpers.ClaudeJsonResponseParser. The old markdown parser
-    // (ClaudeResponseParser) is kept only as a last-resort fallback for whatever the model actually
-    // returns (T5.1.3), via StructuredResponseParser. F5.2: for a file that already exists, the model is
-    // asked for "edits" (search/replace blocks) instead of its whole "content" - cutting tokens and
-    // avoiding the whole-file-echo truncation failure mode (T5.2.1) - applied locally against the real
-    // file by SearchReplaceEditApplier (T5.2.2); an edit whose "search" text doesn't match is treated as
-    // a validation failure and fed back on the same one-shot retry as any other schema problem (T5.2.3).
-    private const string TutorialInstructionPrompt =
-        """
-        You are being called from a desktop app. Respond with a single JSON object only - no markdown
-        fences, no commentary before or after it - matching exactly one of these two shapes, depending on
-        what kind of request the user made below:
-
-        1. General question (math, trivia, "explain X", anything that does not require changing files in
-           this codebase):
-           {
-             "responseType": "answer",
-             "answer": "<your answer, as plain text>"
-           }
-
-        2. Development request (asks for a feature, fix, or change to this codebase) - do NOT modify any
-           files yourself:
-           {
-             "responseType": "development",
-             "tutorial": "<a short paragraph summarizing the overall change>",
-             "files": [
-               {
-                 "path": "<path to the file, relative to the working directory>",
-                 "edits": [
-                   {
-                     "title": "<short title for this part of the change>",
-                     "explanation": "<one or more paragraphs explaining, in detail, the reasoning behind this specific part of the change and how it works, written so someone learning to code with an LLM can follow along>",
-                     "search": "<the exact lines currently in the file that this step changes, copied verbatim including whitespace - include enough surrounding context that this text appears only once in the file>",
-                     "replace": "<the new lines that replace \"search\" - use an empty string to delete \"search\" with nothing>"
-                   }
-                 ],
-                 "content": "<only for a file that does not exist yet: its complete contents>"
-               }
-             ]
-           }
-           Use "edits" for every change to a file that already exists in the working directory - never
-           repeat a whole file's contents just to change a few lines of it. Use "content" only when
-           creating a brand-new file, and never include both "edits" and "content" for the same file.
-           Repeat the "edits" entries for every distinct part of a file's change. If no files need
-           changes, set "files" to an empty array.
-
-        Only use the "development" shape when the request actually requires code changes. Every string
-        value must be valid JSON (escape newlines, quotes, and backslashes). Here is the user's request:
-        """ + "\n\n";
-
+    // T5.3.1: the instructions prepended to every prompt sent to Claude Code used to live here as a
+    // hard-coded const; now it's CodeGenToTutorial.Core/Prompts/TutorialInstructionPromptV1.txt,
+    // loaded through IPromptTemplateProvider so the schema contract can change (a new versioned
+    // .txt file) without touching this ViewModel, and so T5.3.2 can later let a user override it
+    // from Settings behind the same interface. The response contract is a single JSON object
+    // (CodeGenToTutorial.Core.Models.ClaudeJsonResponse) instead of markdown headers, parsed by
+    // CodeGenToTutorial.Core.Helpers.ClaudeJsonResponseParser; the old markdown parser
+    // (ClaudeResponseParser) is kept only as a last-resort fallback (T5.1.3) via
+    // StructuredResponseParser.
     private const string RetryInstructionSuffix =
         "\n\nYour previous response could not be parsed: {0}\n\nRespond again with ONLY a single corrected JSON object matching the schema above - no markdown fences, no commentary.";
 
@@ -82,6 +37,7 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
     private readonly ILocalSettingsService _localSettingsService;
     private readonly IFolderPickerService _folderPickerService;
     private readonly IPromptResultStore _promptResultStore;
+    private readonly IPromptTemplateProvider _promptTemplateProvider;
 
     [ObservableProperty]
     private string promptText = string.Empty;
@@ -125,12 +81,13 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
 
     private Stopwatch? _runStopwatch;
 
-    public PromptViewModel(ILlmRunner llmRunner, ILocalSettingsService localSettingsService, IFolderPickerService folderPickerService, IPromptResultStore promptResultStore)
+    public PromptViewModel(ILlmRunner llmRunner, ILocalSettingsService localSettingsService, IFolderPickerService folderPickerService, IPromptResultStore promptResultStore, IPromptTemplateProvider promptTemplateProvider)
     {
         _llmRunner = llmRunner;
         _localSettingsService = localSettingsService;
         _folderPickerService = folderPickerService;
         _promptResultStore = promptResultStore;
+        _promptTemplateProvider = promptTemplateProvider;
     }
 
     public async void OnNavigatedTo(object parameter)
@@ -197,7 +154,7 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
 
         try
         {
-            var fullPrompt = TutorialInstructionPrompt + PromptText;
+            var fullPrompt = _promptTemplateProvider.GetTutorialInstructionPrompt() + "\n\n" + PromptText;
 
             if (!string.IsNullOrWhiteSpace(WorkingDirectoryPath))
             {
