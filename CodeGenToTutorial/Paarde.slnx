@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="Paarde.Core/Paarde.Core.csproj" />
+  <Project Path="Paarde.Avalonia/Paarde.Avalonia.csproj" />
+  <Project Path="Paarde.Core.Tests/Paarde.Core.Tests.csproj" />
+  <Project Path="Paarde.Avalonia.Tests/Paarde.Avalonia.Tests.csproj" />
+</Solution>

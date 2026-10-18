@@ -1,0 +1,80 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:styling="using:Avalonia.Styling"
+             xmlns:vm="using:Paarde.Avalonia.ViewModels"
+             x:Class="Paarde.Avalonia.Views.SettingsView"
+             x:DataType="vm:SettingsViewModel">
+
+    <StackPanel Margin="16" Spacing="8">
+        <TextBlock Text="Personalization" FontSize="20" FontWeight="SemiBold" />
+
+        <StackPanel Margin="0,8,0,0" Spacing="4">
+            <TextBlock Text="Theme" />
+
+            <StackPanel Margin="0,4,0,0" Spacing="4">
+                <RadioButton Content="Light"
+                             GroupName="AppTheme"
+                             Command="{Binding SwitchThemeCommand}"
+                             CommandParameter="{x:Static styling:ThemeVariant.Light}"
+                             IsChecked="{Binding ThemeVariant, Converter={StaticResource EnumToBooleanConverter}, ConverterParameter=Light, Mode=OneWay}" />
+                <RadioButton Content="Dark"
+                             GroupName="AppTheme"
+                             Command="{Binding SwitchThemeCommand}"
+                             CommandParameter="{x:Static styling:ThemeVariant.Dark}"
+                             IsChecked="{Binding ThemeVariant, Converter={StaticResource EnumToBooleanConverter}, ConverterParameter=Dark, Mode=OneWay}" />
+                <RadioButton Content="Default"
+                             GroupName="AppTheme"
+                             Command="{Binding SwitchThemeCommand}"
+                             CommandParameter="{x:Static styling:ThemeVariant.Default}"
+                             IsChecked="{Binding ThemeVariant, Converter={StaticResource EnumToBooleanConverter}, ConverterParameter=Default, Mode=OneWay}" />
+            </StackPanel>
+        </StackPanel>
+
+        <TextBlock Margin="0,16,0,0" Text="Claude Code CLI" FontSize="20" FontWeight="SemiBold" />
+
+        <StackPanel Margin="0,8,0,0" Spacing="4">
+            <TextBlock Text="Executable path" FontSize="12" Opacity="0.7" />
+            <TextBox Text="{Binding ClaudeCliExecutablePath}" Watermark="claude" />
+        </StackPanel>
+
+        <StackPanel Margin="0,8,0,0" Spacing="4">
+            <TextBlock Text="Arguments" FontSize="12" Opacity="0.7" />
+            <TextBox Text="{Binding ClaudeCliArguments}" Watermark="-p" />
+        </StackPanel>
+
+        <TextBlock Margin="0,16,0,0" Text="Prompt template" FontSize="20" FontWeight="SemiBold" />
+
+        <StackPanel Margin="0,8,0,0" Spacing="4">
+            <TextBlock Text="Override" FontSize="12" Opacity="0.7" />
+            <TextBlock Text="Instructions sent to Claude Code before your prompt. Leave blank to use the built-in default shown below."
+                       FontSize="12"
+                       Opacity="0.7"
+                       TextWrapping="Wrap" />
+            <TextBox Text="{Binding PromptTemplateOverride}"
+                     Watermark="Leave blank to use the built-in default"
+                     AcceptsReturn="True"
+                     TextWrapping="Wrap"
+                     FontFamily="Cascadia Mono,Consolas,monospace"
+                     Height="160"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto" />
+            <Button Content="Reset to default" Command="{Binding ResetPromptTemplateCommand}" HorizontalAlignment="Left" />
+        </StackPanel>
+
+        <StackPanel Margin="0,8,0,0" Spacing="4">
+            <TextBlock Text="Built-in default" FontSize="12" Opacity="0.7" />
+            <TextBox Text="{Binding DefaultPromptTemplate}"
+                     IsReadOnly="True"
+                     AcceptsReturn="True"
+                     TextWrapping="Wrap"
+                     FontFamily="Cascadia Mono,Consolas,monospace"
+                     Height="160"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto" />
+        </StackPanel>
+
+        <TextBlock Margin="0,16,0,0" Text="About this application" FontSize="20" FontWeight="SemiBold" />
+
+        <StackPanel Margin="0,4,0,0" Spacing="4">
+            <TextBlock Text="{Binding VersionDescription}" />
+        </StackPanel>
+    </StackPanel>
+</UserControl>

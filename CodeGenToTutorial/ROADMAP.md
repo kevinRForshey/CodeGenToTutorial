@@ -1,4 +1,10 @@
-# CodeGenToTutorial — State Analysis & Roadmap
+# Paarde — State Analysis & Roadmap
+
+> **2026-10-18 update:** Renamed from `CodeGenToTutorial` to **Paarde** (Prompt Assist And Review
+> Development Environment) across every project, namespace, and the solution file. Done-notes below
+> that predate the rename still reference the old `CodeGenToTutorial.*` paths/namespaces, since those
+> are an accurate record of what existed at the time each task was completed — not retroactively
+> rewritten, same reasoning as not rewriting git history.
 
 **Vision:** An IDE-like desktop app that takes LLM prompts for software development work, turns
 the model's output into a readable tutorial, and lets the user pick which code to apply —
@@ -1131,7 +1137,14 @@ committed yet — review `git status`/`git diff` before committing.
 
 **F8.2 — Shell & workspace**
 - T8.2.1 Replace the empty `MainView` with a real dashboard/landing page (recent projects, recent
-  runs, quick prompt).
+  runs, quick prompt). — partial progress 2026-10-18: `MainView` is no longer an empty `Grid` - it
+  now shows a logo/wordmark header (a plain vector monogram badge; no image-generation tooling was
+  available to produce real artwork) and a static numbered "Getting started" walkthrough of the
+  Prompt → Tutorial/Diffs → Apply → Settings flow, written directly in `MainView.axaml` with no
+  `MainViewModel` changes needed, matching the existing convention that markup-only strings live in
+  `.axaml` rather than `Strings/Resources.cs`. Recent projects, recent runs, and a quick-prompt
+  entry point are still outstanding - this task isn't done, just no longer blocked on there being
+  nothing on the page at all.
 - T8.2.2 Tabbed editing of multiple files.
 - T8.2.3 Resizable/collapsible panes; persist layout.
 - T8.2.4 Recent-projects list and fast project switching.

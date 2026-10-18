@@ -1,0 +1,18 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:helpers="using:Paarde.Avalonia.Helpers"
+             xmlns:fa="using:FluentAvalonia.Styling"
+             x:Class="Paarde.Avalonia.App"
+             RequestedThemeVariant="Default">
+
+    <Application.Resources>
+        <helpers:DiffLineKindToBackgroundConverter x:Key="DiffLineKindToBackgroundConverter" />
+        <helpers:EnumToBooleanConverter x:Key="EnumToBooleanConverter" />
+        <helpers:SelectedNavigationItemToHeaderConverter x:Key="SelectedNavigationItemToHeaderConverter" />
+    </Application.Resources>
+
+    <Application.Styles>
+        <fa:FluentAvaloniaTheme />
+        <StyleInclude Source="avares://AvaloniaEdit/Themes/Fluent/AvaloniaEdit.xaml" />
+    </Application.Styles>
+</Application>
