@@ -1241,7 +1241,11 @@ committed yet — review `git status`/`git diff` before committing.
 - T8.3.4 Syntax highlighting inside the diff; next/previous-change navigation.
 
 **F8.4 — Tutorial presentation**
-- T8.4.1 **Display the `## Tutorial` overview that is currently parsed and thrown away.**
+- [x] T8.4.1 **Display the `## Tutorial` overview that is currently parsed and thrown away.** — done
+  2026-10-18: `TutorialViewModel` gained a `Tutorial` property (pulled from `PromptResultStore.Tutorial`
+  on `OnNavigatedTo`, same pull-on-navigation pattern as `Files`) and `HasTutorialOverview`;
+  `TutorialView.axaml` shows it as an "Overview" header above the per-file detail pane, collapsed
+  entirely when empty/whitespace-only.
 - T8.4.2 Render markdown in explanations (code spans, lists, emphasis) instead of flat text.
 - T8.4.3 Step numbering, progress indicator, and prev/next step navigation.
 - T8.4.4 Export the tutorial to markdown/HTML.

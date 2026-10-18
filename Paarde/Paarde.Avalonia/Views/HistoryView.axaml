@@ -67,8 +67,13 @@
                                TextAlignment="Center"
                                FontSize="18"
                                IsVisible="{Binding HasFilesButNoneSelected}" />
-                    <views:DiffsDetailControl DataContext="{Binding SelectedFile}"
-                                              IsVisible="{Binding #FileList.SelectedItem, Converter={x:Static conv:ObjectConverters.IsNotNull}}" />
+                    <ContentControl Content="{Binding SelectedFile}">
+                        <ContentControl.ContentTemplate>
+                            <DataTemplate x:DataType="coreVm:ProposedFileChangeViewModel">
+                                <views:DiffsDetailControl />
+                            </DataTemplate>
+                        </ContentControl.ContentTemplate>
+                    </ContentControl>
                 </Grid>
             </Border>
         </Grid>
