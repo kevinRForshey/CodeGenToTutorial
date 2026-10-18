@@ -31,6 +31,15 @@ public partial class TutorialStepViewModel : ObservableObject
     // than this class forwarding/duplicating them.
     public ProposedHunk Hunk { get; }
 
+    // T8.4.3: this step's 1-based position among its file's steps, and how many there are in total -
+    // set by TutorialDetailControl.RebuildSteps from the hunk's index in ProposedFileChangeViewModel.
+    // Hunks, which is also the order the steps list (and step-navigation) displays them in.
+    public int StepNumber { get; }
+
+    public int TotalSteps { get; }
+
+    public string StepLabel => $"Step {StepNumber}:";
+
     [ObservableProperty]
     private string statusMessage = string.Empty;
 
@@ -41,11 +50,13 @@ public partial class TutorialStepViewModel : ObservableObject
     [ObservableProperty]
     private bool isExplaining;
 
-    public TutorialStepViewModel(ProposedHunk hunk, ProposedFileChangeViewModel file, string workingDirectoryPath, string? resumeSessionId, IFileChangeApplyService fileChangeApplyService, ILlmRunner llmRunner)
+    public TutorialStepViewModel(ProposedHunk hunk, ProposedFileChangeViewModel file, string workingDirectoryPath, string? resumeSessionId, IFileChangeApplyService fileChangeApplyService, ILlmRunner llmRunner, int stepNumber, int totalSteps)
     {
         Title = hunk.Title;
         Explanation = hunk.Explanation;
         Hunk = hunk;
+        StepNumber = stepNumber;
+        TotalSteps = totalSteps;
         _file = file;
         _workingDirectoryPath = workingDirectoryPath;
         _resumeSessionId = resumeSessionId;

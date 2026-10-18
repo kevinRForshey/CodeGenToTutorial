@@ -1241,9 +1241,43 @@ committed yet — review `git status`/`git diff` before committing.
 - T8.3.4 Syntax highlighting inside the diff; next/previous-change navigation.
 
 **F8.4 — Tutorial presentation**
-- T8.4.1 **Display the `## Tutorial` overview that is currently parsed and thrown away.**
-- T8.4.2 Render markdown in explanations (code spans, lists, emphasis) instead of flat text.
-- T8.4.3 Step numbering, progress indicator, and prev/next step navigation.
+- [x] T8.4.1 **Display the `## Tutorial` overview that is currently parsed and thrown away.** — done
+  2026-10-18: `TutorialViewModel` gained a `Tutorial` property (pulled from `PromptResultStore.Tutorial`
+  on `OnNavigatedTo`, same pull-on-navigation pattern as `Files`) and `HasTutorialOverview`;
+  `TutorialView.axaml` shows it as an "Overview" header above the per-file detail pane, collapsed
+  entirely when empty/whitespace-only.
+- [x] T8.4.2 Render markdown in explanations (code spans, lists, emphasis) instead of flat text. —
+  done 2026-10-18: new `MarkdownInlineParser` (`Paarde.Core.Helpers`) parses the limited subset the
+  LLM's tutorial/explanation text actually uses - bullet/numbered lists, `**bold**`/`*italic*`
+  emphasis, and `` `code` `` spans - into `MarkdownLine`/`MarkdownSpan` records, deliberately scoped
+  to single-line constructs (no headings, fenced blocks, tables, or nested lists); full markdown
+  rendering was rejected as unnecessary weight for what the model's responses actually contain. A
+  new `MarkdownTextBlock` control (`Paarde.Avalonia.Controls`) renders that output as one wrapped
+  `TextBlock` per line - bulleted/indented for list items, with `Run`s styled per span (bold
+  `FontWeight`, italic `FontStyle`, code in a monospace font with a subtle background) - replacing
+  the flat `TextBlock` bound to `Tutorial` in `TutorialView.axaml` and to `Explanation`/
+  `FurtherExplanation` in `TutorialDetailControl.axaml`. `FurtherExplanation`'s block-level italic
+  styling (previously `FontBlock.FontStyle="Italic"`) moves to a new `MarkdownTextBlock.FontStyle`
+  property, since `StackPanel` (the control's base, chosen so each line gets its own wrapped
+  paragraph) has no `FontStyle` of its own to inherit from in XAML. Verified by rendering the
+  control headlessly (`Avalonia.Headless` + `UseSkia()`) with representative tutorial/explanation
+  text covering every span kind and both list styles. Covered by new `MarkdownInlineParserTests`.
+  Full solution builds with 0 warnings/errors, 490/490 tests pass (342 Core + 148 Avalonia).
+- [x] T8.4.3 Step numbering, progress indicator, and prev/next step navigation. — done
+  2026-10-18: `TutorialStepViewModel` now takes `stepNumber`/`totalSteps` in its constructor and
+  exposes them plus `StepLabel` ("Step N:"), set by `TutorialDetailControl.RebuildSteps` from each
+  hunk's index in `ProposedFileChangeViewModel.Hunks` - the same order the steps list displays them
+  in. The per-step `DataTemplate` in `TutorialDetailControl.axaml` shows `StepLabel` next to the
+  step title. A new `StepNavigationPanel` row above the steps `ScrollViewer` has Previous/Next
+  buttons (`OnPreviousStepButtonClick`/`OnNextStepButtonClick`, disabled at the first/last step), a
+  "Step X of Y" label, and a `ProgressBar`, all kept in sync by `RefreshStepNavigation()` against a
+  new `_currentStepIndex` field; it's hidden entirely when a file has no resolved steps, matching
+  the existing select-all row's pattern. Navigation uses `ItemsControl.ScrollIntoView(int)` (the
+  plain `ItemsControl` already in use supports it directly, so no need to switch to `ListBox` and
+  its unwanted selection-highlight semantics) rather than any new Core model changes - this is UI
+  position tracking, not a persisted "applied" progress metric. Verified by rendering the nav
+  panel/step header layout headlessly (`Avalonia.Headless` + `UseSkia()`). Full solution builds with
+  0 warnings/errors, 491/491 tests pass (342 Core + 149 Avalonia).
 - T8.4.4 Export the tutorial to markdown/HTML.
 - T8.4.5 Jump from a tutorial step to the corresponding hunk in the diff viewer, and back.
 

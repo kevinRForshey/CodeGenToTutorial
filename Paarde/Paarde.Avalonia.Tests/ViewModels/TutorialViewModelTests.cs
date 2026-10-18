@@ -18,6 +18,31 @@ public class TutorialViewModelTests
     private TutorialViewModel CreateSut() => new(_promptResultStore, _applyOrchestrationService, _applyHistoryLog, _dialogService, _llmRunner, _promptTemplateProvider);
 
     [Fact]
+    public void OnNavigatedTo_TutorialOverviewPresent_PopulatesTutorialAndHasTutorialOverview()
+    {
+        _promptResultStore.SetResult("This run adds a new widget.", [], "/tmp");
+        var sut = CreateSut();
+
+        sut.OnNavigatedTo(null!);
+
+        Assert.Equal("This run adds a new widget.", sut.Tutorial);
+        Assert.True(sut.HasTutorialOverview);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void OnNavigatedTo_NoTutorialOverview_HasTutorialOverviewIsFalse(string tutorial)
+    {
+        _promptResultStore.SetResult(tutorial, [], "/tmp");
+        var sut = CreateSut();
+
+        sut.OnNavigatedTo(null!);
+
+        Assert.False(sut.HasTutorialOverview);
+    }
+
+    [Fact]
     public void HasUnsavedChanges_NoFiles_IsFalse()
     {
         var sut = CreateSut();

@@ -5,6 +5,7 @@
              xmlns:coreVm="using:Paarde.Core.ViewModels"
              xmlns:views="using:Paarde.Avalonia.Views"
              xmlns:vm="using:Paarde.Avalonia.ViewModels"
+             xmlns:controls="using:Paarde.Avalonia.Controls"
              x:Class="Paarde.Avalonia.Views.TutorialView"
              x:DataType="vm:TutorialViewModel">
 
@@ -63,27 +64,38 @@
         </Grid>
 
         <Border Grid.Column="1" Padding="16">
-            <Grid>
-                <TextBlock Text="No tutorial yet. Run a prompt first, then come back here to review it."
-                           HorizontalAlignment="Center"
-                           VerticalAlignment="Center"
-                           TextAlignment="Center"
-                           TextWrapping="Wrap"
-                           FontSize="18"
-                           IsVisible="{Binding HasNoFiles}" />
-                <TextBlock Text="Select a file from the list to view its tutorial."
-                           HorizontalAlignment="Center"
-                           VerticalAlignment="Center"
-                           TextAlignment="Center"
-                           FontSize="18"
-                           IsVisible="{Binding HasFilesButNoneSelected}" />
-                <ContentControl Content="{Binding Selected}">
-                    <ContentControl.ContentTemplate>
-                        <DataTemplate x:DataType="coreVm:ProposedFileChangeViewModel">
-                            <views:TutorialDetailControl />
-                        </DataTemplate>
-                    </ContentControl.ContentTemplate>
-                </ContentControl>
+            <Grid RowDefinitions="Auto,*">
+                <!-- T8.4.1: the overview from the model's `## Tutorial` section - previously parsed
+                     into PromptResultStore.Tutorial and never shown anywhere. -->
+                <StackPanel Grid.Row="0" Margin="0,0,0,16" Spacing="4"
+                            IsVisible="{Binding HasTutorialOverview}">
+                    <TextBlock Text="Overview" FontWeight="SemiBold" FontSize="13" />
+                    <controls:MarkdownTextBlock Text="{Binding Tutorial}" />
+                    <Separator Margin="0,8,0,0" />
+                </StackPanel>
+
+                <Grid Grid.Row="1">
+                    <TextBlock Text="No tutorial yet. Run a prompt first, then come back here to review it."
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               TextAlignment="Center"
+                               TextWrapping="Wrap"
+                               FontSize="18"
+                               IsVisible="{Binding HasNoFiles}" />
+                    <TextBlock Text="Select a file from the list to view its tutorial."
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               TextAlignment="Center"
+                               FontSize="18"
+                               IsVisible="{Binding HasFilesButNoneSelected}" />
+                    <ContentControl Content="{Binding Selected}">
+                        <ContentControl.ContentTemplate>
+                            <DataTemplate x:DataType="coreVm:ProposedFileChangeViewModel">
+                                <views:TutorialDetailControl />
+                            </DataTemplate>
+                        </ContentControl.ContentTemplate>
+                    </ContentControl>
+                </Grid>
             </Grid>
         </Border>
     </Grid>

@@ -22,6 +22,13 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
     private readonly ILlmRunner _llmRunner;
     private readonly IPromptTemplateProvider _promptTemplateProvider;
 
+    // T8.4.1: the `## Tutorial` overview PromptViewModel parses into PromptResultStore.Tutorial but
+    // no view previously read - pulled on navigation the same way Files already is, rather than a
+    // live PropertyChanged subscription, since this page already re-reads the whole store on every
+    // OnNavigatedTo.
+    [ObservableProperty]
+    private string tutorial = string.Empty;
+
     [ObservableProperty]
     private ProposedFileChangeViewModel? selected;
 
@@ -74,6 +81,8 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
 
     public void OnNavigatedTo(object parameter)
     {
+        Tutorial = _promptResultStore.Tutorial;
+
         Files.Clear();
 
         foreach (var file in _promptResultStore.Files)
@@ -104,6 +113,12 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
     public bool HasNoFiles => Files.Count == 0;
 
     public bool HasFilesButNoneSelected => Files.Count > 0 && Selected == null;
+
+    // Drives whether the tutorial-overview header shows itself - a response with no files (or a
+    // plain-text/unstructured response) can still have a non-empty overview worth showing.
+    public bool HasTutorialOverview => !string.IsNullOrWhiteSpace(Tutorial);
+
+    partial void OnTutorialChanged(string value) => OnPropertyChanged(nameof(HasTutorialOverview));
 
     partial void OnSelectedChanged(ProposedFileChangeViewModel? value)
     {
