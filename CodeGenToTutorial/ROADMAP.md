@@ -831,7 +831,34 @@ committed yet — review `git status`/`git diff` before committing.
   visually verified (no X server in this sandbox, same limitation noted on earlier UI-touching tasks)
   beyond confirming the app still launches without throwing (ran under `timeout`; exit code 124 confirms
   it was still running, not crashed, when killed).
-- T5.4.2 Show an estimated token count before sending.
+- [x] T5.4.2 Show an estimated token count before sending. — done 2026-10-18: new
+  `TokenEstimator` (Core `Helpers/`) estimates `text.Length / 4` rounded up - the same rough
+  characters-per-token ratio Anthropic's own docs use for English text. This is deliberately a
+  ballpark, not a real tokenizer: Anthropic doesn't expose a local one, the CLI only reports the
+  real `InputTokens` after a run completes (`LlmRunResult.InputTokens`, shown post-run in
+  `UsageSummary`), and a live "as you type" estimate can't afford a round trip to an API endpoint on
+  every keystroke anyway. The prompt-assembly logic that used to live inline in `RunPromptAsync`
+  (preamble/override, T5.3.2; preset/depth, T5.3.3; context files, T5.4.1; working directory line)
+  was extracted into a new `BuildFullPromptAsync()` so the estimate is always computed from the
+  exact same string a run would actually send, rather than a second implementation that could drift
+  from it. `PromptViewModel` gained `EstimatedTokenCountDisplay`, recomputed via
+  `UpdateEstimatedTokenCountDisplay()` whenever anything feeding the prompt changes - `PromptText`,
+  `WorkingDirectoryPath` (new `OnWorkingDirectoryPathChanged` partial), `SelectedPreset`/
+  `SelectedDepth`, and `AttachedPaths` (hooked via `CollectionChanged` in the constructor, since an
+  `ObservableCollection<T>` doesn't go through an `[ObservableProperty]`'s `On*Changed`) - plus once
+  more after `OnNavigatedTo` restores all of those from settings. A monotonic `_tokenEstimateVersion`
+  counter guards against an older recompute's settings read finishing after a newer one and
+  overwriting the display with stale data - a real risk here, unlike most other settings reads in
+  this class, since typing triggers a recompute on every keystroke. New `Prompt_EstimatedTokenCount`
+  resource string (`"~{0:N0} tokens (estimated)"`, mirroring `Prompt_UsageSummary`'s style).
+  `PromptView.axaml`'s "Prompt text" label row gained the estimate right-aligned next to it. Covered
+  by new `TokenEstimatorTests` (empty string, rounds up, longer text estimates higher) and new
+  `PromptViewModelTests` cases (defaults empty, populated after `OnNavigatedTo`, updates when prompt
+  text or attachments change, and matches the exact prompt a run actually sends). Full solution
+  builds with 0 warnings/errors, 404/404 tests pass (289 Core + 115 Avalonia, up from 394). Not
+  visually verified (no X server in this sandbox, same limitation noted on earlier UI-touching
+  tasks) beyond confirming the app still launches without throwing (ran under `timeout`; exit code
+  124 confirms it was still running, not crashed, when killed).
 
 ---
 

@@ -94,6 +94,17 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
     [ObservableProperty]
     private string usageSummary = string.Empty;
 
+    // T5.4.2: a live "~N tokens" estimate of the exact prompt BuildFullPromptAsync would send,
+    // recomputed whenever something that feeds into it changes (text, working directory, preset/
+    // depth, attachments) - so the user has a size sense before clicking Send, not just after.
+    [ObservableProperty]
+    private string estimatedTokenCountDisplay = string.Empty;
+
+    // Guards against an older recompute's settings read finishing after a newer one and
+    // overwriting EstimatedTokenCountDisplay with stale data - a real risk here (unlike most other
+    // settings reads in this class) since typing triggers a recompute on every keystroke.
+    private int _tokenEstimateVersion;
+
     // T6.1.1: lives only for the duration of one RunPromptAsync call, so CancelPromptCommand has
     // something to cancel and the run's own cleanup has something to dispose - null the rest of
     // the time (including CanCancelPrompt's guard) rather than relying solely on IsRunning, in case
@@ -118,6 +129,10 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
         _filePickerService = filePickerService;
         _promptResultStore = promptResultStore;
         _promptTemplateProvider = promptTemplateProvider;
+
+        // T5.4.2: ObservableCollection<T> doesn't go through an [ObservableProperty]'s On*Changed
+        // hook, so attachments need their own recompute trigger here instead.
+        AttachedPaths.CollectionChanged += (_, _) => UpdateEstimatedTokenCountDisplay();
     }
 
     public async void OnNavigatedTo(object parameter)
@@ -142,6 +157,7 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
         }
 
         StatusMessage = string.Empty;
+        UpdateEstimatedTokenCountDisplay();
     }
 
     public void OnNavigatedFrom()
@@ -245,33 +261,7 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
 
         try
         {
-            // T5.3.2: read fresh on every run (not cached on OnNavigatedTo) so a change made on the
-            // Settings page takes effect on the very next run without needing to revisit this page -
-            // same rationale as ClaudeCliOptionsProvider reading its settings fresh on every call.
-            var instructionTemplateOverride = await _localSettingsService.ReadSettingAsync<string>(PromptTemplateSettingsKeys.Override);
-            var instructionTemplate = string.IsNullOrWhiteSpace(instructionTemplateOverride)
-                ? _promptTemplateProvider.GetTutorialInstructionPrompt()
-                : instructionTemplateOverride;
-
-            // T5.3.3: preset/depth guidance is additive to whatever the effective preamble is
-            // (default or user-overridden) - it's extra instruction text, not schema, so it applies
-            // the same way regardless of where the preamble came from.
-            var presetInstruction = _promptTemplateProvider.GetPresetInstruction(SelectedPreset);
-            var depthInstruction = _promptTemplateProvider.GetDepthInstruction(SelectedDepth);
-            var extraInstructions = string.Concat(
-                string.IsNullOrEmpty(presetInstruction) ? string.Empty : "\n\n" + presetInstruction,
-                string.IsNullOrEmpty(depthInstruction) ? string.Empty : "\n\n" + depthInstruction);
-
-            // T5.4.1: user-attached files/folders, embedded ahead of the user's own prompt text so
-            // the model has their content before reading what to do with it.
-            var contextFilesBlock = BuildContextFilesBlock(AttachedPaths);
-
-            var fullPrompt = instructionTemplate + extraInstructions + contextFilesBlock + "\n\n" + PromptText;
-
-            if (!string.IsNullOrWhiteSpace(WorkingDirectoryPath))
-            {
-                fullPrompt += $"\n\nThe working directory is: {WorkingDirectoryPath}";
-            }
+            var fullPrompt = await BuildFullPromptAsync();
 
             // T6.2.1/T6.2.2: fires on a background thread as the CLI streams assistant text, so UI
             // state is only ever touched after marshaling onto the UI thread. Re-parsing the growing
@@ -389,6 +379,42 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
         OutputTokens = SumNullable(original.OutputTokens, retry.OutputTokens),
     };
 
+    // T5.4.2: the exact string that would be sent to the LLM - shared by RunPromptAsync and the
+    // live token estimate (UpdateEstimatedTokenCount) so the estimate can't drift from what a run
+    // actually sends.
+    private async Task<string> BuildFullPromptAsync()
+    {
+        // T5.3.2: read fresh on every call (not cached on OnNavigatedTo) so a change made on the
+        // Settings page takes effect immediately - same rationale as ClaudeCliOptionsProvider
+        // reading its settings fresh on every call.
+        var instructionTemplateOverride = await _localSettingsService.ReadSettingAsync<string>(PromptTemplateSettingsKeys.Override);
+        var instructionTemplate = string.IsNullOrWhiteSpace(instructionTemplateOverride)
+            ? _promptTemplateProvider.GetTutorialInstructionPrompt()
+            : instructionTemplateOverride;
+
+        // T5.3.3: preset/depth guidance is additive to whatever the effective preamble is (default
+        // or user-overridden) - it's extra instruction text, not schema, so it applies the same way
+        // regardless of where the preamble came from.
+        var presetInstruction = _promptTemplateProvider.GetPresetInstruction(SelectedPreset);
+        var depthInstruction = _promptTemplateProvider.GetDepthInstruction(SelectedDepth);
+        var extraInstructions = string.Concat(
+            string.IsNullOrEmpty(presetInstruction) ? string.Empty : "\n\n" + presetInstruction,
+            string.IsNullOrEmpty(depthInstruction) ? string.Empty : "\n\n" + depthInstruction);
+
+        // T5.4.1: user-attached files/folders, embedded ahead of the user's own prompt text so the
+        // model has their content before reading what to do with it.
+        var contextFilesBlock = BuildContextFilesBlock(AttachedPaths);
+
+        var fullPrompt = instructionTemplate + extraInstructions + contextFilesBlock + "\n\n" + PromptText;
+
+        if (!string.IsNullOrWhiteSpace(WorkingDirectoryPath))
+        {
+            fullPrompt += $"\n\nThe working directory is: {WorkingDirectoryPath}";
+        }
+
+        return fullPrompt;
+    }
+
     // T5.4.1: a folder attachment is expanded to the files directly inside it (non-recursive, see
     // AttachedPaths' own comment); a file attachment is used as-is. A file that can't be read as
     // text (binary, permissions, deleted since being attached) is skipped rather than failing the
@@ -435,15 +461,45 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
 
     private bool CanCancelPrompt() => _runCancellationTokenSource is not null;
 
-    partial void OnPromptTextChanged(string value) => RunPromptCommand.NotifyCanExecuteChanged();
+    partial void OnPromptTextChanged(string value)
+    {
+        RunPromptCommand.NotifyCanExecuteChanged();
+        UpdateEstimatedTokenCountDisplay();
+    }
 
     partial void OnIsRunningChanged(bool value) => RunPromptCommand.NotifyCanExecuteChanged();
 
     partial void OnTimeoutSecondsChanged(int value) => _localSettingsService.SaveSettingAsync(TimeoutSecondsSettingsKey, value);
 
-    partial void OnSelectedPresetChanged(PromptPreset value) => _localSettingsService.SaveSettingAsync(PresetSettingsKey, value.ToString());
+    partial void OnWorkingDirectoryPathChanged(string value) => UpdateEstimatedTokenCountDisplay();
 
-    partial void OnSelectedDepthChanged(TutorialDepth value) => _localSettingsService.SaveSettingAsync(DepthSettingsKey, value.ToString());
+    partial void OnSelectedPresetChanged(PromptPreset value)
+    {
+        _localSettingsService.SaveSettingAsync(PresetSettingsKey, value.ToString());
+        UpdateEstimatedTokenCountDisplay();
+    }
+
+    partial void OnSelectedDepthChanged(TutorialDepth value)
+    {
+        _localSettingsService.SaveSettingAsync(DepthSettingsKey, value.ToString());
+        UpdateEstimatedTokenCountDisplay();
+    }
 
     partial void OnSelectedAttachedPathChanged(string? value) => RemoveAttachedPathCommand.NotifyCanExecuteChanged();
+
+    private async void UpdateEstimatedTokenCountDisplay()
+    {
+        var version = ++_tokenEstimateVersion;
+        var fullPrompt = await BuildFullPromptAsync();
+
+        if (version != _tokenEstimateVersion)
+        {
+            // A newer change (another keystroke, another attachment) started its own recompute
+            // after this one - let that one's result win instead of overwriting it with ours.
+            return;
+        }
+
+        EstimatedTokenCountDisplay = string.Format(
+            "Prompt_EstimatedTokenCount".GetLocalized(), TokenEstimator.EstimateTokenCount(fullPrompt));
+    }
 }

@@ -36,7 +36,10 @@
         </StackPanel>
 
         <StackPanel Grid.Row="3" Margin="0,8,0,0" Spacing="4">
-            <TextBlock Text="Prompt text" FontSize="12" Opacity="0.7" />
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Grid.Column="0" Text="Prompt text" FontSize="12" Opacity="0.7" />
+                <TextBlock Grid.Column="1" Text="{Binding EstimatedTokenCountDisplay}" FontSize="12" Opacity="0.7" />
+            </Grid>
             <TextBox Name="PromptTextBox"
                      Text="{Binding PromptText}"
                      Watermark="Enter the prompt you want to send to Claude Code..."

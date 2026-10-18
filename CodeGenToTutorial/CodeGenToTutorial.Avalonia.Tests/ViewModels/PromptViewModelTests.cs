@@ -1,5 +1,6 @@
 using CodeGenToTutorial.Avalonia.Tests.Fakes;
 using CodeGenToTutorial.Avalonia.ViewModels;
+using CodeGenToTutorial.Core.Helpers;
 using CodeGenToTutorial.Core.Models;
 using CodeGenToTutorial.Core.Services;
 
@@ -517,6 +518,81 @@ public class PromptViewModelTests
         await sut.RunPromptCommand.ExecuteAsync(null);
 
         Assert.DoesNotContain("Additional context files:", _llmRunner.LastPrompt);
+    }
+
+    [Fact]
+    public void EstimatedTokenCountDisplay_DefaultsToEmpty()
+    {
+        var sut = CreateSut();
+
+        Assert.Equal(string.Empty, sut.EstimatedTokenCountDisplay);
+    }
+
+    [Fact]
+    public async Task OnNavigatedTo_PopulatesEstimatedTokenCountDisplay()
+    {
+        var sut = CreateSut();
+
+        sut.OnNavigatedTo(null!);
+        await Task.Yield();
+
+        Assert.Contains("tokens", sut.EstimatedTokenCountDisplay);
+    }
+
+    [Fact]
+    public async Task PromptText_WhenChanged_UpdatesEstimatedTokenCountDisplay()
+    {
+        var sut = CreateSut();
+        sut.PromptText = "short";
+        await Task.Yield();
+        var shortDisplay = sut.EstimatedTokenCountDisplay;
+
+        sut.PromptText = string.Concat(Enumerable.Repeat("much longer prompt text ", 50));
+        await Task.Yield();
+
+        Assert.NotEqual(shortDisplay, sut.EstimatedTokenCountDisplay);
+    }
+
+    [Fact]
+    public async Task AttachedPaths_WhenChanged_UpdatesEstimatedTokenCountDisplay()
+    {
+        var tempFile = Path.GetTempFileName();
+
+        try
+        {
+            File.WriteAllText(tempFile, string.Concat(Enumerable.Repeat("some context content ", 50)));
+
+            var sut = CreateSut();
+            await Task.Yield();
+            var beforeDisplay = sut.EstimatedTokenCountDisplay;
+
+            sut.AttachedPaths.Add(tempFile);
+            await Task.Yield();
+
+            Assert.NotEqual(beforeDisplay, sut.EstimatedTokenCountDisplay);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public async Task EstimatedTokenCountDisplay_MatchesTheExactPromptThatWouldBeSent()
+    {
+        var sut = CreateSut();
+        sut.PromptText = "Add a Foo class";
+        await Task.Yield();
+        _llmRunner.ResultToReturn = new LlmRunResult
+        {
+            Success = true,
+            Output = """{"responseType": "answer", "answer": "ok"}""",
+        };
+
+        await sut.RunPromptCommand.ExecuteAsync(null);
+
+        var expected = TokenEstimator.EstimateTokenCount(_llmRunner.LastPrompt!);
+        Assert.Contains($"{expected:N0}", sut.EstimatedTokenCountDisplay);
     }
 
     [Fact]
