@@ -1069,7 +1069,44 @@ committed yet — review `git status`/`git diff` before committing.
 ### EPIC 7 — Sessions, history & persistence *(P1)*
 
 **F7.1 — Persist runs**
-- T7.1.1 Persist each run (prompt, raw output, parsed result, selections, apply log) to disk.
+- [x] T7.1.1 Persist each run (prompt, raw output, parsed result, selections, apply log) to disk.
+  — done 2026-10-18: new Core DTOs `RunSession`/`RunSessionFile`/`RunSessionHunk` (Models) capture a
+  run's prompt, raw output, tutorial text, working directory, each file's original/proposed/edited
+  content and selection state, and the apply log - deliberately excluding `ProposedFileChangeViewModel`'s
+  derived `DiffLines`/`DiffHunks`/`MatchedDiffHunks` (always recomputed from the fields that are kept)
+  and `ProposedHunk.IsApplied` (resets to `false` on any `OriginalContent` change, so it's meaningless
+  after a reload). New `IRunSessionStore`/`RunSessionStore` (Core) exposes `RecordRun(prompt, rawOutput)`
+  (starts a new session and writes its first snapshot) and `Resave()` (re-reads the current
+  `IPromptResultStore`/`IApplyHistoryLog` state and rewrites the same file; a no-op before any
+  `RecordRun`). Each run writes its own file - `{StartedAt:yyyyMMddHHmmssfff}_{Guid:N}.json` under a new
+  `Sessions` subfolder of the existing app-data folder - append-only across runs so a later history
+  listing (T7.2.x) has every past run available, not just the latest; `RunSessionStore` reads
+  `IOptions<LocalSettingsOptions>` the same way `LocalSettingsService` does rather than hardcoding a
+  second copy of the app-data folder literal. Internally, `RunSessionStore` tracks the in-progress
+  session as a single nullable `ActiveSession` record rather than several loose nullable fields, so
+  there's no null-forgiving (`!`) operator anywhere - it's either the one complete session in progress
+  or there isn't one yet. `PromptViewModel.RunPromptAsync` calls `RecordRun(fullPrompt, result.Output)`
+  once a run reaches a terminal success/failure state (not for a cancelled run or one that threw before
+  producing a CLI result) - `fullPrompt` (pre-retry) and `result.Output` (post-retry, since
+  `CombineUsage` already folds a retry's output in) so the persisted record matches exactly what was
+  sent and what was actually parsed. `ApplyOrchestrationService` - the single Core service that already
+  owns every apply/undo/revert mutation - gained a 6th constructor parameter, `IRunSessionStore`, and
+  calls `Resave()` after `ApplySelected`/`TryUndoLastApply`/`RevertAllApplied`, each guarded on at least
+  one file actually having succeeded (mirroring `RecordBatch`/`Record`'s existing "no-op on an empty
+  list" pattern) so a batch that changed nothing doesn't trigger a pointless disk write. Wired into DI in
+  `App.axaml.cs` via a factory registration that computes the `Sessions` folder path from
+  `IOptions<LocalSettingsOptions>`. Covered by new `RunSessionStoreTests` (10 cases: writes one file per
+  recorded run, persists prompt/raw output/tutorial/working directory, persists per-file content and
+  hunk selections, falls back to the whole-file selection when a file has no hunks, persists the apply
+  log, `Resave` no-ops before any `RecordRun`, `Resave` overwrites the same file rather than creating a
+  new one, `Resave` picks up selection and apply-log changes made after `RecordRun`, and calling
+  `RecordRun` twice keeps the first file and starts a second), 5 new `ApplyOrchestrationServiceTests`
+  cases (resave guarded correctly on an empty apply/undo/revert, resave reflects the new apply-log entry
+  after each, and applying before any run was recorded doesn't throw or write a file), and 3 new
+  `PromptViewModelTests` cases (a successful run records the prompt actually sent and the raw output, a
+  non-zero exit code still records the run, and a run that never starts because the CLI isn't available
+  records nothing) using a new hand-written `FakeRunSessionStore`. Full solution builds with 0
+  warnings/errors, 422/422 tests pass (304 Core + 118 Avalonia, up from 404).
 - T7.1.2 Restore the last session on launch.
 
 **F7.2 — History UI**

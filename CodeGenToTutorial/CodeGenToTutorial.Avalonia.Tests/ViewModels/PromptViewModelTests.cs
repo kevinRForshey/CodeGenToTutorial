@@ -14,9 +14,10 @@ public class PromptViewModelTests
     private readonly FakeFilePickerService _filePickerService = new();
     private readonly FakePromptResultStore _promptResultStore = new();
     private readonly PromptTemplateProvider _promptTemplateProvider = new();
+    private readonly FakeRunSessionStore _runSessionStore = new();
 
     private PromptViewModel CreateSut() =>
-        new(_llmRunner, _localSettingsService, _folderPickerService, _filePickerService, _promptResultStore, _promptTemplateProvider);
+        new(_llmRunner, _localSettingsService, _folderPickerService, _filePickerService, _promptResultStore, _promptTemplateProvider, _runSessionStore);
 
     [Fact]
     public async Task RunPromptAsync_SuccessWithNoFiles_StoresTutorialAndReportsCompletion()
@@ -59,6 +60,46 @@ public class PromptViewModelTests
         Assert.Equal("Claude Code finished. 1 file(s) ready to review on the Diffs page.", sut.StatusMessage);
         Assert.Single(_promptResultStore.Files);
         Assert.Equal("Foo.cs", _promptResultStore.Files[0].FilePath);
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_Success_RecordsTheRunWithThePromptActuallySentAndTheRawOutput()
+    {
+        var sut = CreateSut();
+        sut.PromptText = "Explain recursion";
+        const string output = """{"responseType": "answer", "answer": "Recursion is when a function calls itself."}""";
+        _llmRunner.ResultToReturn = new LlmRunResult { Success = true, Output = output };
+
+        await sut.RunPromptCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, _runSessionStore.RecordRunCallCount);
+        Assert.Contains("Explain recursion", _runSessionStore.LastRecordedPrompt);
+        Assert.Equal(output, _runSessionStore.LastRecordedRawOutput);
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_NonZeroExitCode_StillRecordsTheRun()
+    {
+        var sut = CreateSut();
+        sut.PromptText = "Add a Foo class";
+        _llmRunner.ResultToReturn = new LlmRunResult { Success = false, Output = "partial output", ExitCode = 1 };
+
+        await sut.RunPromptCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, _runSessionStore.RecordRunCallCount);
+        Assert.Equal("partial output", _runSessionStore.LastRecordedRawOutput);
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_RunnerNotAvailable_DoesNotRecordARun()
+    {
+        var sut = CreateSut();
+        sut.PromptText = "Add a Foo class";
+        _llmRunner.AvailableToReturn = false;
+
+        await sut.RunPromptCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, _runSessionStore.RecordRunCallCount);
     }
 
     [Fact]

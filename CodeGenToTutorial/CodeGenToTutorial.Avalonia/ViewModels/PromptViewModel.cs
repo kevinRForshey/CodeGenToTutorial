@@ -45,6 +45,7 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
     private readonly IFilePickerService _filePickerService;
     private readonly IPromptResultStore _promptResultStore;
     private readonly IPromptTemplateProvider _promptTemplateProvider;
+    private readonly IRunSessionStore _runSessionStore;
 
     [ObservableProperty]
     private string promptText = string.Empty;
@@ -121,7 +122,7 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
 
     private Stopwatch? _runStopwatch;
 
-    public PromptViewModel(ILlmRunner llmRunner, ILocalSettingsService localSettingsService, IFolderPickerService folderPickerService, IFilePickerService filePickerService, IPromptResultStore promptResultStore, IPromptTemplateProvider promptTemplateProvider)
+    public PromptViewModel(ILlmRunner llmRunner, ILocalSettingsService localSettingsService, IFolderPickerService folderPickerService, IFilePickerService filePickerService, IPromptResultStore promptResultStore, IPromptTemplateProvider promptTemplateProvider, IRunSessionStore runSessionStore)
     {
         _llmRunner = llmRunner;
         _localSettingsService = localSettingsService;
@@ -129,6 +130,7 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
         _filePickerService = filePickerService;
         _promptResultStore = promptResultStore;
         _promptTemplateProvider = promptTemplateProvider;
+        _runSessionStore = runSessionStore;
 
         // T5.4.2: ObservableCollection<T> doesn't go through an [ObservableProperty]'s On*Changed
         // hook, so attachments need their own recompute trigger here instead.
@@ -333,6 +335,15 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
             {
                 StatusMessage = string.Format("Prompt_RunFailed".GetLocalized(), result.ExitCode);
             }
+
+            // T7.1.1: persist this run (the prompt actually sent, its raw output, the parsed
+            // files/selections currently in IPromptResultStore, and the apply log so far) now that
+            // it has reached a terminal success/failure state - not for a cancelled run or one that
+            // threw before producing a CLI result (caught below), since there's nothing meaningful
+            // to persist for those. fullPrompt (not the retry prompt) and result.Output (the retry's
+            // output, if a retry happened - CombineUsage already folded that in) are used so the
+            // persisted record matches exactly what was actually sent and what actually got parsed.
+            _runSessionStore.RecordRun(fullPrompt, result.Output);
         }
         catch (OperationCanceledException)
         {

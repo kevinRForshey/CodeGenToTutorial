@@ -13,6 +13,7 @@ using CodeGenToTutorial.Core.Services;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 
 namespace CodeGenToTutorial.Avalonia;
 
@@ -61,6 +62,25 @@ public partial class App : Application
             services.AddSingleton<IApplyBackupStore, ApplyBackupStore>();
             services.AddSingleton<IApplyHistoryStore, ApplyHistoryStore>();
             services.AddSingleton<IApplyHistoryLog, ApplyHistoryLog>();
+
+            // T7.1.1: persists each run to %AppData%/<ApplicationDataFolder>/Sessions/*.json - reads
+            // the same LocalSettingsOptions.ApplicationDataFolder LocalSettingsService uses (rather
+            // than hardcoding a second copy of that folder name) so a user-configured data folder
+            // covers sessions too.
+            services.AddSingleton<IRunSessionStore>(sp =>
+            {
+                var options = sp.GetRequiredService<IOptions<LocalSettingsOptions>>().Value;
+                var localApplicationData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+                var applicationDataFolder = Path.Combine(localApplicationData, options.ApplicationDataFolder ?? "CodeGenToTutorial.Avalonia/ApplicationData");
+                var sessionsFolder = Path.Combine(applicationDataFolder, "Sessions");
+
+                return new RunSessionStore(
+                    sp.GetRequiredService<IFileService>(),
+                    sp.GetRequiredService<IPromptResultStore>(),
+                    sp.GetRequiredService<IApplyHistoryLog>(),
+                    sessionsFolder);
+            });
+
             services.AddTransient<IGitStatusService, GitStatusService>();
             services.AddTransient<IApplyOrchestrationService, ApplyOrchestrationService>();
             services.AddTransient<INavigationViewService, NavigationViewService>();

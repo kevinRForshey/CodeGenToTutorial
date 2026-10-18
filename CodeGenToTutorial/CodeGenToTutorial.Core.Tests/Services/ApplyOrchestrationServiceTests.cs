@@ -9,15 +9,20 @@ namespace CodeGenToTutorial.Core.Tests.Services;
 public class ApplyOrchestrationServiceTests : IDisposable
 {
     private readonly string _workingDirectory;
+    private readonly string _sessionsFolder;
     private readonly ApplyBackupStore _backupStore = new();
     private readonly ApplyHistoryStore _historyStore = new();
     private readonly ApplyHistoryLog _historyLog = new();
+    private readonly PromptResultStore _promptResultStore = new();
+    private readonly RunSessionStore _runSessionStore;
     private readonly ApplyOrchestrationService _service;
 
     public ApplyOrchestrationServiceTests()
     {
-        _service = new ApplyOrchestrationService(new FileChangeApplyService(), _backupStore, _historyStore, _historyLog, new GitStatusService());
         _workingDirectory = Directory.CreateTempSubdirectory("CodeGenToTutorialTests_").FullName;
+        _sessionsFolder = Directory.CreateTempSubdirectory("CodeGenToTutorialTests_Sessions_").FullName;
+        _runSessionStore = new RunSessionStore(new FileService(), _promptResultStore, _historyLog, _sessionsFolder);
+        _service = new ApplyOrchestrationService(new FileChangeApplyService(), _backupStore, _historyStore, _historyLog, new GitStatusService(), _runSessionStore);
     }
 
     public void Dispose()
@@ -25,6 +30,11 @@ public class ApplyOrchestrationServiceTests : IDisposable
         if (Directory.Exists(_workingDirectory))
         {
             Directory.Delete(_workingDirectory, recursive: true);
+        }
+
+        if (Directory.Exists(_sessionsFolder))
+        {
+            Directory.Delete(_sessionsFolder, recursive: true);
         }
     }
 
@@ -407,6 +417,68 @@ public class ApplyOrchestrationServiceTests : IDisposable
         Assert.Equal(ApplyHistoryEntryKind.Applied, entry.Kind);
         Assert.Equal("clean.txt", Assert.Single(entry.FilePaths));
     }
+
+    // T7.1.1: ApplySelected/TryUndoLastApply/RevertAllApplied each resave the active run session so
+    // its persisted apply log stays current - verified end-to-end through the real RunSessionStore
+    // rather than a mock, consistent with this test class's existing no-mocking convention.
+    [Fact]
+    public void ApplySelected_NothingSelected_DoesNotResaveTheSession()
+    {
+        _runSessionStore.RecordRun("prompt", "raw output");
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original") { IsSelected = false };
+
+        _service.ApplySelected(new[] { file }, _workingDirectory);
+
+        Assert.Empty(ReadActiveSession().ApplyLog);
+    }
+
+    [Fact]
+    public void ApplySelected_FilesApplied_ResavesTheSessionWithTheNewApplyLogEntry()
+    {
+        _runSessionStore.RecordRun("prompt", "raw output");
+        var file = new ProposedFileChangeViewModel("clean.txt", "proposed content");
+
+        _service.ApplySelected(new[] { file }, _workingDirectory);
+
+        Assert.Single(ReadActiveSession().ApplyLog);
+    }
+
+    [Fact]
+    public void TryUndoLastApply_FileRestored_ResavesTheSessionWithTheUndoHistoryEntry()
+    {
+        _runSessionStore.RecordRun("prompt", "raw output");
+        var file = new ProposedFileChangeViewModel("clean.txt", "proposed content");
+        _service.ApplySelected(new[] { file }, _workingDirectory);
+
+        _service.TryUndoLastApply(_workingDirectory, out _);
+
+        Assert.Equal(2, ReadActiveSession().ApplyLog.Count);
+    }
+
+    [Fact]
+    public void RevertAllApplied_FilesReverted_ResavesTheSessionWithTheRevertHistoryEntry()
+    {
+        _runSessionStore.RecordRun("prompt", "raw output");
+        var file = new ProposedFileChangeViewModel("clean.txt", "proposed content");
+        _service.ApplySelected(new[] { file }, _workingDirectory);
+
+        _service.RevertAllApplied(_workingDirectory);
+
+        Assert.Equal(2, ReadActiveSession().ApplyLog.Count);
+    }
+
+    [Fact]
+    public void ApplySelected_FilesApplied_BeforeAnyRunWasRecorded_DoesNotThrowOrWriteASessionFile()
+    {
+        var file = new ProposedFileChangeViewModel("clean.txt", "proposed content");
+
+        _service.ApplySelected(new[] { file }, _workingDirectory);
+
+        Assert.Empty(Directory.GetFiles(_sessionsFolder));
+    }
+
+    private RunSession ReadActiveSession() =>
+        new FileService().Read<RunSession>(_sessionsFolder, Path.GetFileName(Assert.Single(Directory.GetFiles(_sessionsFolder))))!;
 
     [Fact]
     public void TryUndoLastApply_NothingAppliedThisSession_ReturnsFalseWithEmptyResult()

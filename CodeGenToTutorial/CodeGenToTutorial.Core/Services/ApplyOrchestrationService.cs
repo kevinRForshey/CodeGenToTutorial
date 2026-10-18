@@ -16,19 +16,22 @@ public class ApplyOrchestrationService : IApplyOrchestrationService
     private readonly IApplyHistoryStore _applyHistoryStore;
     private readonly IApplyHistoryLog _applyHistoryLog;
     private readonly IGitStatusService _gitStatusService;
+    private readonly IRunSessionStore _runSessionStore;
 
     public ApplyOrchestrationService(
         IFileChangeApplyService fileChangeApplyService,
         IApplyBackupStore applyBackupStore,
         IApplyHistoryStore applyHistoryStore,
         IApplyHistoryLog applyHistoryLog,
-        IGitStatusService gitStatusService)
+        IGitStatusService gitStatusService,
+        IRunSessionStore runSessionStore)
     {
         _fileChangeApplyService = fileChangeApplyService;
         _applyBackupStore = applyBackupStore;
         _applyHistoryStore = applyHistoryStore;
         _applyHistoryLog = applyHistoryLog;
         _gitStatusService = gitStatusService;
+        _runSessionStore = runSessionStore;
     }
 
     public ApplyPreview Preview(IReadOnlyList<ProposedFileChangeViewModel> files, string workingDirectoryPath)
@@ -91,9 +94,15 @@ public class ApplyOrchestrationService : IApplyOrchestrationService
         }
 
         // RecordBatch/Record both no-op for an empty list, so a batch that applied nothing (every
-        // file conflicted, was blocked, or failed) doesn't push an undo entry or a log entry.
+        // file conflicted, was blocked, or failed) doesn't push an undo entry, a log entry, or a
+        // pointless resave of an unchanged session.
         _applyHistoryStore.RecordBatch(appliedChanges);
         _applyHistoryLog.Record(ApplyHistoryEntryKind.Applied, appliedChanges.Select(c => c.FilePath).ToList());
+
+        if (appliedChanges.Count > 0)
+        {
+            _runSessionStore.Resave();
+        }
 
         return new ApplyBatchResult(results);
     }
@@ -110,7 +119,13 @@ public class ApplyOrchestrationService : IApplyOrchestrationService
         }
 
         result = WriteBack(changes, workingDirectoryPath);
-        _applyHistoryLog.Record(ApplyHistoryEntryKind.UndoLastApply, result.Results.Where(r => r.Succeeded).Select(r => r.FilePath).ToList());
+        var succeededPaths = result.Results.Where(r => r.Succeeded).Select(r => r.FilePath).ToList();
+        _applyHistoryLog.Record(ApplyHistoryEntryKind.UndoLastApply, succeededPaths);
+
+        if (succeededPaths.Count > 0)
+        {
+            _runSessionStore.Resave();
+        }
 
         return true;
     }
@@ -127,7 +142,13 @@ public class ApplyOrchestrationService : IApplyOrchestrationService
 
         var result = WriteBack(changes, workingDirectoryPath);
         _applyHistoryStore.Clear();
-        _applyHistoryLog.Record(ApplyHistoryEntryKind.RevertAllApplied, result.Results.Where(r => r.Succeeded).Select(r => r.FilePath).ToList());
+        var succeededPaths = result.Results.Where(r => r.Succeeded).Select(r => r.FilePath).ToList();
+        _applyHistoryLog.Record(ApplyHistoryEntryKind.RevertAllApplied, succeededPaths);
+
+        if (succeededPaths.Count > 0)
+        {
+            _runSessionStore.Resave();
+        }
 
         return result;
     }
