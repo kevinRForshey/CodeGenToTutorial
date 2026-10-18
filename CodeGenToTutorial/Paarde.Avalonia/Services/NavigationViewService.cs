@@ -57,6 +57,9 @@ public class NavigationViewService : INavigationViewService
 
     private void OnItemInvoked(object? sender, NavigationViewItemInvokedEventArgs args)
     {
+        // DIAGNOSTIC (temporary, to be removed)
+        System.IO.File.AppendAllText("/tmp/nav-diag.log", $"[{DateTime.Now:T}] OnItemInvoked fired. IsSettingsInvoked={args.IsSettingsInvoked}, InvokedItemContainer={args.InvokedItemContainer?.GetType().Name}, InvokedItem={args.InvokedItem}\n");
+
         if (args.IsSettingsInvoked)
         {
             _navigationService.NavigateTo(typeof(SettingsViewModel).FullName!);
@@ -64,10 +67,15 @@ public class NavigationViewService : INavigationViewService
         else
         {
             var selectedItem = args.InvokedItemContainer as NavigationViewItem;
+            var pageKey = selectedItem != null ? NavigationHelper.GetNavigateTo(selectedItem) : null;
 
-            if (selectedItem != null && NavigationHelper.GetNavigateTo(selectedItem) is string pageKey)
+            // DIAGNOSTIC (temporary, to be removed)
+            System.IO.File.AppendAllText("/tmp/nav-diag.log", $"[{DateTime.Now:T}] selectedItem={selectedItem?.Content}, pageKey={pageKey ?? "(null)"}\n");
+
+            if (selectedItem != null && pageKey is not null)
             {
-                _navigationService.NavigateTo(pageKey);
+                var navigated = _navigationService.NavigateTo(pageKey);
+                System.IO.File.AppendAllText("/tmp/nav-diag.log", $"[{DateTime.Now:T}] NavigateTo({pageKey}) returned {navigated}\n");
             }
         }
     }

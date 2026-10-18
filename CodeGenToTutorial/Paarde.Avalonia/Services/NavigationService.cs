@@ -114,6 +114,9 @@ public class NavigationService : INavigationService
     // suppressed.
     private void OnNavigating(object sender, NavigatingCancelEventArgs e)
     {
+        // DIAGNOSTIC (temporary, to be removed)
+        System.IO.File.AppendAllText("/tmp/nav-diag.log", $"[{DateTime.Now:T}] OnNavigating: SourcePageType={e.SourcePageType}, suppress={_suppressUnsavedChangesCheck}\n");
+
         if (_suppressUnsavedChangesCheck || sender is not Frame frame)
         {
             return;
@@ -123,6 +126,9 @@ public class NavigationService : INavigationService
         {
             return;
         }
+
+        // DIAGNOSTIC (temporary, to be removed)
+        System.IO.File.AppendAllText("/tmp/nav-diag.log", $"[{DateTime.Now:T}] OnNavigating: CANCELLED due to unsaved changes on {frame.GetPageViewModel()?.GetType().Name}\n");
 
         e.Cancel = true;
         ConfirmThenRetryNavigation(e.NavigationMode, e.SourcePageType, e.Parameter);
@@ -161,6 +167,9 @@ public class NavigationService : INavigationService
 
     private void OnNavigated(object sender, NavigationEventArgs e)
     {
+        // DIAGNOSTIC (temporary, to be removed)
+        System.IO.File.AppendAllText("/tmp/nav-diag.log", $"[{DateTime.Now:T}] OnNavigated: SourcePageType={e.SourcePageType}\n");
+
         if (sender is Frame frame)
         {
             var clearNavigation = frame.Tag is true;
