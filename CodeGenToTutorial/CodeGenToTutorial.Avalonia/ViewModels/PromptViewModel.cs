@@ -4,6 +4,7 @@ using Avalonia.Threading;
 
 using CodeGenToTutorial.Avalonia.Contracts.Services;
 using CodeGenToTutorial.Avalonia.Contracts.ViewModels;
+using CodeGenToTutorial.Avalonia.Services;
 using CodeGenToTutorial.Avalonia.Strings;
 using CodeGenToTutorial.Core.Contracts.Services;
 using CodeGenToTutorial.Core.Helpers;
@@ -154,7 +155,14 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
 
         try
         {
-            var fullPrompt = _promptTemplateProvider.GetTutorialInstructionPrompt() + "\n\n" + PromptText;
+            // T5.3.2: read fresh on every run (not cached on OnNavigatedTo) so a change made on the
+            // Settings page takes effect on the very next run without needing to revisit this page -
+            // same rationale as ClaudeCliOptionsProvider reading its settings fresh on every call.
+            var instructionTemplateOverride = await _localSettingsService.ReadSettingAsync<string>(PromptTemplateSettingsKeys.Override);
+            var instructionTemplate = string.IsNullOrWhiteSpace(instructionTemplateOverride)
+                ? _promptTemplateProvider.GetTutorialInstructionPrompt()
+                : instructionTemplateOverride;
+            var fullPrompt = instructionTemplate + "\n\n" + PromptText;
 
             if (!string.IsNullOrWhiteSpace(WorkingDirectoryPath))
             {

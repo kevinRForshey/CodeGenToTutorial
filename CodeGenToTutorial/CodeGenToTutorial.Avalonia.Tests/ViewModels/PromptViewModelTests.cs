@@ -156,6 +156,42 @@ public class PromptViewModelTests
     }
 
     [Fact]
+    public async Task RunPromptAsync_NoTemplateOverrideSaved_UsesTheProvidersDefaultTemplate()
+    {
+        var sut = CreateSut();
+        sut.PromptText = "Add a Foo class";
+
+        await sut.RunPromptCommand.ExecuteAsync(null);
+
+        Assert.StartsWith(_promptTemplateProvider.GetTutorialInstructionPrompt(), _llmRunner.LastPrompt);
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_TemplateOverrideSaved_UsesTheOverrideInsteadOfTheDefault()
+    {
+        await _localSettingsService.SaveSettingAsync("PromptTemplateOverride", "Custom system instructions.");
+        var sut = CreateSut();
+        sut.PromptText = "Add a Foo class";
+
+        await sut.RunPromptCommand.ExecuteAsync(null);
+
+        Assert.StartsWith("Custom system instructions.", _llmRunner.LastPrompt);
+        Assert.DoesNotContain(_promptTemplateProvider.GetTutorialInstructionPrompt(), _llmRunner.LastPrompt);
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_BlankTemplateOverrideSaved_FallsBackToTheDefault()
+    {
+        await _localSettingsService.SaveSettingAsync("PromptTemplateOverride", "   ");
+        var sut = CreateSut();
+        sut.PromptText = "Add a Foo class";
+
+        await sut.RunPromptCommand.ExecuteAsync(null);
+
+        Assert.StartsWith(_promptTemplateProvider.GetTutorialInstructionPrompt(), _llmRunner.LastPrompt);
+    }
+
+    [Fact]
     public async Task CancelPromptAsync_WhileRunning_CancelsTheRunAndReportsCancelled()
     {
         var sut = CreateSut();

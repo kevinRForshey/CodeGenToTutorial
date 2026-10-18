@@ -740,7 +740,31 @@ committed yet — review `git status`/`git diff` before committing.
   contains both JSON response shapes, repeated calls return identical content). Full solution builds
   with 0 warnings/errors, 356/356 tests pass (274 Core + 82 Avalonia, up from 353 before this task's
   3 new Core tests).
-- T5.3.2 Let the user view and override the system preamble in Settings.
+- [x] T5.3.2 Let the user view and override the system preamble in Settings. — done 2026-10-16:
+  new `PromptTemplateSettingsKeys.Override` (Avalonia, mirroring `ClaudeCliSettingsKeys`) backs a
+  `PromptTemplateOverride` setting - blank/missing means "use the built-in default". `SettingsViewModel`
+  now takes `IPromptTemplateProvider` as a third constructor parameter and exposes two things on the
+  Settings page: a read-only `DefaultPromptTemplate` (the embedded `TutorialInstructionPromptV1.txt`
+  content, so the user has something to view/compare/copy from) and an editable `PromptTemplateOverride`
+  that persists via the same `OnNavigatedTo`-restores/`On*Changed`-saves pattern as
+  `ClaudeCliExecutablePath`/`ClaudeCliArguments`, plus a `ResetPromptTemplateCommand` (disabled once the
+  override is already empty) that clears it. `PromptViewModel.RunPromptAsync` reads
+  `PromptTemplateSettingsKeys.Override` directly via its existing `ILocalSettingsService` dependency -
+  fresh on every run rather than once in `OnNavigatedTo` - so a change made on the Settings page takes
+  effect on the very next run without needing to revisit the Prompt page, same rationale
+  `ClaudeCliOptionsProvider` documents for its own settings reads; a blank/whitespace-only override
+  falls back to `IPromptTemplateProvider.GetTutorialInstructionPrompt()` exactly like a missing one.
+  No changes to `IPromptTemplateProvider`/`PromptTemplateProvider` (Core) were needed - the override
+  is purely an Avalonia-layer concern, the same separation `ClaudeCliOptionsProvider` keeps Core's
+  `ClaudeCliRunner` free of `ILocalSettingsService`. `SettingsView.axaml` gained an "Override" text box
+  (multiline, monospace, matching the Prompt page's CLI-output box styling) with a "Reset to default"
+  button, and a read-only "Built-in default" text box below it. Covered by new `SettingsViewModelTests`
+  cases (default-matches-provider, override defaults empty, override persists, override restores on
+  navigation, reset command's `CanExecute` gating and effect) and new `PromptViewModelTests` cases (no
+  override uses the default, a saved override replaces the default, a blank/whitespace override still
+  falls back to the default). Full solution builds with 0 warnings/errors, 365/365 tests pass (274 Core
+  + 91 Avalonia, up from 356). Not visually verified (no X server in this sandbox, same limitation noted
+  on earlier UI-touching tasks) beyond confirming the app still launches without throwing.
 - T5.3.3 Named prompt presets (feature / bugfix / refactor / explain) with a tutorial-depth control.
 
 **F5.4 — Context selection**

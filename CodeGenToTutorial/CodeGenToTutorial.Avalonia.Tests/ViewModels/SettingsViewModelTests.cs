@@ -1,5 +1,6 @@
 using CodeGenToTutorial.Avalonia.Tests.Fakes;
 using CodeGenToTutorial.Avalonia.ViewModels;
+using CodeGenToTutorial.Core.Services;
 
 namespace CodeGenToTutorial.Avalonia.Tests.ViewModels;
 
@@ -7,8 +8,9 @@ public class SettingsViewModelTests
 {
     private readonly FakeThemeSelectorService _themeSelectorService = new();
     private readonly FakeLocalSettingsService _localSettingsService = new();
+    private readonly PromptTemplateProvider _promptTemplateProvider = new();
 
-    private SettingsViewModel CreateSut() => new(_themeSelectorService, _localSettingsService);
+    private SettingsViewModel CreateSut() => new(_themeSelectorService, _localSettingsService, _promptTemplateProvider);
 
     [Fact]
     public void ClaudeCliSettings_DefaultToClaudeAndDashP()
@@ -61,5 +63,65 @@ public class SettingsViewModelTests
 
         Assert.Equal("claude", sut.ClaudeCliExecutablePath);
         Assert.Equal("-p", sut.ClaudeCliArguments);
+    }
+
+    [Fact]
+    public void DefaultPromptTemplate_IsTheProvidersBuiltInTemplate()
+    {
+        var sut = CreateSut();
+
+        Assert.Equal(_promptTemplateProvider.GetTutorialInstructionPrompt(), sut.DefaultPromptTemplate);
+    }
+
+    [Fact]
+    public void PromptTemplateOverride_DefaultsToEmpty()
+    {
+        var sut = CreateSut();
+
+        Assert.Equal(string.Empty, sut.PromptTemplateOverride);
+    }
+
+    [Fact]
+    public async Task PromptTemplateOverride_WhenChanged_PersistsToSettings()
+    {
+        var sut = CreateSut();
+        sut.PromptTemplateOverride = "Custom instructions.";
+
+        Assert.Equal("Custom instructions.", await _localSettingsService.ReadSettingAsync<string>("PromptTemplateOverride"));
+    }
+
+    [Fact]
+    public async Task OnNavigatedTo_RestoresSavedPromptTemplateOverride()
+    {
+        await _localSettingsService.SaveSettingAsync("PromptTemplateOverride", "Custom instructions.");
+        var sut = CreateSut();
+
+        sut.OnNavigatedTo(null!);
+        await Task.Yield();
+
+        Assert.Equal("Custom instructions.", sut.PromptTemplateOverride);
+    }
+
+    [Fact]
+    public void ResetPromptTemplateCommand_CanExecute_OnlyWhenOverrideIsSet()
+    {
+        var sut = CreateSut();
+
+        Assert.False(sut.ResetPromptTemplateCommand.CanExecute(null));
+
+        sut.PromptTemplateOverride = "Custom instructions.";
+
+        Assert.True(sut.ResetPromptTemplateCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public void ResetPromptTemplateCommand_Execute_ClearsTheOverride()
+    {
+        var sut = CreateSut();
+        sut.PromptTemplateOverride = "Custom instructions.";
+
+        sut.ResetPromptTemplateCommand.Execute(null);
+
+        Assert.Equal(string.Empty, sut.PromptTemplateOverride);
     }
 }
