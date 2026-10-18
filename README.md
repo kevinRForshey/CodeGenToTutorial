@@ -1,5 +1,5 @@
 # Paarde
-
+Pronounced like Party, but with a soft t like pardy.
 **P**rompt **A**ssist **A**nd **R**eview **D**evelopment **E**nvironment
 
 Paarde is a desktop app that sits between you and the [Claude Code CLI](https://github.com/anthropics/claude-code).
