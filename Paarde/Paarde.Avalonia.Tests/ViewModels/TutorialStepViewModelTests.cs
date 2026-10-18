@@ -17,7 +17,27 @@ public class TutorialStepViewModelTests
             "/tmp",
             resumeSessionId,
             _fileChangeApplyService,
-            _llmRunner);
+            _llmRunner,
+            stepNumber: 1,
+            totalSteps: 1);
+
+    [Fact]
+    public void StepLabel_ReflectsTheConstructedStepNumber()
+    {
+        var sut = new TutorialStepViewModel(
+            new ProposedHunk("Step 2", "Explanation", "snippet", null),
+            new ProposedFileChangeViewModel("a.cs", "proposed"),
+            "/tmp",
+            "session-1",
+            _fileChangeApplyService,
+            _llmRunner,
+            stepNumber: 2,
+            totalSteps: 4);
+
+        Assert.Equal(2, sut.StepNumber);
+        Assert.Equal(4, sut.TotalSteps);
+        Assert.Equal("Step 2:", sut.StepLabel);
+    }
 
     [Fact]
     public async Task ExplainFurtherAsync_Success_SetsFurtherExplanationFromPlainProseOutput()

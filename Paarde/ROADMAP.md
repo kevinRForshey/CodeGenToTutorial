@@ -1263,7 +1263,21 @@ committed yet — review `git status`/`git diff` before committing.
   control headlessly (`Avalonia.Headless` + `UseSkia()`) with representative tutorial/explanation
   text covering every span kind and both list styles. Covered by new `MarkdownInlineParserTests`.
   Full solution builds with 0 warnings/errors, 490/490 tests pass (342 Core + 148 Avalonia).
-- T8.4.3 Step numbering, progress indicator, and prev/next step navigation.
+- [x] T8.4.3 Step numbering, progress indicator, and prev/next step navigation. — done
+  2026-10-18: `TutorialStepViewModel` now takes `stepNumber`/`totalSteps` in its constructor and
+  exposes them plus `StepLabel` ("Step N:"), set by `TutorialDetailControl.RebuildSteps` from each
+  hunk's index in `ProposedFileChangeViewModel.Hunks` - the same order the steps list displays them
+  in. The per-step `DataTemplate` in `TutorialDetailControl.axaml` shows `StepLabel` next to the
+  step title. A new `StepNavigationPanel` row above the steps `ScrollViewer` has Previous/Next
+  buttons (`OnPreviousStepButtonClick`/`OnNextStepButtonClick`, disabled at the first/last step), a
+  "Step X of Y" label, and a `ProgressBar`, all kept in sync by `RefreshStepNavigation()` against a
+  new `_currentStepIndex` field; it's hidden entirely when a file has no resolved steps, matching
+  the existing select-all row's pattern. Navigation uses `ItemsControl.ScrollIntoView(int)` (the
+  plain `ItemsControl` already in use supports it directly, so no need to switch to `ListBox` and
+  its unwanted selection-highlight semantics) rather than any new Core model changes - this is UI
+  position tracking, not a persisted "applied" progress metric. Verified by rendering the nav
+  panel/step header layout headlessly (`Avalonia.Headless` + `UseSkia()`). Full solution builds with
+  0 warnings/errors, 491/491 tests pass (342 Core + 149 Avalonia).
 - T8.4.4 Export the tutorial to markdown/HTML.
 - T8.4.5 Jump from a tutorial step to the corresponding hunk in the diff viewer, and back.
 
