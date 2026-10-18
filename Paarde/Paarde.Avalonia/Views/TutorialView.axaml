@@ -5,6 +5,7 @@
              xmlns:coreVm="using:Paarde.Core.ViewModels"
              xmlns:views="using:Paarde.Avalonia.Views"
              xmlns:vm="using:Paarde.Avalonia.ViewModels"
+             xmlns:controls="using:Paarde.Avalonia.Controls"
              x:Class="Paarde.Avalonia.Views.TutorialView"
              x:DataType="vm:TutorialViewModel">
 
@@ -69,7 +70,7 @@
                 <StackPanel Grid.Row="0" Margin="0,0,0,16" Spacing="4"
                             IsVisible="{Binding HasTutorialOverview}">
                     <TextBlock Text="Overview" FontWeight="SemiBold" FontSize="13" />
-                    <TextBlock Text="{Binding Tutorial}" TextWrapping="Wrap" />
+                    <controls:MarkdownTextBlock Text="{Binding Tutorial}" />
                     <Separator Margin="0,8,0,0" />
                 </StackPanel>
 

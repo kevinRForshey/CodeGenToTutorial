@@ -1246,7 +1246,23 @@ committed yet — review `git status`/`git diff` before committing.
   on `OnNavigatedTo`, same pull-on-navigation pattern as `Files`) and `HasTutorialOverview`;
   `TutorialView.axaml` shows it as an "Overview" header above the per-file detail pane, collapsed
   entirely when empty/whitespace-only.
-- T8.4.2 Render markdown in explanations (code spans, lists, emphasis) instead of flat text.
+- [x] T8.4.2 Render markdown in explanations (code spans, lists, emphasis) instead of flat text. —
+  done 2026-10-18: new `MarkdownInlineParser` (`Paarde.Core.Helpers`) parses the limited subset the
+  LLM's tutorial/explanation text actually uses - bullet/numbered lists, `**bold**`/`*italic*`
+  emphasis, and `` `code` `` spans - into `MarkdownLine`/`MarkdownSpan` records, deliberately scoped
+  to single-line constructs (no headings, fenced blocks, tables, or nested lists); full markdown
+  rendering was rejected as unnecessary weight for what the model's responses actually contain. A
+  new `MarkdownTextBlock` control (`Paarde.Avalonia.Controls`) renders that output as one wrapped
+  `TextBlock` per line - bulleted/indented for list items, with `Run`s styled per span (bold
+  `FontWeight`, italic `FontStyle`, code in a monospace font with a subtle background) - replacing
+  the flat `TextBlock` bound to `Tutorial` in `TutorialView.axaml` and to `Explanation`/
+  `FurtherExplanation` in `TutorialDetailControl.axaml`. `FurtherExplanation`'s block-level italic
+  styling (previously `FontBlock.FontStyle="Italic"`) moves to a new `MarkdownTextBlock.FontStyle`
+  property, since `StackPanel` (the control's base, chosen so each line gets its own wrapped
+  paragraph) has no `FontStyle` of its own to inherit from in XAML. Verified by rendering the
+  control headlessly (`Avalonia.Headless` + `UseSkia()`) with representative tutorial/explanation
+  text covering every span kind and both list styles. Covered by new `MarkdownInlineParserTests`.
+  Full solution builds with 0 warnings/errors, 490/490 tests pass (342 Core + 148 Avalonia).
 - T8.4.3 Step numbering, progress indicator, and prev/next step navigation.
 - T8.4.4 Export the tutorial to markdown/HTML.
 - T8.4.5 Jump from a tutorial step to the corresponding hunk in the diff viewer, and back.
