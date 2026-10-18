@@ -1,5 +1,6 @@
 using Paarde.Avalonia.Tests.Fakes;
 using Paarde.Avalonia.ViewModels;
+using Paarde.Core.Services;
 using Paarde.Core.ViewModels;
 
 namespace Paarde.Avalonia.Tests.ViewModels;
@@ -20,7 +21,7 @@ public class SelectionPersistenceTests
             [new ProposedFileChangeViewModel("a.txt", "proposed", "original") { Hunks = new[] { hunk } }],
             "/tmp");
 
-        var tutorialViewModel = new TutorialViewModel(promptResultStore, new FakeApplyOrchestrationService(), new FakeApplyHistoryLog(), new FakeDialogService());
+        var tutorialViewModel = new TutorialViewModel(promptResultStore, new FakeApplyOrchestrationService(), new FakeApplyHistoryLog(), new FakeDialogService(), new FakeLlmRunner(), new PromptTemplateProvider());
         var diffsViewModel = new DiffsViewModel(promptResultStore);
         tutorialViewModel.OnNavigatedTo(null!);
         diffsViewModel.OnNavigatedTo(null!);
@@ -40,7 +41,7 @@ public class SelectionPersistenceTests
             [new ProposedFileChangeViewModel("a.txt", "proposed", "original")],
             "/tmp");
 
-        var tutorialViewModel = new TutorialViewModel(promptResultStore, new FakeApplyOrchestrationService(), new FakeApplyHistoryLog(), new FakeDialogService());
+        var tutorialViewModel = new TutorialViewModel(promptResultStore, new FakeApplyOrchestrationService(), new FakeApplyHistoryLog(), new FakeDialogService(), new FakeLlmRunner(), new PromptTemplateProvider());
         var diffsViewModel = new DiffsViewModel(promptResultStore);
         tutorialViewModel.OnNavigatedTo(null!);
         diffsViewModel.OnNavigatedTo(null!);

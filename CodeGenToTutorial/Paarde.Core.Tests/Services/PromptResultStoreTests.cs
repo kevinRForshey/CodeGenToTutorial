@@ -63,4 +63,27 @@ public class PromptResultStoreTests
         Assert.Single(store.Files);
         Assert.Equal("b.cs", store.Files[0].FilePath);
     }
+
+    [Fact]
+    public void SetResult_WithSessionId_StoresIt()
+    {
+        var store = new PromptResultStore();
+
+        store.SetResult("tutorial", Array.Empty<ProposedFileChangeViewModel>(), "/dir", "session-1");
+
+        Assert.Equal("session-1", store.SessionId);
+    }
+
+    [Fact]
+    public void SetResult_WithNullSessionId_LeavesPreviouslyTrackedSessionIdUnchanged()
+    {
+        // T7.3.1's mid-stream partial-result call has no session id yet - passing null there must not
+        // clobber the id a prior completed run already captured.
+        var store = new PromptResultStore();
+        store.SetResult("first", Array.Empty<ProposedFileChangeViewModel>(), "/dir", "session-1");
+
+        store.SetResult("second", Array.Empty<ProposedFileChangeViewModel>(), "/dir");
+
+        Assert.Equal("session-1", store.SessionId);
+    }
 }

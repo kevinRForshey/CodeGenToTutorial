@@ -920,6 +920,18 @@ public class PromptViewModelTests
     }
 
     [Fact]
+    public async Task RunPromptAsync_SuccessfulRun_PassesTheSessionIdToThePromptResultStore()
+    {
+        var sut = CreateSut();
+        sut.PromptText = "Do something";
+        _llmRunner.ResultToReturn = new LlmRunResult { Success = true, Output = """{"responseType": "answer", "answer": "done"}""", SessionId = "session-1" };
+
+        await sut.RunPromptCommand.ExecuteAsync(null);
+
+        Assert.Equal("session-1", _promptResultStore.SessionId);
+    }
+
+    [Fact]
     public async Task RunPromptAsync_ContinuePreviousConversationChecked_PassesTheLastSessionIdToTheRunner()
     {
         var sut = CreateSut();

@@ -14,6 +14,7 @@ public partial class TutorialDetailControl : UserControl
 {
     private readonly IPromptResultStore _promptResultStore;
     private readonly IFileChangeApplyService _fileChangeApplyService;
+    private readonly ILlmRunner _llmRunner;
 
     public ObservableCollection<TutorialStepViewModel> Steps { get; } = new();
 
@@ -21,6 +22,7 @@ public partial class TutorialDetailControl : UserControl
     {
         _promptResultStore = App.GetService<IPromptResultStore>();
         _fileChangeApplyService = App.GetService<IFileChangeApplyService>();
+        _llmRunner = App.GetService<ILlmRunner>();
         InitializeComponent();
 
         StepsItemsControl.ItemsSource = Steps;
@@ -62,7 +64,7 @@ public partial class TutorialDetailControl : UserControl
 
         foreach (var hunk in proposedFileChange.Hunks)
         {
-            Steps.Add(new TutorialStepViewModel(hunk, proposedFileChange, _promptResultStore.WorkingDirectoryPath, _fileChangeApplyService));
+            Steps.Add(new TutorialStepViewModel(hunk, proposedFileChange, _promptResultStore.WorkingDirectoryPath, _promptResultStore.SessionId, _fileChangeApplyService, _llmRunner));
         }
     }
 }

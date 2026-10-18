@@ -4,6 +4,7 @@ using Paarde.Avalonia.Contracts.Services;
 using Paarde.Avalonia.Contracts.ViewModels;
 using Paarde.Avalonia.Strings;
 using Paarde.Core.Contracts.Services;
+using Paarde.Core.Helpers;
 using Paarde.Core.Models;
 using Paarde.Core.ViewModels;
 
@@ -18,12 +19,26 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
     private readonly IApplyOrchestrationService _applyOrchestrationService;
     private readonly IApplyHistoryLog _applyHistoryLog;
     private readonly IDialogService _dialogService;
+    private readonly ILlmRunner _llmRunner;
+    private readonly IPromptTemplateProvider _promptTemplateProvider;
 
     [ObservableProperty]
     private ProposedFileChangeViewModel? selected;
 
     [ObservableProperty]
     private string applyStatusMessage = string.Empty;
+
+    // T7.3.2: the scoped "refine this file" follow-up - a resumed-session request to change only
+    // Selected, reusing the same instruction template/parsing pipeline as the main run rather than
+    // a bespoke one.
+    [ObservableProperty]
+    private string refineInstruction = string.Empty;
+
+    [ObservableProperty]
+    private string refineStatusMessage = string.Empty;
+
+    [ObservableProperty]
+    private bool isRefining;
 
     public ObservableCollection<ProposedFileChangeViewModel> Files { get; } = new();
 
@@ -36,12 +51,14 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
     // show before the first apply of the session.
     public bool HasApplyHistory => ApplyHistoryEntries.Count > 0;
 
-    public TutorialViewModel(IPromptResultStore promptResultStore, IApplyOrchestrationService applyOrchestrationService, IApplyHistoryLog applyHistoryLog, IDialogService dialogService)
+    public TutorialViewModel(IPromptResultStore promptResultStore, IApplyOrchestrationService applyOrchestrationService, IApplyHistoryLog applyHistoryLog, IDialogService dialogService, ILlmRunner llmRunner, IPromptTemplateProvider promptTemplateProvider)
     {
         _promptResultStore = promptResultStore;
         _applyOrchestrationService = applyOrchestrationService;
         _applyHistoryLog = applyHistoryLog;
         _dialogService = dialogService;
+        _llmRunner = llmRunner;
+        _promptTemplateProvider = promptTemplateProvider;
 
         // ObservableCollection<T> raises PropertyChanged("Count") on its own, but HasNoFiles/
         // HasFilesButNoneSelected are derived from that count rather than being Count itself, so
@@ -88,7 +105,15 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
 
     public bool HasFilesButNoneSelected => Files.Count > 0 && Selected == null;
 
-    partial void OnSelectedChanged(ProposedFileChangeViewModel? value) => OnPropertyChanged(nameof(HasFilesButNoneSelected));
+    partial void OnSelectedChanged(ProposedFileChangeViewModel? value)
+    {
+        OnPropertyChanged(nameof(HasFilesButNoneSelected));
+        RefineSelectedFileCommand.NotifyCanExecuteChanged();
+    }
+
+    partial void OnRefineInstructionChanged(string value) => RefineSelectedFileCommand.NotifyCanExecuteChanged();
+
+    partial void OnIsRefiningChanged(bool value) => RefineSelectedFileCommand.NotifyCanExecuteChanged();
 
     public void EnsureItemSelected()
     {
@@ -255,6 +280,83 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
             "Tutorial_RevertAllAppliedResultTitle".GetLocalized(),
             ApplyStatusMessage,
             "Tutorial_RevertAllAppliedResultClose".GetLocalized());
+    }
+
+    // T7.3.2: a scoped follow-up that only asks Claude to change Selected, resuming the conversation
+    // that produced the current result (T7.3.1) so it already has the whole tutorial as context.
+    // Reuses the main run's instruction template/JSON contract and StructuredResponseParser rather
+    // than a bespoke prompt/parse path, so a successful response is just another file in the same
+    // shape Files already holds - deliberately no schema-validation retry loop here (unlike the main
+    // run): a failed attempt just reports an error and the user can click the button again.
+    [RelayCommand(CanExecute = nameof(CanRefineSelectedFile))]
+    private async Task RefineSelectedFileAsync()
+    {
+        var file = Selected!;
+        IsRefining = true;
+        RefineStatusMessage = string.Format("Tutorial_RefineRunning".GetLocalized(), file.FilePath);
+
+        try
+        {
+            var prompt = _promptTemplateProvider.GetTutorialInstructionPrompt() +
+                $"\n\nOnly modify the file \"{file.FilePath}\" - do not include any other file in your response. Its current content is:\n{file.EditedContent}" +
+                $"\n\nApply this refinement: {RefineInstruction}" +
+                $"\n\nThe working directory is: {_promptResultStore.WorkingDirectoryPath}";
+
+            var result = await _llmRunner.RunPromptAsync(prompt, _promptResultStore.WorkingDirectoryPath, resumeSessionId: _promptResultStore.SessionId);
+
+            if (!result.Success)
+            {
+                RefineStatusMessage = string.Format("Tutorial_RefineFailed".GetLocalized(), file.FilePath, result.ErrorMessage);
+                return;
+            }
+
+            var parseResult = StructuredResponseParser.Parse(result.Output, _promptResultStore.WorkingDirectoryPath);
+            var refinedFile = parseResult.Response.Files.FirstOrDefault(f => f.FilePath == file.FilePath);
+
+            if (parseResult.UsedFallback || refinedFile is null)
+            {
+                RefineStatusMessage = string.Format("Tutorial_RefineNoMatchingFile".GetLocalized(), file.FilePath);
+                return;
+            }
+
+            // Content-mode files (unlike edit-mode) come back with OriginalContent unset - see
+            // ClaudeJsonResponseParser.MapContentModeFile - so this re-diffs against disk the same
+            // way DiffsViewModel.OnSelectedChanged does for every file it shows.
+            refinedFile.RefreshOriginalContent(_promptResultStore.WorkingDirectoryPath);
+            ReplaceFile(file, refinedFile);
+
+            RefineInstruction = string.Empty;
+            RefineStatusMessage = string.Format("Tutorial_RefineSucceeded".GetLocalized(), refinedFile.FilePath);
+        }
+        finally
+        {
+            IsRefining = false;
+        }
+    }
+
+    private bool CanRefineSelectedFile() => Selected is not null && !string.IsNullOrWhiteSpace(RefineInstruction) && !IsRefining;
+
+    // Files/IPromptResultStore.Files both hold the same instances (see OnNavigatedTo), and
+    // ProposedFileChangeViewModel can't be mutated into a new file's shape in place (Hunks is
+    // init-only, ProposedContent has no setter) - so a refined file is swapped in by index in both
+    // collections instead, keeping the Diffs page in sync without any new pub/sub wiring.
+    private void ReplaceFile(ProposedFileChangeViewModel oldFile, ProposedFileChangeViewModel newFile)
+    {
+        var filesIndex = Files.IndexOf(oldFile);
+
+        if (filesIndex >= 0)
+        {
+            Files[filesIndex] = newFile;
+        }
+
+        var storeIndex = _promptResultStore.Files.IndexOf(oldFile);
+
+        if (storeIndex >= 0)
+        {
+            _promptResultStore.Files[storeIndex] = newFile;
+        }
+
+        Selected = newFile;
     }
 
     private string BuildRevertStatusMessage(RevertResult result)

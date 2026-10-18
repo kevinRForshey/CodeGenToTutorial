@@ -1,6 +1,7 @@
 using Paarde.Avalonia.Tests.Fakes;
 using Paarde.Avalonia.ViewModels;
 using Paarde.Core.Models;
+using Paarde.Core.Services;
 using Paarde.Core.ViewModels;
 
 namespace Paarde.Avalonia.Tests.ViewModels;
@@ -11,8 +12,10 @@ public class TutorialViewModelTests
     private readonly FakeApplyOrchestrationService _applyOrchestrationService = new();
     private readonly FakeApplyHistoryLog _applyHistoryLog = new();
     private readonly FakeDialogService _dialogService = new();
+    private readonly FakeLlmRunner _llmRunner = new();
+    private readonly PromptTemplateProvider _promptTemplateProvider = new();
 
-    private TutorialViewModel CreateSut() => new(_promptResultStore, _applyOrchestrationService, _applyHistoryLog, _dialogService);
+    private TutorialViewModel CreateSut() => new(_promptResultStore, _applyOrchestrationService, _applyHistoryLog, _dialogService, _llmRunner, _promptTemplateProvider);
 
     [Fact]
     public void HasUnsavedChanges_NoFiles_IsFalse()
@@ -473,5 +476,111 @@ public class TutorialViewModelTests
 
         Assert.True(sut.HasApplyHistory);
         Assert.Contains("Reverted all applied changes", sut.ApplyHistoryEntries[0]);
+    }
+
+    [Fact]
+    public void CanRefineSelectedFile_NoFileSelected_CannotBeExecuted()
+    {
+        var sut = CreateSut();
+        sut.RefineInstruction = "make it better";
+
+        Assert.False(sut.RefineSelectedFileCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public void CanRefineSelectedFile_NoInstructionText_CannotBeExecuted()
+    {
+        _promptResultStore.SetResult("tutorial", [new ProposedFileChangeViewModel("a.txt", "proposed", "original")], "/tmp");
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+
+        Assert.False(sut.RefineSelectedFileCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public void CanRefineSelectedFile_FileSelectedAndInstructionGiven_CanBeExecuted()
+    {
+        _promptResultStore.SetResult("tutorial", [new ProposedFileChangeViewModel("a.txt", "proposed", "original")], "/tmp");
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+        sut.RefineInstruction = "make it better";
+
+        Assert.True(sut.RefineSelectedFileCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task RefineSelectedFileAsync_Success_ReplacesTheFileInBothFilesAndThePromptResultStore()
+    {
+        _promptResultStore.SetResult("tutorial", [new ProposedFileChangeViewModel("a.txt", "proposed", "original")], "/tmp", "session-1");
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+        sut.RefineInstruction = "add a comment";
+        _llmRunner.ResultToReturn = new LlmRunResult
+        {
+            Success = true,
+            Output = """{"responseType": "development", "tutorial": "Refined.", "files": [{"path": "a.txt", "content": "refined content", "steps": []}]}""",
+        };
+
+        await sut.RefineSelectedFileCommand.ExecuteAsync(null);
+
+        Assert.Equal("refined content", sut.Files[0].ProposedContent);
+        Assert.Equal("refined content", _promptResultStore.Files[0].ProposedContent);
+        Assert.Same(sut.Files[0], sut.Selected);
+    }
+
+    [Fact]
+    public async Task RefineSelectedFileAsync_Success_ResumesTheTrackedSessionIdAndClearsTheInstruction()
+    {
+        _promptResultStore.SetResult("tutorial", [new ProposedFileChangeViewModel("a.txt", "proposed", "original")], "/tmp", "session-1");
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+        sut.RefineInstruction = "add a comment";
+        _llmRunner.ResultToReturn = new LlmRunResult
+        {
+            Success = true,
+            Output = """{"responseType": "development", "tutorial": "Refined.", "files": [{"path": "a.txt", "content": "refined content", "steps": []}]}""",
+        };
+
+        await sut.RefineSelectedFileCommand.ExecuteAsync(null);
+
+        Assert.Equal("session-1", _llmRunner.LastResumeSessionId);
+        Assert.Equal(string.Empty, sut.RefineInstruction);
+    }
+
+    [Fact]
+    public async Task RefineSelectedFileAsync_RunFails_ReportsTheErrorWithoutReplacingTheFile()
+    {
+        _promptResultStore.SetResult("tutorial", [new ProposedFileChangeViewModel("a.txt", "proposed", "original")], "/tmp");
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+        sut.RefineInstruction = "add a comment";
+        _llmRunner.ResultToReturn = new LlmRunResult { Success = false, ErrorMessage = "boom" };
+        var originalFile = sut.Files[0];
+
+        await sut.RefineSelectedFileCommand.ExecuteAsync(null);
+
+        Assert.Same(originalFile, sut.Files[0]);
+        Assert.Contains("a.txt", sut.RefineStatusMessage);
+        Assert.Contains("boom", sut.RefineStatusMessage);
+    }
+
+    [Fact]
+    public async Task RefineSelectedFileAsync_ResponseHasNoMatchingFile_ReportsItWithoutReplacingTheFile()
+    {
+        _promptResultStore.SetResult("tutorial", [new ProposedFileChangeViewModel("a.txt", "proposed", "original")], "/tmp");
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+        sut.RefineInstruction = "add a comment";
+        _llmRunner.ResultToReturn = new LlmRunResult
+        {
+            Success = true,
+            Output = """{"responseType": "development", "tutorial": "Refined.", "files": []}""",
+        };
+        var originalFile = sut.Files[0];
+
+        await sut.RefineSelectedFileCommand.ExecuteAsync(null);
+
+        Assert.Same(originalFile, sut.Files[0]);
+        Assert.Contains("a.txt", sut.RefineStatusMessage);
     }
 }

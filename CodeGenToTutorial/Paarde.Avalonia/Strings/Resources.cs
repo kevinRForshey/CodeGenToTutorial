@@ -63,6 +63,12 @@ public static class Resources
         ["Tutorial_HistoryEntryRevertAllApplied"] = "{0} — Reverted all applied changes ({1} file(s)).",
         ["History_SessionRow"] = "{0} — {1} ({2} file(s))",
         ["History_NoSessions"] = "No past runs yet. Run a prompt first, then come back here to review or re-run it.",
+        ["Tutorial_ExplainFurtherFailed"] = "Failed to get a further explanation: {0}",
+        ["Tutorial_RefineNoInstruction"] = "Enter a refinement instruction first.",
+        ["Tutorial_RefineRunning"] = "Refining {0}...",
+        ["Tutorial_RefineFailed"] = "Failed to refine {0}: {1}",
+        ["Tutorial_RefineNoMatchingFile"] = "Claude's response didn't include an updated version of {0}.",
+        ["Tutorial_RefineSucceeded"] = "Refined {0}.",
     };
 
     public static string GetLocalized(this string resourceKey) =>

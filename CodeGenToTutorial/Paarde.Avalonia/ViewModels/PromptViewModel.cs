@@ -360,7 +360,7 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
             if (result.Success)
             {
                 var parsed = parseResult!.Response;
-                _promptResultStore.SetResult(parsed.Tutorial, parsed.Files, WorkingDirectoryPath);
+                _promptResultStore.SetResult(parsed.Tutorial, parsed.Files, WorkingDirectoryPath, result.SessionId);
 
                 var completionMessage = parsed.Files.Count > 0
                     ? string.Format("Prompt_RunCompletedWithFiles".GetLocalized(), parsed.Files.Count)

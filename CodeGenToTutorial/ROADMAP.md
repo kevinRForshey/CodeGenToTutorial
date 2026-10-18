@@ -1188,8 +1188,27 @@ committed yet — review `git status`/`git diff` before committing.
   scoped to the directory it ran in. Covered by new `ClaudeCliRunnerTests` (argv echoing fake script
   asserts `--resume` is/isn't passed; session_id capture) and `PromptViewModelTests` cases. Full
   solution builds with 0 warnings/errors, 456/456 tests pass (324 Core + 132 Avalonia, up from 450).
-- T7.3.2 "Refine this file" / "explain this step further" inline actions that issue a scoped
-  follow-up.
+- [x] T7.3.2 "Refine this file" / "explain this step further" inline actions that issue a scoped
+  follow-up. — done 2026-10-18: both actions resume the session id tracked in `IPromptResultStore`
+  (widened with a `SessionId` property, set only on a successful run - the mid-stream partial-result
+  `SetResult` call passes `null` so it never clobbers the tracked value) rather than starting a fresh
+  conversation, since both pages' `ProposedFileChangeViewModel`s originate from that same run.
+  "Explain this step further" (`TutorialStepViewModel.ExplainFurtherCommand`) asks for plain prose on
+  a resumed session that was told to always answer in JSON; a model that answers in JSON anyway is
+  unwrapped via `ClaudeJsonResponseParser.TryParse` (`.Tutorial` doubles as the prose text for an
+  "answer" response) rather than adding a second parser. "Refine this file"
+  (`TutorialViewModel.RefineSelectedFileCommand`) reuses the main run's exact instruction
+  template/JSON contract and `StructuredResponseParser`, scoped with a "only modify this file"
+  instruction plus the file's current content; on success the matching file in the response becomes
+  a new `ProposedFileChangeViewModel` (immutable by design - `Hunks` is init-only, `ProposedContent`
+  has no setter) swapped by index into both `TutorialViewModel.Files` and
+  `IPromptResultStore.Files`, keeping the Diffs page in sync without new pub/sub wiring. Deliberately
+  no schema-validation retry loop for either action (unlike the main run's one-shot retry) - a failed
+  attempt just shows an error and the user clicks again - and no "Refine this file" UI on the Diffs
+  page (Tutorial page only, since that's where the apply/edit workflow lives). Covered by new
+  `TutorialStepViewModelTests`, new `TutorialViewModel` refine cases, and `PromptResultStoreTests`/
+  `PromptViewModelTests` cases for the new `SessionId` field. Full solution builds with 0
+  warnings/errors, 471/471 tests pass (326 Core + 145 Avalonia, up from 456).
 - T7.3.3 Ask-a-question-about-this-change affordance inside the tutorial.
 
 ---

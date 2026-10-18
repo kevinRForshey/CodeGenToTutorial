@@ -21,12 +21,16 @@ public partial class PromptResultStore : ObservableObject, IPromptResultStore
     [ObservableProperty]
     private string workingDirectoryPath = string.Empty;
 
+    [ObservableProperty]
+    private string? sessionId;
+
     public ObservableCollection<ProposedFileChangeViewModel> Files { get; } = new();
 
-    public void SetResult(string tutorial, IReadOnlyList<ProposedFileChangeViewModel> files, string workingDirectoryPath)
+    public void SetResult(string tutorial, IReadOnlyList<ProposedFileChangeViewModel> files, string workingDirectoryPath, string? sessionId = null)
     {
         Tutorial = tutorial;
         WorkingDirectoryPath = workingDirectoryPath;
+        SessionId = sessionId ?? SessionId;
 
         Files.Clear();
         foreach (var file in files)

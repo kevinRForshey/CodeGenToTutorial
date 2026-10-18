@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:ui="using:FluentAvalonia.UI.Controls"
+             xmlns:conv="using:Avalonia.Data.Converters"
              xmlns:coreVm="using:Paarde.Core.ViewModels"
              xmlns:viewmodels="using:Paarde.Avalonia.ViewModels"
              xmlns:controls="using:Paarde.Avalonia.Controls"
@@ -66,8 +67,12 @@
                             <TextBlock Text="{Binding Explanation}" TextWrapping="Wrap" />
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <Button Content="Apply this change" Command="{Binding ApplyCommand}" />
+                                <Button Content="Explain further" Command="{Binding ExplainFurtherCommand}"
+                                         ToolTip.Tip="Ask Claude Code to go deeper on this step, continuing this tutorial's conversation." />
                                 <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" />
                             </StackPanel>
+                            <TextBlock Text="{Binding FurtherExplanation}" TextWrapping="Wrap" FontStyle="Italic" Opacity="0.85"
+                                       IsVisible="{Binding FurtherExplanation, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}" />
                         </StackPanel>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
