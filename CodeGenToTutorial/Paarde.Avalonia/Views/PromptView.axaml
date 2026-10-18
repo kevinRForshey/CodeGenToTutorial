@@ -5,7 +5,7 @@
              x:Class="Paarde.Avalonia.Views.PromptView"
              x:DataType="vm:PromptViewModel">
 
-    <Grid Margin="16" RowDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto,Auto">
+    <Grid Margin="16" RowDefinitions="Auto,Auto,Auto,*,Auto,Auto">
         <TextBlock Grid.Row="0"
                    Text="Prompt"
                    FontSize="20"
@@ -58,6 +58,7 @@
                       VerticalAlignment="Center" />
             <ui:ProgressRing Width="20" Height="20" VerticalAlignment="Center" IsIndeterminate="True" IsActive="{Binding IsRunning}" />
             <TextBlock Text="{Binding ElapsedTimeDisplay}" VerticalAlignment="Center" IsVisible="{Binding IsRunning}" Opacity="0.7" />
+            <TextBlock Text="{Binding StreamProgressDisplay}" VerticalAlignment="Center" IsVisible="{Binding IsRunning}" Opacity="0.7" />
             <TextBlock Text="Preset" VerticalAlignment="Center" Margin="16,0,0,0" Opacity="0.7" />
             <ComboBox ItemsSource="{Binding AvailablePresets}" SelectedItem="{Binding SelectedPreset}" Width="120" />
             <TextBlock Text="Tutorial detail" VerticalAlignment="Center" Margin="8,0,0,0" Opacity="0.7" />
@@ -68,17 +69,5 @@
 
         <TextBlock Grid.Row="5" Margin="0,4,0,0" Text="{Binding StatusMessage}" />
         <TextBlock Grid.Row="5" Margin="0,24,0,0" HorizontalAlignment="Right" Text="{Binding UsageSummary}" Opacity="0.7" FontSize="12" />
-
-        <TextBlock Grid.Row="6" Margin="0,8,0,0" Text="Claude Code output" FontWeight="SemiBold" />
-
-        <TextBox Grid.Row="7"
-                 Margin="0,4,0,0"
-                 Text="{Binding CliOutput}"
-                 IsReadOnly="True"
-                 AcceptsReturn="True"
-                 TextWrapping="Wrap"
-                 FontFamily="Cascadia Mono,Consolas,monospace"
-                 Height="220"
-                 ScrollViewer.VerticalScrollBarVisibility="Auto" />
     </Grid>
 </UserControl>

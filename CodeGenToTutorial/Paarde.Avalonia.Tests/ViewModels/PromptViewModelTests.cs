@@ -843,8 +843,13 @@ public class PromptViewModelTests
     }
 
     [Fact]
-    public async Task RunPromptAsync_StreamedTextDeltasCompleteAFileBlock_SurfacesItBeforeTheRunFinishes()
+    public async Task RunPromptAsync_StreamedTextDeltas_DoNotReparseOrStoreUntilTheRunFinishes()
     {
+        // Each delta used to re-parse the whole growing CliOutput and push it into
+        // IPromptResultStore (an O(n^2) cost under token-level streaming that froze the UI on
+        // large responses) - it's now a cheap, UI-thread-only character-count bump (not exercised
+        // here, since nothing pumps Dispatcher.UIThread in this plain xunit host), and the store is
+        // only ever written once, from the complete output after the run finishes.
         var sut = CreateSut();
         sut.PromptText = "Add a Foo class";
         const string streamed =
@@ -862,12 +867,9 @@ public class PromptViewModelTests
         _llmRunner.TextDeltasToEmit = new[] { streamed };
         _llmRunner.ResultToReturn = new LlmRunResult { Success = true, Output = streamed };
 
-        var seenFileCountsBeforeCompletion = new List<int>();
-        _promptResultStore.OnSetResult = () => seenFileCountsBeforeCompletion.Add(_promptResultStore.Files.Count);
-
         await sut.RunPromptCommand.ExecuteAsync(null);
 
-        Assert.Contains(1, seenFileCountsBeforeCompletion);
+        Assert.Equal(1, _promptResultStore.SetResultCallCount);
         Assert.Single(_promptResultStore.Files);
     }
 

@@ -9,11 +9,12 @@ what kind of request the user made below:
      "answer": "<your answer, as plain text>"
    }
 
-2. Development request (asks for a feature, fix, or change to this codebase) - do NOT modify any
-   files yourself:
+2. Development request (asks for a feature, fix, or change to this codebase, including creating a
+   brand-new project or file from scratch - having no existing code to modify yet does not make it
+   a general question) - do NOT modify any files yourself:
    {
      "responseType": "development",
-     "tutorial": "<a short paragraph summarizing the overall change>",
+     "tutorial": "<a short paragraph summarizing the overall change - always a real explanation of what was built and why, even for a brand-new project, never a refusal or a note that you won't explain it>",
      "files": [
        {
          "path": "<path to the file, relative to the working directory>",
@@ -25,15 +26,25 @@ what kind of request the user made below:
              "replace": "<the new lines that replace \"search\" - use an empty string to delete \"search\" with nothing>"
            }
          ],
-         "content": "<only for a file that does not exist yet: its complete contents>"
+         "content": "<only for a file that does not exist yet: its complete contents>",
+         "steps": [
+           {
+             "title": "<short title for this part of the new file>",
+             "explanation": "<explain the reasoning behind this specific part of the file and how it works, written so someone learning to code with an LLM can follow along>",
+             "snippet": "<the exact lines from \"content\" that this step introduces, copied verbatim including whitespace - include enough surrounding context that this text appears only once in \"content\">"
+           }
+         ]
        }
      ]
    }
    Use "edits" for every change to a file that already exists in the working directory - never
    repeat a whole file's contents just to change a few lines of it. Use "content" only when
    creating a brand-new file, and never include both "edits" and "content" for the same file.
-   Repeat the "edits" entries for every distinct part of a file's change. If no files need
-   changes, set "files" to an empty array.
+   Repeat the "edits" entries for every distinct part of a file's change. When using "content" for
+   a brand-new file, also break it into "steps" the same way - one entry per distinct part of the
+   file (e.g. imports, each function or class member, the main entry point) - so the tutorial can
+   walk through the new file piece by piece instead of only showing it as one block. If no files
+   need changes, set "files" to an empty array.
 
 Only use the "development" shape when the request actually requires code changes. Every string
 value must be valid JSON (escape newlines, quotes, and backslashes). Here is the user's request:
