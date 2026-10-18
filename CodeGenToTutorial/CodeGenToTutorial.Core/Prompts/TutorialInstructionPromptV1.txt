@@ -20,7 +20,7 @@ what kind of request the user made below:
          "edits": [
            {
              "title": "<short title for this part of the change>",
-             "explanation": "<one or more paragraphs explaining, in detail, the reasoning behind this specific part of the change and how it works, written so someone learning to code with an LLM can follow along>",
+             "explanation": "<explain the reasoning behind this specific part of the change and how it works, written so someone learning to code with an LLM can follow along>",
              "search": "<the exact lines currently in the file that this step changes, copied verbatim including whitespace - include enough surrounding context that this text appears only once in the file>",
              "replace": "<the new lines that replace \"search\" - use an empty string to delete \"search\" with nothing>"
            }

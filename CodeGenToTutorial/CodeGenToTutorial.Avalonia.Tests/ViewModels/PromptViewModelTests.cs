@@ -277,6 +277,95 @@ public class PromptViewModelTests
     }
 
     [Fact]
+    public void SelectedPreset_DefaultsToGeneral()
+    {
+        var sut = CreateSut();
+
+        Assert.Equal(PromptPreset.General, sut.SelectedPreset);
+    }
+
+    [Fact]
+    public void SelectedDepth_DefaultsToStandard()
+    {
+        var sut = CreateSut();
+
+        Assert.Equal(TutorialDepth.Standard, sut.SelectedDepth);
+    }
+
+    [Fact]
+    public async Task SelectedPreset_WhenChanged_PersistsToSettings()
+    {
+        var sut = CreateSut();
+        sut.SelectedPreset = PromptPreset.Bugfix;
+
+        Assert.Equal("Bugfix", await _localSettingsService.ReadSettingAsync<string>("SavedPromptPreset"));
+    }
+
+    [Fact]
+    public async Task SelectedDepth_WhenChanged_PersistsToSettings()
+    {
+        var sut = CreateSut();
+        sut.SelectedDepth = TutorialDepth.Brief;
+
+        Assert.Equal("Brief", await _localSettingsService.ReadSettingAsync<string>("SavedTutorialDepth"));
+    }
+
+    [Fact]
+    public async Task OnNavigatedTo_RestoresSavedPresetAndDepth()
+    {
+        await _localSettingsService.SaveSettingAsync("SavedPromptPreset", "Refactor");
+        await _localSettingsService.SaveSettingAsync("SavedTutorialDepth", "Detailed");
+        var sut = CreateSut();
+
+        sut.OnNavigatedTo(null!);
+        await Task.Yield();
+
+        Assert.Equal(PromptPreset.Refactor, sut.SelectedPreset);
+        Assert.Equal(TutorialDepth.Detailed, sut.SelectedDepth);
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_GeneralPresetAndStandardDepth_AddsNoExtraInstructions()
+    {
+        var sut = CreateSut();
+        sut.PromptText = "Add a Foo class";
+        _llmRunner.ResultToReturn = new LlmRunResult
+        {
+            Success = true,
+            Output = """{"responseType": "answer", "answer": "ok"}""",
+        };
+
+        await sut.RunPromptCommand.ExecuteAsync(null);
+
+        var expectedPrompt = _promptTemplateProvider.GetTutorialInstructionPrompt() + "\n\n" + sut.PromptText;
+        Assert.Equal(expectedPrompt, _llmRunner.LastPrompt);
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_PresetSelected_AppendsPresetInstructionToPrompt()
+    {
+        var sut = CreateSut();
+        sut.PromptText = "Add a Foo class";
+        sut.SelectedPreset = PromptPreset.Feature;
+
+        await sut.RunPromptCommand.ExecuteAsync(null);
+
+        Assert.Contains(_promptTemplateProvider.GetPresetInstruction(PromptPreset.Feature), _llmRunner.LastPrompt);
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_DepthSelected_AppendsDepthInstructionToPrompt()
+    {
+        var sut = CreateSut();
+        sut.PromptText = "Add a Foo class";
+        sut.SelectedDepth = TutorialDepth.Brief;
+
+        await sut.RunPromptCommand.ExecuteAsync(null);
+
+        Assert.Contains(_promptTemplateProvider.GetDepthInstruction(TutorialDepth.Brief), _llmRunner.LastPrompt);
+    }
+
+    [Fact]
     public async Task RunPromptAsync_RunnerNotAvailable_ReportsActionableMessageAndDoesNotRun()
     {
         var sut = CreateSut();

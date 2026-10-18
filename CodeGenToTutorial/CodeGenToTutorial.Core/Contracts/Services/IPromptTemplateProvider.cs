@@ -1,3 +1,5 @@
+using CodeGenToTutorial.Core.Models;
+
 namespace CodeGenToTutorial.Core.Contracts.Services;
 
 // Separates "what instructions get sent to the LLM" from PromptViewModel so the template can be
@@ -11,4 +13,12 @@ public interface IPromptTemplateProvider
     int CurrentVersion { get; }
 
     string GetTutorialInstructionPrompt();
+
+    // T5.3.3: extra guidance appended after the preamble (default or user-overridden) and before
+    // the depth instruction/user prompt. PromptPreset.General returns "" - it adds no extra text.
+    string GetPresetInstruction(PromptPreset preset);
+
+    // T5.3.3: extra guidance controlling how much explanation text each step should contain.
+    // TutorialDepth.Standard returns "" - it relies on the base preamble's own wording.
+    string GetDepthInstruction(TutorialDepth depth);
 }

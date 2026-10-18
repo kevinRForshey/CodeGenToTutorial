@@ -20,6 +20,8 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
     private const string PromptSettingsKey = "SavedPrompt";
     private const string WorkingDirectorySettingsKey = "SavedWorkingDirectory";
     private const string TimeoutSecondsSettingsKey = "PromptTimeoutSeconds";
+    private const string PresetSettingsKey = "SavedPromptPreset";
+    private const string DepthSettingsKey = "SavedTutorialDepth";
     private const int DefaultTimeoutSeconds = 300;
 
     // T5.3.1: the instructions prepended to every prompt sent to Claude Code used to live here as a
@@ -57,6 +59,18 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
 
     [ObservableProperty]
     private int timeoutSeconds = DefaultTimeoutSeconds;
+
+    // T5.3.3: named presets/depth controls that append extra guidance onto the instruction
+    // preamble (default or user-overridden, T5.3.2) ahead of the user's own prompt text.
+    [ObservableProperty]
+    private PromptPreset selectedPreset = PromptPreset.General;
+
+    [ObservableProperty]
+    private TutorialDepth selectedDepth = TutorialDepth.Standard;
+
+    public IReadOnlyList<PromptPreset> AvailablePresets { get; } = Enum.GetValues<PromptPreset>();
+
+    public IReadOnlyList<TutorialDepth> AvailableDepths { get; } = Enum.GetValues<TutorialDepth>();
 
     // T6.2.3: live "Xs" readout ticking while a run is in progress, and a post-run cost/token
     // summary once the CLI's final result line has been parsed.
@@ -98,6 +112,12 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
 
         var savedTimeoutSeconds = await _localSettingsService.ReadSettingAsync<int>(TimeoutSecondsSettingsKey);
         TimeoutSeconds = savedTimeoutSeconds > 0 ? savedTimeoutSeconds : DefaultTimeoutSeconds;
+
+        var savedPreset = await _localSettingsService.ReadSettingAsync<string>(PresetSettingsKey);
+        SelectedPreset = Enum.TryParse<PromptPreset>(savedPreset, out var preset) ? preset : PromptPreset.General;
+
+        var savedDepth = await _localSettingsService.ReadSettingAsync<string>(DepthSettingsKey);
+        SelectedDepth = Enum.TryParse<TutorialDepth>(savedDepth, out var depth) ? depth : TutorialDepth.Standard;
 
         StatusMessage = string.Empty;
     }
@@ -162,7 +182,17 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
             var instructionTemplate = string.IsNullOrWhiteSpace(instructionTemplateOverride)
                 ? _promptTemplateProvider.GetTutorialInstructionPrompt()
                 : instructionTemplateOverride;
-            var fullPrompt = instructionTemplate + "\n\n" + PromptText;
+
+            // T5.3.3: preset/depth guidance is additive to whatever the effective preamble is
+            // (default or user-overridden) - it's extra instruction text, not schema, so it applies
+            // the same way regardless of where the preamble came from.
+            var presetInstruction = _promptTemplateProvider.GetPresetInstruction(SelectedPreset);
+            var depthInstruction = _promptTemplateProvider.GetDepthInstruction(SelectedDepth);
+            var extraInstructions = string.Concat(
+                string.IsNullOrEmpty(presetInstruction) ? string.Empty : "\n\n" + presetInstruction,
+                string.IsNullOrEmpty(depthInstruction) ? string.Empty : "\n\n" + depthInstruction);
+
+            var fullPrompt = instructionTemplate + extraInstructions + "\n\n" + PromptText;
 
             if (!string.IsNullOrWhiteSpace(WorkingDirectoryPath))
             {
@@ -300,4 +330,8 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
     partial void OnIsRunningChanged(bool value) => RunPromptCommand.NotifyCanExecuteChanged();
 
     partial void OnTimeoutSecondsChanged(int value) => _localSettingsService.SaveSettingAsync(TimeoutSecondsSettingsKey, value);
+
+    partial void OnSelectedPresetChanged(PromptPreset value) => _localSettingsService.SaveSettingAsync(PresetSettingsKey, value.ToString());
+
+    partial void OnSelectedDepthChanged(TutorialDepth value) => _localSettingsService.SaveSettingAsync(DepthSettingsKey, value.ToString());
 }

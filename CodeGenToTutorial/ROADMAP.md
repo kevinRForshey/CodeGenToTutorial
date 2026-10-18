@@ -765,7 +765,38 @@ committed yet — review `git status`/`git diff` before committing.
   falls back to the default). Full solution builds with 0 warnings/errors, 365/365 tests pass (274 Core
   + 91 Avalonia, up from 356). Not visually verified (no X server in this sandbox, same limitation noted
   on earlier UI-touching tasks) beyond confirming the app still launches without throwing.
-- T5.3.3 Named prompt presets (feature / bugfix / refactor / explain) with a tutorial-depth control.
+- [x] T5.3.3 Named prompt presets (feature / bugfix / refactor / explain) with a tutorial-depth control. —
+  done 2026-10-17: new `PromptPreset` (`General, Feature, Bugfix, Refactor, Explain`) and `TutorialDepth`
+  (`Standard, Brief, Detailed`) enums (Core `Models/`); `General`/`Standard` are the no-op defaults. Six
+  new embedded snippets in `Core/Prompts/` (`PresetFeatureV1.txt`, `PresetBugfixV1.txt`,
+  `PresetRefactorV1.txt`, `PresetExplainV1.txt`, `DepthBriefV1.txt`, `DepthDetailedV1.txt`) - one file per
+  non-default value rather than a single sectioned file, matching the one-file-per-template precedent
+  `TutorialInstructionPromptV1.txt` already set; no csproj change needed since the existing
+  `Prompts\*.txt` glob covers them. `IPromptTemplateProvider` gained `GetPresetInstruction(PromptPreset)`
+  and `GetDepthInstruction(TutorialDepth)`, both returning `""` for the default value; the single
+  `_cachedTemplate` field in `PromptTemplateProvider` became a `Dictionary<string, string>` keyed by
+  resource name so each snippet is still read from its embedded resource once and reused. Also edited
+  `TutorialInstructionPromptV1.txt` to drop the base preamble's "in detail" wording from the
+  `explanation` field description, since that phrase would otherwise conflict with a `Brief` depth
+  selection - the depth/preset text is additive, not a replacement, so the base template needed to stop
+  asserting a detail level of its own. `PromptViewModel` gained `SelectedPreset`/`SelectedDepth`
+  (`[ObservableProperty]`, defaulting to `General`/`Standard`) and `AvailablePresets`/`AvailableDepths`
+  (`Enum.GetValues<T>()`) for binding; persisted via new `SavedPromptPreset`/`SavedTutorialDepth` settings
+  keys using `Enum.TryParse`/`.ToString()` (not Newtonsoft's default int enum serialization) so a future
+  reordering of enum members can't silently change what a saved value means. Preset/depth instructions
+  are applied orthogonally to T5.3.2's preamble override - appended after whichever preamble is in effect
+  (default or user-overridden) and before the user's own prompt text - since they're extra guidance, not
+  schema, so where the preamble came from doesn't matter. `PromptView.axaml` gained two `ComboBox`
+  controls ("Preset", "Tutorial detail") next to the existing Timeout control; this is the first
+  `ComboBox` usage in the codebase, styled consistently with the page's existing label+control pattern.
+  Covered by new `PromptTemplateProviderTests` cases (`General`/`Standard` return empty, each non-default
+  value returns distinct non-empty text) and new `PromptViewModelTests` cases (defaults, persistence,
+  restoration on `OnNavigatedTo`, `General`+`Standard` add no extra text to the prompt, a selected
+  preset/depth's instruction text reaches the LLM runner's prompt). Full solution builds with 0
+  warnings/errors, 383/383 tests pass (284 Core + 99 Avalonia, up from 365). Not visually verified (no X
+  server in this sandbox, same limitation noted on earlier UI-touching tasks) beyond confirming the app
+  still launches without throwing (ran under `timeout`; exit code 124 confirms it was still running, not
+  crashed, when killed).
 
 **F5.4 — Context selection**
 - T5.4.1 Let the user attach specific files/folders as context for the prompt.

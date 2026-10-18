@@ -1,0 +1,1 @@
+This is a bug fix. In the tutorial summary, state the root cause before describing the fix, and keep the change as narrowly scoped to that cause as possible - do not use this as an opportunity to refactor unrelated code.
