@@ -15,4 +15,9 @@ public interface IApplyHistoryLog
 
     // Oldest first (insertion order) - the caller decides how to order these for display.
     IReadOnlyList<ApplyHistoryEntry> Entries { get; }
+
+    // Replaces the entire log with previously-persisted entries, preserving their original
+    // timestamps and order (T7.1.2: restoring the last session on launch) - unlike Record, which
+    // always stamps DateTimeOffset.UtcNow and is for new actions, not for replaying old ones.
+    void Restore(IReadOnlyList<ApplyHistoryEntry> entries);
 }

@@ -23,8 +23,8 @@ public record RunSessionFile(
 // output, the parsed tutorial/files (with their current selections), and the apply-history entries
 // recorded against this run so far. Written by IRunSessionStore.RecordRun right after a run
 // completes and kept current by Resave as the user applies/undoes/reverts changes - see
-// IRunSessionStore for exactly when each happens. Restoring one of these into the running app is
-// T7.1.2, not yet implemented.
+// IRunSessionStore for exactly when each happens. Restored into the running app on launch by
+// IRunSessionStore.RestoreLastSession (T7.1.2).
 public record RunSession(
     string Id,
     DateTimeOffset StartedAt,

@@ -1,3 +1,5 @@
+using Paarde.Core.Models;
+
 namespace Paarde.Core.Contracts.Services;
 
 // Persists a durable record of each prompt run to disk (T7.1.1). Registered as a singleton (like
@@ -16,4 +18,12 @@ public interface IRunSessionStore
     // recent session's file with them, keeping its cached prompt/rawOutput unchanged. A no-op if
     // RecordRun hasn't been called yet.
     void Resave();
+
+    // Loads the most recently recorded session (by its sortable filename, newest last) and pushes
+    // it into IPromptResultStore and IApplyHistoryLog, so the app comes back up showing the same
+    // tutorial/diffs and apply history it had when it last closed (T7.1.2). Also adopts the loaded
+    // session as the active one, so a later Resave() keeps updating that same file instead of
+    // leaving it behind. Returns null (and touches neither store) if no session has ever been
+    // recorded.
+    RunSession? RestoreLastSession();
 }

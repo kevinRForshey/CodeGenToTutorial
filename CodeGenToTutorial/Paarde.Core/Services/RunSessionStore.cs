@@ -53,6 +53,42 @@ public class RunSessionStore : IRunSessionStore
         }
     }
 
+    public RunSession? RestoreLastSession()
+    {
+        if (!Directory.Exists(_sessionsFolderPath))
+        {
+            return null;
+        }
+
+        // Sortable filename prefix (see RecordRun) means the lexicographically-last file is also
+        // the most recently started session - no need to open every file to compare StartedAt.
+        var latestFileName = Directory.GetFiles(_sessionsFolderPath)
+            .Select(Path.GetFileName)
+            .OfType<string>()
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .LastOrDefault();
+
+        if (latestFileName is null)
+        {
+            return null;
+        }
+
+        var session = _fileService.Read<RunSession>(_sessionsFolderPath, latestFileName);
+
+        if (session is null)
+        {
+            return null;
+        }
+
+        _active = new ActiveSession(session.Id, session.StartedAt, latestFileName, session.Prompt, session.RawOutput);
+
+        var files = session.Files.Select(ToProposedFileChangeViewModel).ToList();
+        _promptResultStore.SetResult(session.Tutorial, files, session.WorkingDirectoryPath);
+        _applyHistoryLog.Restore(session.ApplyLog);
+
+        return session;
+    }
+
     // Reads Files/Tutorial/WorkingDirectoryPath and the apply log fresh on every call (rather than
     // caching them on RecordRun) so Resave always reflects whatever selections/applies have
     // happened since - the whole point of calling it again instead of leaving the RecordRun
@@ -82,4 +118,25 @@ public class RunSessionStore : IRunSessionStore
 
     private static RunSessionHunk ToRunSessionHunk(ProposedHunk hunk) =>
         new(hunk.Title, hunk.Explanation, hunk.Snippet, hunk.Location, hunk.IsSelected);
+
+    // Inverse of ToRunSessionFile/ToRunSessionHunk, for RestoreLastSession. WholeFileSelected is
+    // only applied when there are no hunks - same "ignored otherwise" rule it was saved under.
+    private static ProposedFileChangeViewModel ToProposedFileChangeViewModel(RunSessionFile file)
+    {
+        var viewModel = new ProposedFileChangeViewModel(file.FilePath, file.ProposedContent, file.OriginalContent)
+        {
+            EditedContent = file.EditedContent,
+            Hunks = file.Hunks.Select(ToProposedHunk).ToList(),
+        };
+
+        if (file.Hunks.Count == 0)
+        {
+            viewModel.IsSelected = file.WholeFileSelected;
+        }
+
+        return viewModel;
+    }
+
+    private static ProposedHunk ToProposedHunk(RunSessionHunk hunk) =>
+        new(hunk.Title, hunk.Explanation, hunk.Snippet, hunk.Location) { IsSelected = hunk.IsSelected };
 }

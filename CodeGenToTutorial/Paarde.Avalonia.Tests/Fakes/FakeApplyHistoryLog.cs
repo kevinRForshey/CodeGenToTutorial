@@ -16,4 +16,10 @@ public class FakeApplyHistoryLog : IApplyHistoryLog
         RecordCallCount++;
         _entries.Add(new ApplyHistoryEntry(DateTimeOffset.UtcNow, kind, filePaths));
     }
+
+    public void Restore(IReadOnlyList<ApplyHistoryEntry> entries)
+    {
+        _entries.Clear();
+        _entries.AddRange(entries);
+    }
 }

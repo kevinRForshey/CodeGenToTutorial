@@ -43,4 +43,29 @@ public class ApplyHistoryLogTests
             new[] { ApplyHistoryEntryKind.Applied, ApplyHistoryEntryKind.UndoLastApply, ApplyHistoryEntryKind.RevertAllApplied },
             _log.Entries.Select(e => e.Kind));
     }
+
+    [Fact]
+    public void Restore_ReplacesEntriesPreservingTimestampsAndOrder()
+    {
+        var restoredEntries = new[]
+        {
+            new ApplyHistoryEntry(DateTimeOffset.UtcNow.AddMinutes(-5), ApplyHistoryEntryKind.Applied, new[] { "a.txt" }),
+            new ApplyHistoryEntry(DateTimeOffset.UtcNow.AddMinutes(-1), ApplyHistoryEntryKind.UndoLastApply, new[] { "a.txt" }),
+        };
+
+        _log.Restore(restoredEntries);
+
+        Assert.Equal(restoredEntries, _log.Entries);
+    }
+
+    [Fact]
+    public void Restore_DiscardsWhateverWasThereBefore()
+    {
+        _log.Record(ApplyHistoryEntryKind.Applied, new[] { "stale.txt" });
+
+        _log.Restore(new[] { new ApplyHistoryEntry(DateTimeOffset.UtcNow, ApplyHistoryEntryKind.RevertAllApplied, new[] { "a.txt" }) });
+
+        var entry = Assert.Single(_log.Entries);
+        Assert.Equal(ApplyHistoryEntryKind.RevertAllApplied, entry.Kind);
+    }
 }

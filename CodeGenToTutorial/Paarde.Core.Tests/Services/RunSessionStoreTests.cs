@@ -154,4 +154,112 @@ public class RunSessionStoreTests : IDisposable
 
         Assert.Equal(2, SessionFiles().Length);
     }
+
+    [Fact]
+    public void RestoreLastSession_NoSessionsFolder_ReturnsNullAndTouchesNeitherStore()
+    {
+        var restored = _store.RestoreLastSession();
+
+        Assert.Null(restored);
+        Assert.Empty(_promptResultStore.Files);
+        Assert.Empty(_applyHistoryLog.Entries);
+    }
+
+    [Fact]
+    public void RestoreLastSession_NoSessionsRecordedButFolderExists_ReturnsNull()
+    {
+        Directory.CreateDirectory(_sessionsFolder);
+
+        Assert.Null(_store.RestoreLastSession());
+    }
+
+    [Fact]
+    public void RestoreLastSession_PicksTheMostRecentlyRecordedSession()
+    {
+        _promptResultStore.SetResult("first tutorial", Array.Empty<ProposedFileChangeViewModel>(), "/first");
+        _store.RecordRun("first prompt", "first output");
+
+        _promptResultStore.SetResult("second tutorial", Array.Empty<ProposedFileChangeViewModel>(), "/second");
+        _store.RecordRun("second prompt", "second output");
+
+        // Fresh store/instances, as if the app had just relaunched.
+        var freshPromptResultStore = new PromptResultStore();
+        var freshApplyHistoryLog = new ApplyHistoryLog();
+        var freshStore = new RunSessionStore(new FileService(), freshPromptResultStore, freshApplyHistoryLog, _sessionsFolder);
+
+        var restored = freshStore.RestoreLastSession();
+
+        Assert.Equal("second prompt", restored!.Prompt);
+        Assert.Equal("second tutorial", freshPromptResultStore.Tutorial);
+        Assert.Equal("/second", freshPromptResultStore.WorkingDirectoryPath);
+    }
+
+    [Fact]
+    public void RestoreLastSession_RestoresFileContentAndHunkSelection()
+    {
+        var file = new ProposedFileChangeViewModel("a.cs", "proposed", "original")
+        {
+            EditedContent = "edited",
+            Hunks = new[] { new ProposedHunk("Add Foo", "Explains Foo", "class Foo {}", new HunkLocation(0, 2)) { IsSelected = false } },
+        };
+        _promptResultStore.SetResult("tutorial text", new[] { file }, "/working/dir");
+        _store.RecordRun("prompt", "raw output");
+
+        var freshPromptResultStore = new PromptResultStore();
+        var freshStore = new RunSessionStore(new FileService(), freshPromptResultStore, new ApplyHistoryLog(), _sessionsFolder);
+        freshStore.RestoreLastSession();
+
+        var restoredFile = Assert.Single(freshPromptResultStore.Files);
+        Assert.Equal("a.cs", restoredFile.FilePath);
+        Assert.Equal("original", restoredFile.OriginalContent);
+        Assert.Equal("proposed", restoredFile.ProposedContent);
+        Assert.Equal("edited", restoredFile.EditedContent);
+        var restoredHunk = Assert.Single(restoredFile.Hunks);
+        Assert.Equal("Add Foo", restoredHunk.Title);
+        Assert.False(restoredHunk.IsSelected);
+    }
+
+    [Fact]
+    public void RestoreLastSession_RestoresWholeFileFallbackSelectionWhenThereAreNoHunks()
+    {
+        var file = new ProposedFileChangeViewModel("a.cs", "proposed", "original") { IsSelected = false };
+        _promptResultStore.SetResult("tutorial text", new[] { file }, "/working/dir");
+        _store.RecordRun("prompt", "raw output");
+
+        var freshPromptResultStore = new PromptResultStore();
+        var freshStore = new RunSessionStore(new FileService(), freshPromptResultStore, new ApplyHistoryLog(), _sessionsFolder);
+        freshStore.RestoreLastSession();
+
+        var restoredFile = Assert.Single(freshPromptResultStore.Files);
+        Assert.Empty(restoredFile.Hunks);
+        Assert.False(restoredFile.IsSelected);
+    }
+
+    [Fact]
+    public void RestoreLastSession_RestoresTheApplyLog()
+    {
+        _applyHistoryLog.Record(ApplyHistoryEntryKind.Applied, new[] { "a.cs" });
+        _store.RecordRun("prompt", "raw output");
+
+        var freshApplyHistoryLog = new ApplyHistoryLog();
+        var freshStore = new RunSessionStore(new FileService(), new PromptResultStore(), freshApplyHistoryLog, _sessionsFolder);
+        freshStore.RestoreLastSession();
+
+        var entry = Assert.Single(freshApplyHistoryLog.Entries);
+        Assert.Equal(ApplyHistoryEntryKind.Applied, entry.Kind);
+        Assert.Equal(new[] { "a.cs" }, entry.FilePaths);
+    }
+
+    [Fact]
+    public void RestoreLastSession_ThenResave_OverwritesTheRestoredFileRatherThanCreatingANewOne()
+    {
+        _store.RecordRun("prompt", "raw output");
+        Assert.Single(SessionFiles());
+
+        var freshStore = new RunSessionStore(new FileService(), new PromptResultStore(), new ApplyHistoryLog(), _sessionsFolder);
+        freshStore.RestoreLastSession();
+        freshStore.Resave();
+
+        Assert.Single(SessionFiles());
+    }
 }

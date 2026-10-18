@@ -141,6 +141,11 @@ public partial class App : Application
         await themeSelectorService.InitializeAsync();
         await themeSelectorService.SetRequestedThemeAsync();
 
+        // T7.1.2: pushes the last recorded run's tutorial/files/apply-log into IPromptResultStore/
+        // IApplyHistoryLog before anything navigates, so the Tutorial and Diffs pages already have
+        // it whenever the user first visits them - a no-op if no run has ever been recorded.
+        GetService<IRunSessionStore>().RestoreLastSession();
+
         GetService<INavigationService>().NavigateTo(typeof(MainViewModel).FullName!);
     }
 }

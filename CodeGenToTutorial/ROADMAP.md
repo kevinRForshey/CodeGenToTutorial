@@ -1113,7 +1113,28 @@ committed yet — review `git status`/`git diff` before committing.
   non-zero exit code still records the run, and a run that never starts because the CLI isn't available
   records nothing) using a new hand-written `FakeRunSessionStore`. Full solution builds with 0
   warnings/errors, 422/422 tests pass (304 Core + 118 Avalonia, up from 404).
-- T7.1.2 Restore the last session on launch.
+- [x] T7.1.2 Restore the last session on launch. — done 2026-10-18: `IRunSessionStore` gained
+  `RestoreLastSession()`, the inverse of T7.1.1's save path - finds the most recently started
+  session file (same sortable-filename trick `RecordRun` writes, so no need to open every file to
+  compare `StartedAt`), rebuilds each file's `ProposedFileChangeViewModel`/`ProposedHunk` graph
+  (content, edits, and hunk/whole-file selection state) from its `RunSessionFile`/`RunSessionHunk`
+  snapshot, and pushes the result into `IPromptResultStore` via the existing `SetResult` plus a new
+  `IApplyHistoryLog.Restore(entries)` (replaces the log wholesale, preserving original timestamps -
+  distinct from `Record`, which always stamps `UtcNow` for a new action). Also re-adopts the loaded
+  session as `RunSessionStore`'s active one, so a `Resave()` after relaunch keeps overwriting that
+  same file instead of orphaning it. Deliberately out of scope, matching what T7.1.1 chose not to
+  persist in the first place: `IApplyHistoryStore`'s undo stack and `IApplyBackupStore`'s session
+  baseline, both of which only ever held in-memory full-file content for the running session and
+  were never written to disk - "Undo Last Apply" naturally has nothing to undo right after a
+  restart, same as before this task. Wired into `App.axaml.cs`'s `InitializeThemeAndNavigate`,
+  before navigating to `MainViewModel`, so the Tutorial/Diffs pages already have last session's
+  content the first time the user opens them - no `MainViewModel`/`MainView` changes needed. Covered
+  by 7 new `RunSessionStoreTests` cases (no sessions folder returns null and touches neither store,
+  an empty folder returns null, restoring picks the most recently recorded session, file content and
+  hunk selection round-trip, the no-hunks whole-file fallback round-trips, the apply log round-trips,
+  and restoring then resaving overwrites the restored file rather than creating a new one) and 2 new
+  `ApplyHistoryLogTests` cases for `Restore`. Full solution builds with 0 warnings/errors, 431/431
+  tests pass (313 Core + 118 Avalonia, up from 422).
 
 **F7.2 — History UI**
 - T7.2.1 History page listing past runs with timestamp, prompt excerpt, and file count.
