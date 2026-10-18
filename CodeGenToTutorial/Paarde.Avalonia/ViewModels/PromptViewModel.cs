@@ -57,6 +57,12 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
     [ObservableProperty]
     private string cliOutput = string.Empty;
 
+    // Cheap, O(1)-per-delta progress indicator shown while a run is in flight (see OnTextDelta
+    // below) - deliberately just a character count rather than the raw text itself, since the
+    // user isn't meant to read Claude's streamed output live, only see that something is happening.
+    [ObservableProperty]
+    private string streamProgressDisplay = string.Empty;
+
     [ObservableProperty]
     private bool isRunning;
 
@@ -275,6 +281,7 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
 
         IsRunning = true;
         CliOutput = string.Empty;
+        StreamProgressDisplay = string.Empty;
         UsageSummary = string.Empty;
         StatusMessage = "Prompt_Running".GetLocalized();
 
@@ -295,19 +302,19 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
         {
             var fullPrompt = await BuildFullPromptAsync();
 
-            // T6.2.1/T6.2.2: fires on a background thread as the CLI streams assistant text, so UI
-            // state is only ever touched after marshaling onto the UI thread. Re-parsing the growing
-            // CliOutput on every delta with the legacy markdown parser is a harmless no-op under the
-            // Epic 5 JSON contract - a single top-level JSON object can't be meaningfully parsed until
-            // it's fully closed, so the live file-reveal T6.2.2 added only still fires for a model that
-            // (incorrectly) reverts to the old markdown shape. The authoritative parse happens once,
-            // below, via StructuredResponseParser against the complete output.
+            // T6.2.1: fires on a background thread as the CLI streams assistant text, so UI state is
+            // only ever touched after marshaling onto the UI thread. This used to re-parse the whole
+            // growing CliOutput with the legacy markdown parser and push the result into
+            // IPromptResultStore on every single token delta (T6.2.2's live file-reveal) - with
+            // token-level streaming that's an O(n^2) regex re-scan plus a full file-list rebind
+            // repeated hundreds/thousands of times per run, which froze the UI for the last, longest
+            // responses. The user doesn't need to watch Claude's raw output stream in anyway, just see
+            // that it's working, so this now only bumps a cheap O(1) character count; the authoritative
+            // parse still happens once, below, via StructuredResponseParser against the complete output.
             void OnTextDelta(string text) => Dispatcher.UIThread.Post(() =>
             {
                 CliOutput += text;
-
-                var streamedSoFar = ClaudeResponseParser.Parse(CliOutput);
-                _promptResultStore.SetResult(streamedSoFar.Tutorial, streamedSoFar.Files, WorkingDirectoryPath);
+                StreamProgressDisplay = string.Format("Prompt_StreamProgress".GetLocalized(), CliOutput.Length);
             });
 
             // T7.3.1: both this attempt and its retry below are the same logical turn, so they

@@ -11,6 +11,7 @@ public static class Resources
         ["AppDisplayName"] = "Paarde",
         ["Prompt_Saved"] = "Prompt saved.",
         ["Prompt_Running"] = "Running Claude Code...",
+        ["Prompt_StreamProgress"] = "Receiving response... {0:N0} characters so far",
         ["Prompt_RunCompleted"] = "Claude Code finished.",
         ["Prompt_RunCompletedWithFiles"] = "Claude Code finished. {0} file(s) ready to review on the Diffs page.",
         ["Prompt_RunFailed"] = "Claude Code exited with code {0}.",
