@@ -1,4 +1,6 @@
+using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Text;
 
 using Avalonia.Threading;
 
@@ -22,6 +24,7 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
     private const string TimeoutSecondsSettingsKey = "PromptTimeoutSeconds";
     private const string PresetSettingsKey = "SavedPromptPreset";
     private const string DepthSettingsKey = "SavedTutorialDepth";
+    private const string ContextPathsSettingsKey = "SavedContextPaths";
     private const int DefaultTimeoutSeconds = 300;
 
     // T5.3.1: the instructions prepended to every prompt sent to Claude Code used to live here as a
@@ -39,6 +42,7 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
     private readonly ILlmRunner _llmRunner;
     private readonly ILocalSettingsService _localSettingsService;
     private readonly IFolderPickerService _folderPickerService;
+    private readonly IFilePickerService _filePickerService;
     private readonly IPromptResultStore _promptResultStore;
     private readonly IPromptTemplateProvider _promptTemplateProvider;
 
@@ -72,6 +76,16 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
 
     public IReadOnlyList<TutorialDepth> AvailableDepths { get; } = Enum.GetValues<TutorialDepth>();
 
+    // T5.4.1: files/folders the user attaches as extra context. A folder is read non-recursively -
+    // only the files directly inside it - so attaching one can't silently sweep in .git/bin/obj/
+    // node_modules; the user can attach a subfolder explicitly if they want more. Unreadable/binary
+    // files are skipped when building the prompt (see BuildContextFilesBlock) rather than failing
+    // the whole run.
+    public ObservableCollection<string> AttachedPaths { get; } = new();
+
+    [ObservableProperty]
+    private string? selectedAttachedPath;
+
     // T6.2.3: live "Xs" readout ticking while a run is in progress, and a post-run cost/token
     // summary once the CLI's final result line has been parsed.
     [ObservableProperty]
@@ -96,11 +110,12 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
 
     private Stopwatch? _runStopwatch;
 
-    public PromptViewModel(ILlmRunner llmRunner, ILocalSettingsService localSettingsService, IFolderPickerService folderPickerService, IPromptResultStore promptResultStore, IPromptTemplateProvider promptTemplateProvider)
+    public PromptViewModel(ILlmRunner llmRunner, ILocalSettingsService localSettingsService, IFolderPickerService folderPickerService, IFilePickerService filePickerService, IPromptResultStore promptResultStore, IPromptTemplateProvider promptTemplateProvider)
     {
         _llmRunner = llmRunner;
         _localSettingsService = localSettingsService;
         _folderPickerService = folderPickerService;
+        _filePickerService = filePickerService;
         _promptResultStore = promptResultStore;
         _promptTemplateProvider = promptTemplateProvider;
     }
@@ -118,6 +133,13 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
 
         var savedDepth = await _localSettingsService.ReadSettingAsync<string>(DepthSettingsKey);
         SelectedDepth = Enum.TryParse<TutorialDepth>(savedDepth, out var depth) ? depth : TutorialDepth.Standard;
+
+        var savedContextPaths = await _localSettingsService.ReadSettingAsync<List<string>>(ContextPathsSettingsKey);
+        AttachedPaths.Clear();
+        foreach (var path in savedContextPaths ?? [])
+        {
+            AttachedPaths.Add(path);
+        }
 
         StatusMessage = string.Empty;
     }
@@ -145,6 +167,54 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
             await _localSettingsService.SaveSettingAsync(WorkingDirectorySettingsKey, WorkingDirectoryPath);
         }
     }
+
+    [RelayCommand]
+    private async Task AddContextFilesAsync()
+    {
+        var files = await _filePickerService.PickFilesAsync();
+        AddAttachedPaths(files);
+        await SaveAttachedPathsAsync();
+    }
+
+    [RelayCommand]
+    private async Task AddContextFolderAsync()
+    {
+        var folder = await _folderPickerService.PickFolderAsync();
+
+        if (folder != null)
+        {
+            AddAttachedPaths([folder]);
+            await SaveAttachedPathsAsync();
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanRemoveAttachedPath))]
+    private async Task RemoveAttachedPathAsync()
+    {
+        if (SelectedAttachedPath is null)
+        {
+            return;
+        }
+
+        AttachedPaths.Remove(SelectedAttachedPath);
+        SelectedAttachedPath = null;
+        await SaveAttachedPathsAsync();
+    }
+
+    private bool CanRemoveAttachedPath() => SelectedAttachedPath is not null;
+
+    private void AddAttachedPaths(IEnumerable<string> paths)
+    {
+        foreach (var path in paths)
+        {
+            if (!AttachedPaths.Contains(path))
+            {
+                AttachedPaths.Add(path);
+            }
+        }
+    }
+
+    private Task SaveAttachedPathsAsync() => _localSettingsService.SaveSettingAsync(ContextPathsSettingsKey, AttachedPaths.ToList());
 
     [RelayCommand(CanExecute = nameof(CanRunPrompt))]
     private async Task RunPromptAsync()
@@ -192,7 +262,11 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
                 string.IsNullOrEmpty(presetInstruction) ? string.Empty : "\n\n" + presetInstruction,
                 string.IsNullOrEmpty(depthInstruction) ? string.Empty : "\n\n" + depthInstruction);
 
-            var fullPrompt = instructionTemplate + extraInstructions + "\n\n" + PromptText;
+            // T5.4.1: user-attached files/folders, embedded ahead of the user's own prompt text so
+            // the model has their content before reading what to do with it.
+            var contextFilesBlock = BuildContextFilesBlock(AttachedPaths);
+
+            var fullPrompt = instructionTemplate + extraInstructions + contextFilesBlock + "\n\n" + PromptText;
 
             if (!string.IsNullOrWhiteSpace(WorkingDirectoryPath))
             {
@@ -315,6 +389,42 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
         OutputTokens = SumNullable(original.OutputTokens, retry.OutputTokens),
     };
 
+    // T5.4.1: a folder attachment is expanded to the files directly inside it (non-recursive, see
+    // AttachedPaths' own comment); a file attachment is used as-is. A file that can't be read as
+    // text (binary, permissions, deleted since being attached) is skipped rather than failing the
+    // whole run - folder attachment in particular can easily pick up a non-text file alongside the
+    // ones that matter. Returns "" (no header) if nothing could be read.
+    private static string BuildContextFilesBlock(IEnumerable<string> attachedPaths)
+    {
+        var filePaths = attachedPaths.SelectMany(path => Directory.Exists(path)
+            ? Directory.EnumerateFiles(path)
+            : File.Exists(path) ? [path] : Enumerable.Empty<string>());
+
+        var block = new StringBuilder();
+
+        foreach (var filePath in filePaths)
+        {
+            string content;
+
+            try
+            {
+                content = File.ReadAllText(filePath);
+            }
+            catch (IOException)
+            {
+                continue;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                continue;
+            }
+
+            block.Append($"\n\n--- {filePath} ---\n{content}");
+        }
+
+        return block.Length > 0 ? "\n\nAdditional context files:" + block : string.Empty;
+    }
+
     private static double? SumNullable(double? a, double? b) => a.HasValue || b.HasValue ? (a ?? 0) + (b ?? 0) : null;
 
     private static long? SumNullable(long? a, long? b) => a.HasValue || b.HasValue ? (a ?? 0) + (b ?? 0) : null;
@@ -334,4 +444,6 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
     partial void OnSelectedPresetChanged(PromptPreset value) => _localSettingsService.SaveSettingAsync(PresetSettingsKey, value.ToString());
 
     partial void OnSelectedDepthChanged(TutorialDepth value) => _localSettingsService.SaveSettingAsync(DepthSettingsKey, value.ToString());
+
+    partial void OnSelectedAttachedPathChanged(string? value) => RemoveAttachedPathCommand.NotifyCanExecuteChanged();
 }

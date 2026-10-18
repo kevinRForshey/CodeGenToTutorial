@@ -799,7 +799,38 @@ committed yet — review `git status`/`git diff` before committing.
   crashed, when killed).
 
 **F5.4 — Context selection**
-- T5.4.1 Let the user attach specific files/folders as context for the prompt.
+- [x] T5.4.1 Let the user attach specific files/folders as context for the prompt. — done 2026-10-18:
+  new `IFilePickerService`/`FilePickerService` (Avalonia, mirroring `IFolderPickerService`/
+  `FolderPickerService`) wraps Avalonia's `OpenFilePickerAsync` with `AllowMultiple = true`, registered
+  transient in `App.axaml.cs` next to `IFolderPickerService`; `FakeFilePickerService` added alongside
+  `FakeFolderPickerService` for tests. `PromptViewModel` gained `AttachedPaths`
+  (`ObservableCollection<string>`, mixed file/folder paths), `SelectedAttachedPath`, and three commands:
+  `AddContextFilesCommand` (multi-file picker), `AddContextFolderCommand` (reuses the existing folder
+  picker), and `RemoveAttachedPathCommand` (`CanExecute`-gated on a selection, same pattern as
+  `ResetPromptTemplateCommand`/`CanResetPromptTemplate`) rather than a per-row remove button, which
+  would've needed a non-compiled or ancestor-relative binding from inside the `ListBox`'s item template
+  back up to a ViewModel-level command - a selection + one button keeps the XAML in the compiled-binding
+  style the rest of the page already uses. The list persists as a `List<string>` under a new
+  `SavedContextPaths` settings key - no new persistence plumbing needed since `ILocalSettingsService`
+  already round-trips any `T` through Newtonsoft. At run time, `BuildContextFilesBlock` expands each
+  attached path - a folder non-recursively to the files directly inside it (not subfolders), a file
+  as-is - and embeds successfully-read file contents under an "Additional context files:" header,
+  inserted after the preset/depth instructions (T5.3.3) and before the user's own prompt text. Two
+  scoping decisions, confirmed with the user before implementation: folders are non-recursive, so
+  attaching one can't silently sweep in `.git`/`bin`/`obj`/`node_modules` - the user attaches a subfolder
+  explicitly if they want more; and a file that can't be read as text (binary, permissions, deleted since
+  attachment) is skipped rather than failing the whole run, since folder attachment in particular can
+  easily pick up a non-text file alongside the ones that matter. `PromptView.axaml` gained a "Context
+  files" row (Add files.../Add folder.../Remove selected buttons plus a `ListBox` of attached paths)
+  between the project-location row and the prompt-text row; all later `Grid.Row` indices shifted down by
+  one to make room. Covered by new `PromptViewModelTests` cases (defaults, add/dedupe files, add folder,
+  no-op on a cancelled folder pick, remove `CanExecute` gating and effect plus persistence, restoration
+  on `OnNavigatedTo`, an attached file's content reaching the prompt, an attached folder including only
+  its top-level files and not a nested subfolder's, and no attachments adding no header at all). Full
+  solution builds with 0 warnings/errors, 394/394 tests pass (284 Core + 110 Avalonia, up from 383). Not
+  visually verified (no X server in this sandbox, same limitation noted on earlier UI-touching tasks)
+  beyond confirming the app still launches without throwing (ran under `timeout`; exit code 124 confirms
+  it was still running, not crashed, when killed).
 - T5.4.2 Show an estimated token count before sending.
 
 ---

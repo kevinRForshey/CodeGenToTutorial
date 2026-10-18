@@ -10,11 +10,12 @@ public class PromptViewModelTests
     private readonly FakeLlmRunner _llmRunner = new();
     private readonly FakeLocalSettingsService _localSettingsService = new();
     private readonly FakeFolderPickerService _folderPickerService = new();
+    private readonly FakeFilePickerService _filePickerService = new();
     private readonly FakePromptResultStore _promptResultStore = new();
     private readonly PromptTemplateProvider _promptTemplateProvider = new();
 
     private PromptViewModel CreateSut() =>
-        new(_llmRunner, _localSettingsService, _folderPickerService, _promptResultStore, _promptTemplateProvider);
+        new(_llmRunner, _localSettingsService, _folderPickerService, _filePickerService, _promptResultStore, _promptTemplateProvider);
 
     [Fact]
     public async Task RunPromptAsync_SuccessWithNoFiles_StoresTutorialAndReportsCompletion()
@@ -363,6 +364,159 @@ public class PromptViewModelTests
         await sut.RunPromptCommand.ExecuteAsync(null);
 
         Assert.Contains(_promptTemplateProvider.GetDepthInstruction(TutorialDepth.Brief), _llmRunner.LastPrompt);
+    }
+
+    [Fact]
+    public void AttachedPaths_DefaultsToEmpty()
+    {
+        var sut = CreateSut();
+
+        Assert.Empty(sut.AttachedPaths);
+    }
+
+    [Fact]
+    public async Task AddContextFilesCommand_AddsPickedFilesAndPersistsThem()
+    {
+        var sut = CreateSut();
+        _filePickerService.FilesToReturn = ["/tmp/a.cs", "/tmp/b.cs"];
+
+        await sut.AddContextFilesCommand.ExecuteAsync(null);
+
+        Assert.Equal(["/tmp/a.cs", "/tmp/b.cs"], sut.AttachedPaths);
+        Assert.Equal(["/tmp/a.cs", "/tmp/b.cs"], await _localSettingsService.ReadSettingAsync<List<string>>("SavedContextPaths"));
+    }
+
+    [Fact]
+    public async Task AddContextFilesCommand_PickedFileAlreadyAttached_DoesNotDuplicateIt()
+    {
+        var sut = CreateSut();
+        _filePickerService.FilesToReturn = ["/tmp/a.cs"];
+        await sut.AddContextFilesCommand.ExecuteAsync(null);
+
+        await sut.AddContextFilesCommand.ExecuteAsync(null);
+
+        Assert.Equal(["/tmp/a.cs"], sut.AttachedPaths);
+    }
+
+    [Fact]
+    public async Task AddContextFolderCommand_AddsPickedFolderAndPersistsIt()
+    {
+        var sut = CreateSut();
+        _folderPickerService.FolderToReturn = "/tmp/my-folder";
+
+        await sut.AddContextFolderCommand.ExecuteAsync(null);
+
+        Assert.Equal(["/tmp/my-folder"], sut.AttachedPaths);
+        Assert.Equal(["/tmp/my-folder"], await _localSettingsService.ReadSettingAsync<List<string>>("SavedContextPaths"));
+    }
+
+    [Fact]
+    public async Task AddContextFolderCommand_NoFolderPicked_DoesNotAddAnything()
+    {
+        var sut = CreateSut();
+        _folderPickerService.FolderToReturn = null;
+
+        await sut.AddContextFolderCommand.ExecuteAsync(null);
+
+        Assert.Empty(sut.AttachedPaths);
+    }
+
+    [Fact]
+    public void CanRemoveAttachedPath_NoSelection_CannotExecute()
+    {
+        var sut = CreateSut();
+
+        Assert.False(sut.RemoveAttachedPathCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task RemoveAttachedPathCommand_RemovesTheSelectedPathAndPersists()
+    {
+        var sut = CreateSut();
+        _filePickerService.FilesToReturn = ["/tmp/a.cs", "/tmp/b.cs"];
+        await sut.AddContextFilesCommand.ExecuteAsync(null);
+        sut.SelectedAttachedPath = "/tmp/a.cs";
+
+        Assert.True(sut.RemoveAttachedPathCommand.CanExecute(null));
+        await sut.RemoveAttachedPathCommand.ExecuteAsync(null);
+
+        Assert.Equal(["/tmp/b.cs"], sut.AttachedPaths);
+        Assert.Null(sut.SelectedAttachedPath);
+        Assert.Equal(["/tmp/b.cs"], await _localSettingsService.ReadSettingAsync<List<string>>("SavedContextPaths"));
+    }
+
+    [Fact]
+    public async Task OnNavigatedTo_RestoresSavedContextPaths()
+    {
+        await _localSettingsService.SaveSettingAsync("SavedContextPaths", new List<string> { "/tmp/a.cs", "/tmp/b.cs" });
+        var sut = CreateSut();
+
+        sut.OnNavigatedTo(null!);
+        await Task.Yield();
+
+        Assert.Equal(["/tmp/a.cs", "/tmp/b.cs"], sut.AttachedPaths);
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_AttachedFile_EmbedsItsContentInThePrompt()
+    {
+        var tempFile = Path.GetTempFileName();
+
+        try
+        {
+            File.WriteAllText(tempFile, "public class Foo {}");
+
+            var sut = CreateSut();
+            sut.PromptText = "Explain this file";
+            sut.AttachedPaths.Add(tempFile);
+
+            await sut.RunPromptCommand.ExecuteAsync(null);
+
+            Assert.Contains("Additional context files:", _llmRunner.LastPrompt);
+            Assert.Contains(tempFile, _llmRunner.LastPrompt);
+            Assert.Contains("public class Foo {}", _llmRunner.LastPrompt);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_AttachedFolder_EmbedsOnlyItsTopLevelFilesContent()
+    {
+        var folder = Directory.CreateTempSubdirectory("CodeGenToTutorialTests_");
+
+        try
+        {
+            File.WriteAllText(Path.Combine(folder.FullName, "a.cs"), "class A {}");
+            var nestedFolder = folder.CreateSubdirectory("nested");
+            File.WriteAllText(Path.Combine(nestedFolder.FullName, "b.cs"), "class B {}");
+
+            var sut = CreateSut();
+            sut.PromptText = "Explain these files";
+            sut.AttachedPaths.Add(folder.FullName);
+
+            await sut.RunPromptCommand.ExecuteAsync(null);
+
+            Assert.Contains("class A {}", _llmRunner.LastPrompt);
+            Assert.DoesNotContain("class B {}", _llmRunner.LastPrompt);
+        }
+        finally
+        {
+            Directory.Delete(folder.FullName, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_NoAttachedPaths_DoesNotAddContextFilesHeader()
+    {
+        var sut = CreateSut();
+        sut.PromptText = "Do something";
+
+        await sut.RunPromptCommand.ExecuteAsync(null);
+
+        Assert.DoesNotContain("Additional context files:", _llmRunner.LastPrompt);
     }
 
     [Fact]

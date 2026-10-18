@@ -5,7 +5,7 @@
              x:Class="CodeGenToTutorial.Avalonia.Views.PromptView"
              x:DataType="vm:PromptViewModel">
 
-    <Grid Margin="16" RowDefinitions="Auto,Auto,*,Auto,Auto,Auto,Auto">
+    <Grid Margin="16" RowDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto,Auto">
         <TextBlock Grid.Row="0"
                    Text="Prompt"
                    FontSize="20"
@@ -26,6 +26,16 @@
         </Grid>
 
         <StackPanel Grid.Row="2" Margin="0,8,0,0" Spacing="4">
+            <Grid ColumnDefinitions="*,Auto,Auto,Auto">
+                <TextBlock Grid.Column="0" Text="Context files" FontSize="12" Opacity="0.7" VerticalAlignment="Center" />
+                <Button Grid.Column="1" Content="Add files..." Command="{Binding AddContextFilesCommand}" />
+                <Button Grid.Column="2" Content="Add folder..." Margin="8,0,0,0" Command="{Binding AddContextFolderCommand}" />
+                <Button Grid.Column="3" Content="Remove selected" Margin="8,0,0,0" Command="{Binding RemoveAttachedPathCommand}" />
+            </Grid>
+            <ListBox ItemsSource="{Binding AttachedPaths}" SelectedItem="{Binding SelectedAttachedPath}" MaxHeight="96" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="3" Margin="0,8,0,0" Spacing="4">
             <TextBlock Text="Prompt text" FontSize="12" Opacity="0.7" />
             <TextBox Name="PromptTextBox"
                      Text="{Binding PromptText}"
@@ -35,7 +45,7 @@
                      ScrollViewer.VerticalScrollBarVisibility="Auto" />
         </StackPanel>
 
-        <StackPanel Grid.Row="3" Margin="0,8,0,0" Orientation="Horizontal" Spacing="8">
+        <StackPanel Grid.Row="4" Margin="0,8,0,0" Orientation="Horizontal" Spacing="8">
             <Button Content="Save prompt" Command="{Binding SavePromptCommand}" />
             <Button Content="Send to Claude Code" Command="{Binding RunPromptCommand}" Classes="accent" />
             <Button Content="Cancel" Command="{Binding CancelPromptCommand}" IsVisible="{Binding IsRunning}" />
@@ -49,12 +59,12 @@
             <NumericUpDown Value="{Binding TimeoutSeconds}" Minimum="1" Maximum="86400" Increment="30" Width="140" />
         </StackPanel>
 
-        <TextBlock Grid.Row="4" Margin="0,4,0,0" Text="{Binding StatusMessage}" />
-        <TextBlock Grid.Row="4" Margin="0,24,0,0" HorizontalAlignment="Right" Text="{Binding UsageSummary}" Opacity="0.7" FontSize="12" />
+        <TextBlock Grid.Row="5" Margin="0,4,0,0" Text="{Binding StatusMessage}" />
+        <TextBlock Grid.Row="5" Margin="0,24,0,0" HorizontalAlignment="Right" Text="{Binding UsageSummary}" Opacity="0.7" FontSize="12" />
 
-        <TextBlock Grid.Row="5" Margin="0,8,0,0" Text="Claude Code output" FontWeight="SemiBold" />
+        <TextBlock Grid.Row="6" Margin="0,8,0,0" Text="Claude Code output" FontWeight="SemiBold" />
 
-        <TextBox Grid.Row="6"
+        <TextBox Grid.Row="7"
                  Margin="0,4,0,0"
                  Text="{Binding CliOutput}"
                  IsReadOnly="True"
