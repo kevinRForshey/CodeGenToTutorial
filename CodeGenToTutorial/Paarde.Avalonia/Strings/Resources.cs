@@ -61,6 +61,8 @@ public static class Resources
         ["Tutorial_HistoryEntryApplied"] = "{0} — Applied {1} file(s).",
         ["Tutorial_HistoryEntryUndoLastApply"] = "{0} — Undid last apply ({1} file(s)).",
         ["Tutorial_HistoryEntryRevertAllApplied"] = "{0} — Reverted all applied changes ({1} file(s)).",
+        ["History_SessionRow"] = "{0} — {1} ({2} file(s))",
+        ["History_NoSessions"] = "No past runs yet. Run a prompt first, then come back here to review or re-run it.",
     };
 
     public static string GetLocalized(this string resourceKey) =>

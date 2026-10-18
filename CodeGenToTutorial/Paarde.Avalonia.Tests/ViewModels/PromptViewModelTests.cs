@@ -1,3 +1,4 @@
+using Paarde.Avalonia.Models;
 using Paarde.Avalonia.Tests.Fakes;
 using Paarde.Avalonia.ViewModels;
 using Paarde.Core.Helpers;
@@ -75,6 +76,7 @@ public class PromptViewModelTests
         Assert.Equal(1, _runSessionStore.RecordRunCallCount);
         Assert.Contains("Explain recursion", _runSessionStore.LastRecordedPrompt);
         Assert.Equal(output, _runSessionStore.LastRecordedRawOutput);
+        Assert.Equal("Explain recursion", _runSessionStore.LastRecordedUserPromptText);
     }
 
     [Fact]
@@ -928,5 +930,37 @@ public class PromptViewModelTests
 
         Assert.Equal("Saved prompt text", sut.PromptText);
         Assert.Equal("/saved/dir", sut.WorkingDirectoryPath);
+    }
+
+    [Fact]
+    public async Task OnNavigatedTo_WithForkLaunchRequest_LoadsPromptAndWorkingDirectoryButDoesNotRun()
+    {
+        var sut = CreateSut();
+
+        sut.OnNavigatedTo(new PromptLaunchRequest("Forked prompt text", "/forked/dir", AutoRun: false));
+        await Task.Yield();
+
+        Assert.Equal("Forked prompt text", sut.PromptText);
+        Assert.Equal("/forked/dir", sut.WorkingDirectoryPath);
+        Assert.Equal(0, _runSessionStore.RecordRunCallCount);
+    }
+
+    [Fact]
+    public async Task OnNavigatedTo_WithRerunLaunchRequest_LoadsAndImmediatelyRunsThePrompt()
+    {
+        var sut = CreateSut();
+        _llmRunner.ResultToReturn = new LlmRunResult
+        {
+            Success = true,
+            Output = """{"responseType": "answer", "answer": "Recursion is when a function calls itself."}""",
+        };
+
+        sut.OnNavigatedTo(new PromptLaunchRequest("Rerun prompt text", "/rerun/dir", AutoRun: true));
+        await Task.Yield();
+
+        Assert.Equal("Rerun prompt text", sut.PromptText);
+        Assert.Equal("/rerun/dir", sut.WorkingDirectoryPath);
+        Assert.Equal(1, _runSessionStore.RecordRunCallCount);
+        Assert.Equal("Rerun prompt text", _runSessionStore.LastRecordedUserPromptText);
     }
 }

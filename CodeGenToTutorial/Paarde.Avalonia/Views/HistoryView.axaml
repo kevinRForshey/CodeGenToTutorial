@@ -1,0 +1,76 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="using:FluentAvalonia.UI.Controls"
+             xmlns:conv="using:Avalonia.Data.Converters"
+             xmlns:coreVm="using:Paarde.Core.ViewModels"
+             xmlns:views="using:Paarde.Avalonia.Views"
+             xmlns:vm="using:Paarde.Avalonia.ViewModels"
+             x:Class="Paarde.Avalonia.Views.HistoryView"
+             x:DataType="vm:HistoryViewModel">
+
+    <Grid RowDefinitions="Auto,*">
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" Margin="8" HorizontalAlignment="Right">
+            <Button Content="Fork"
+                    Command="{Binding ForkCommand}"
+                    ToolTip.Tip="Load this run's prompt and working directory onto the Prompt page to edit before sending." />
+            <Button Content="Re-run"
+                    Command="{Binding RerunCommand}"
+                    ToolTip.Tip="Load this run's prompt and working directory onto the Prompt page and send it immediately." />
+        </StackPanel>
+
+        <Grid Grid.Row="1" ColumnDefinitions="300,260,*">
+            <ListBox Grid.Column="0"
+                     Name="SessionList"
+                     ItemsSource="{Binding Sessions}"
+                     SelectedItem="{Binding Selected, Mode=TwoWay}">
+                <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:HistorySessionRow">
+                        <TextBlock Text="{Binding DisplayText}" TextWrapping="Wrap" />
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+            <Border Grid.Column="1" Padding="8">
+                <Grid>
+                    <TextBlock Text="No past runs yet. Run a prompt first, then come back here to review or re-run it."
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               TextAlignment="Center"
+                               TextWrapping="Wrap"
+                               FontSize="16"
+                               IsVisible="{Binding HasNoSessions}" />
+                    <TextBlock Text="This run didn't produce any files."
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               TextAlignment="Center"
+                               TextWrapping="Wrap"
+                               FontSize="16"
+                               IsVisible="{Binding SelectedHasNoFiles}" />
+                    <ListBox Name="FileList"
+                             ItemsSource="{Binding SelectedFiles}"
+                             SelectedItem="{Binding SelectedFile, Mode=TwoWay}"
+                             IsVisible="{Binding HasFiles}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="coreVm:ProposedFileChangeViewModel">
+                                <TextBlock Text="{Binding FilePath}" TextTrimming="CharacterEllipsis" />
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Border>
+
+            <Border Grid.Column="2" Padding="16">
+                <Grid>
+                    <TextBlock Text="Select a file from the list to view it as it was in this run."
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               TextAlignment="Center"
+                               FontSize="18"
+                               IsVisible="{Binding HasFilesButNoneSelected}" />
+                    <views:DiffsDetailControl DataContext="{Binding SelectedFile}"
+                                              IsVisible="{Binding #FileList.SelectedItem, Converter={x:Static conv:ObjectConverters.IsNotNull}}" />
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>

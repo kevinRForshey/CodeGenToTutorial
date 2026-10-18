@@ -34,6 +34,11 @@
                     <ui:SymbolIconSource Symbol="Document" />
                 </ui:NavigationViewItem.IconSource>
             </ui:NavigationViewItem>
+            <ui:NavigationViewItem Content="History" helpers:NavigationHelper.NavigateTo="Paarde.Avalonia.ViewModels.HistoryViewModel">
+                <ui:NavigationViewItem.IconSource>
+                    <ui:SymbolIconSource Symbol="Clock" />
+                </ui:NavigationViewItem.IconSource>
+            </ui:NavigationViewItem>
         </ui:NavigationView.MenuItems>
         <ui:Frame x:Name="NavigationFrame" />
     </ui:NavigationView>

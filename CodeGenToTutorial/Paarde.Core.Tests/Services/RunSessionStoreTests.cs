@@ -33,7 +33,7 @@ public class RunSessionStoreTests : IDisposable
     {
         _promptResultStore.SetResult("tutorial text", Array.Empty<ProposedFileChangeViewModel>(), "/working/dir");
 
-        _store.RecordRun("do the thing", "raw cli output");
+        _store.RecordRun("do the thing", "raw cli output", "user prompt");
 
         Assert.Single(SessionFiles());
     }
@@ -43,7 +43,7 @@ public class RunSessionStoreTests : IDisposable
     {
         _promptResultStore.SetResult("tutorial text", Array.Empty<ProposedFileChangeViewModel>(), "/working/dir");
 
-        _store.RecordRun("do the thing", "raw cli output");
+        _store.RecordRun("do the thing", "raw cli output", "user prompt");
         var session = ReadOnlySessionFile();
 
         Assert.Equal("do the thing", session.Prompt);
@@ -61,7 +61,7 @@ public class RunSessionStoreTests : IDisposable
         };
         _promptResultStore.SetResult("tutorial text", new[] { file }, "/working/dir");
 
-        _store.RecordRun("prompt", "raw output");
+        _store.RecordRun("prompt", "raw output", "user prompt");
         var session = ReadOnlySessionFile();
 
         var persistedFile = Assert.Single(session.Files);
@@ -80,7 +80,7 @@ public class RunSessionStoreTests : IDisposable
         var file = new ProposedFileChangeViewModel("a.cs", "proposed", "original") { IsSelected = false };
         _promptResultStore.SetResult("tutorial text", new[] { file }, "/working/dir");
 
-        _store.RecordRun("prompt", "raw output");
+        _store.RecordRun("prompt", "raw output", "user prompt");
         var session = ReadOnlySessionFile();
 
         var persistedFile = Assert.Single(session.Files);
@@ -93,7 +93,7 @@ public class RunSessionStoreTests : IDisposable
     {
         _applyHistoryLog.Record(ApplyHistoryEntryKind.Applied, new[] { "a.cs" });
 
-        _store.RecordRun("prompt", "raw output");
+        _store.RecordRun("prompt", "raw output", "user prompt");
         var session = ReadOnlySessionFile();
 
         var entry = Assert.Single(session.ApplyLog);
@@ -112,7 +112,7 @@ public class RunSessionStoreTests : IDisposable
     [Fact]
     public void Resave_AfterRecordRun_OverwritesTheSameFileRatherThanCreatingANewOne()
     {
-        _store.RecordRun("prompt", "raw output");
+        _store.RecordRun("prompt", "raw output", "user prompt");
         Assert.Single(SessionFiles());
 
         _store.Resave();
@@ -125,7 +125,7 @@ public class RunSessionStoreTests : IDisposable
     {
         var file = new ProposedFileChangeViewModel("a.cs", "proposed", "original") { IsSelected = true };
         _promptResultStore.SetResult("tutorial text", new[] { file }, "/working/dir");
-        _store.RecordRun("prompt", "raw output");
+        _store.RecordRun("prompt", "raw output", "user prompt");
 
         file.IsSelected = false;
         _store.Resave();
@@ -137,7 +137,7 @@ public class RunSessionStoreTests : IDisposable
     [Fact]
     public void Resave_PicksUpApplyLogEntriesRecordedAfterRecordRun()
     {
-        _store.RecordRun("prompt", "raw output");
+        _store.RecordRun("prompt", "raw output", "user prompt");
         Assert.Empty(ReadOnlySessionFile().ApplyLog);
 
         _applyHistoryLog.Record(ApplyHistoryEntryKind.Applied, new[] { "a.cs" });
@@ -149,8 +149,8 @@ public class RunSessionStoreTests : IDisposable
     [Fact]
     public void RecordRun_CalledTwice_KeepsThePreviousSessionFileAndStartsANewOne()
     {
-        _store.RecordRun("first prompt", "first output");
-        _store.RecordRun("second prompt", "second output");
+        _store.RecordRun("first prompt", "first output", "first user prompt");
+        _store.RecordRun("second prompt", "second output", "second user prompt");
 
         Assert.Equal(2, SessionFiles().Length);
     }
@@ -177,10 +177,10 @@ public class RunSessionStoreTests : IDisposable
     public void RestoreLastSession_PicksTheMostRecentlyRecordedSession()
     {
         _promptResultStore.SetResult("first tutorial", Array.Empty<ProposedFileChangeViewModel>(), "/first");
-        _store.RecordRun("first prompt", "first output");
+        _store.RecordRun("first prompt", "first output", "first user prompt");
 
         _promptResultStore.SetResult("second tutorial", Array.Empty<ProposedFileChangeViewModel>(), "/second");
-        _store.RecordRun("second prompt", "second output");
+        _store.RecordRun("second prompt", "second output", "second user prompt");
 
         // Fresh store/instances, as if the app had just relaunched.
         var freshPromptResultStore = new PromptResultStore();
@@ -203,7 +203,7 @@ public class RunSessionStoreTests : IDisposable
             Hunks = new[] { new ProposedHunk("Add Foo", "Explains Foo", "class Foo {}", new HunkLocation(0, 2)) { IsSelected = false } },
         };
         _promptResultStore.SetResult("tutorial text", new[] { file }, "/working/dir");
-        _store.RecordRun("prompt", "raw output");
+        _store.RecordRun("prompt", "raw output", "user prompt");
 
         var freshPromptResultStore = new PromptResultStore();
         var freshStore = new RunSessionStore(new FileService(), freshPromptResultStore, new ApplyHistoryLog(), _sessionsFolder);
@@ -224,7 +224,7 @@ public class RunSessionStoreTests : IDisposable
     {
         var file = new ProposedFileChangeViewModel("a.cs", "proposed", "original") { IsSelected = false };
         _promptResultStore.SetResult("tutorial text", new[] { file }, "/working/dir");
-        _store.RecordRun("prompt", "raw output");
+        _store.RecordRun("prompt", "raw output", "user prompt");
 
         var freshPromptResultStore = new PromptResultStore();
         var freshStore = new RunSessionStore(new FileService(), freshPromptResultStore, new ApplyHistoryLog(), _sessionsFolder);
@@ -239,7 +239,7 @@ public class RunSessionStoreTests : IDisposable
     public void RestoreLastSession_RestoresTheApplyLog()
     {
         _applyHistoryLog.Record(ApplyHistoryEntryKind.Applied, new[] { "a.cs" });
-        _store.RecordRun("prompt", "raw output");
+        _store.RecordRun("prompt", "raw output", "user prompt");
 
         var freshApplyHistoryLog = new ApplyHistoryLog();
         var freshStore = new RunSessionStore(new FileService(), new PromptResultStore(), freshApplyHistoryLog, _sessionsFolder);
@@ -253,7 +253,7 @@ public class RunSessionStoreTests : IDisposable
     [Fact]
     public void RestoreLastSession_ThenResave_OverwritesTheRestoredFileRatherThanCreatingANewOne()
     {
-        _store.RecordRun("prompt", "raw output");
+        _store.RecordRun("prompt", "raw output", "user prompt");
         Assert.Single(SessionFiles());
 
         var freshStore = new RunSessionStore(new FileService(), new PromptResultStore(), new ApplyHistoryLog(), _sessionsFolder);
@@ -261,5 +261,55 @@ public class RunSessionStoreTests : IDisposable
         freshStore.Resave();
 
         Assert.Single(SessionFiles());
+    }
+
+    [Fact]
+    public void RecordRun_PersistsUserPromptTextSeparatelyFromTheComposedPrompt()
+    {
+        _store.RecordRun("instructions + user prompt + working dir", "raw output", "user prompt");
+
+        var session = ReadOnlySessionFile();
+
+        Assert.Equal("instructions + user prompt + working dir", session.Prompt);
+        Assert.Equal("user prompt", session.UserPromptText);
+    }
+
+    [Fact]
+    public void RestoreLastSession_RestoresUserPromptTextOntoTheReadoptedActiveSession()
+    {
+        _store.RecordRun("composed prompt", "raw output", "user prompt");
+
+        var freshStore = new RunSessionStore(new FileService(), new PromptResultStore(), new ApplyHistoryLog(), _sessionsFolder);
+        var restored = freshStore.RestoreLastSession();
+
+        Assert.Equal("user prompt", restored!.UserPromptText);
+    }
+
+    [Fact]
+    public void ListSessions_NoSessionsFolder_ReturnsEmpty()
+    {
+        Assert.Empty(_store.ListSessions());
+    }
+
+    [Fact]
+    public void ListSessions_ReturnsEveryRecordedSessionNewestFirst()
+    {
+        _store.RecordRun("first prompt", "first output", "first user prompt");
+        _store.RecordRun("second prompt", "second output", "second user prompt");
+
+        var sessions = _store.ListSessions();
+
+        Assert.Equal(new[] { "second prompt", "first prompt" }, sessions.Select(s => s.Prompt));
+    }
+
+    [Fact]
+    public void ListSessions_DoesNotTouchPromptResultStoreOrApplyHistoryLog()
+    {
+        _store.RecordRun("prompt", "raw output", "user prompt");
+
+        _store.ListSessions();
+
+        Assert.Empty(_promptResultStore.Files);
+        Assert.Empty(_applyHistoryLog.Entries);
     }
 }

@@ -424,7 +424,7 @@ public class ApplyOrchestrationServiceTests : IDisposable
     [Fact]
     public void ApplySelected_NothingSelected_DoesNotResaveTheSession()
     {
-        _runSessionStore.RecordRun("prompt", "raw output");
+        _runSessionStore.RecordRun("prompt", "raw output", "user prompt");
         var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original") { IsSelected = false };
 
         _service.ApplySelected(new[] { file }, _workingDirectory);
@@ -435,7 +435,7 @@ public class ApplyOrchestrationServiceTests : IDisposable
     [Fact]
     public void ApplySelected_FilesApplied_ResavesTheSessionWithTheNewApplyLogEntry()
     {
-        _runSessionStore.RecordRun("prompt", "raw output");
+        _runSessionStore.RecordRun("prompt", "raw output", "user prompt");
         var file = new ProposedFileChangeViewModel("clean.txt", "proposed content");
 
         _service.ApplySelected(new[] { file }, _workingDirectory);
@@ -446,7 +446,7 @@ public class ApplyOrchestrationServiceTests : IDisposable
     [Fact]
     public void TryUndoLastApply_FileRestored_ResavesTheSessionWithTheUndoHistoryEntry()
     {
-        _runSessionStore.RecordRun("prompt", "raw output");
+        _runSessionStore.RecordRun("prompt", "raw output", "user prompt");
         var file = new ProposedFileChangeViewModel("clean.txt", "proposed content");
         _service.ApplySelected(new[] { file }, _workingDirectory);
 
@@ -458,7 +458,7 @@ public class ApplyOrchestrationServiceTests : IDisposable
     [Fact]
     public void RevertAllApplied_FilesReverted_ResavesTheSessionWithTheRevertHistoryEntry()
     {
-        _runSessionStore.RecordRun("prompt", "raw output");
+        _runSessionStore.RecordRun("prompt", "raw output", "user prompt");
         var file = new ProposedFileChangeViewModel("clean.txt", "proposed content");
         _service.ApplySelected(new[] { file }, _workingDirectory);
 

@@ -18,6 +18,7 @@ public class PageService : IPageService
         Configure<PromptViewModel, PromptView>();
         Configure<DiffsViewModel, DiffsView>();
         Configure<TutorialViewModel, TutorialView>();
+        Configure<HistoryViewModel, HistoryView>();
         Configure<SettingsViewModel, SettingsView>();
     }
 

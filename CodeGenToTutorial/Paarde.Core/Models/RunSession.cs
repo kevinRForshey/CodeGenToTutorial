@@ -24,7 +24,17 @@ public record RunSessionFile(
 // recorded against this run so far. Written by IRunSessionStore.RecordRun right after a run
 // completes and kept current by Resave as the user applies/undoes/reverts changes - see
 // IRunSessionStore for exactly when each happens. Restored into the running app on launch by
-// IRunSessionStore.RestoreLastSession (T7.1.2).
+// IRunSessionStore.RestoreLastSession (T7.1.2), and listed/reopened read-only by the History page
+// (T7.2.1/T7.2.2).
+//
+// UserPromptText is what the user actually typed into the Prompt page's text box - distinct from
+// Prompt, which is the fully composed text sent to the CLI (instruction template + preset/depth
+// guidance + attached context files + UserPromptText + working-directory suffix, see
+// PromptViewModel.BuildFullPromptAsync). Re-running or forking a past prompt (T7.2.3) needs the
+// former: resending the latter as-is through the normal pipeline would double up the instruction
+// template. Defaults to "" so a session file written before this field existed still deserializes
+// (Json.NET falls back to a constructor parameter's default when the JSON has no matching
+// property) instead of throwing.
 public record RunSession(
     string Id,
     DateTimeOffset StartedAt,
@@ -33,4 +43,10 @@ public record RunSession(
     string RawOutput,
     string Tutorial,
     IReadOnlyList<RunSessionFile> Files,
-    IReadOnlyList<ApplyHistoryEntry> ApplyLog);
+    IReadOnlyList<ApplyHistoryEntry> ApplyLog,
+    string UserPromptText = "")
+{
+    // Derived, not persisted-for-a-reason data - mirrors ApplyHistoryEntry.FileCount - for the
+    // History page's master list (T7.2.1) to show without the view having to know Files is a list.
+    public int FileCount => Files.Count;
+}

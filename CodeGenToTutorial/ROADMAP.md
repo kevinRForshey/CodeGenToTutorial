@@ -1137,9 +1137,38 @@ committed yet — review `git status`/`git diff` before committing.
   tests pass (313 Core + 118 Avalonia, up from 422).
 
 **F7.2 — History UI**
-- T7.2.1 History page listing past runs with timestamp, prompt excerpt, and file count.
-- T7.2.2 Reopen a past run's tutorial and diffs read-only.
-- T7.2.3 Re-run or fork a past prompt.
+- [x] T7.2.1 History page listing past runs with timestamp, prompt excerpt, and file count. — done
+  2026-10-18: new `IRunSessionStore.ListSessions()` returns every recorded session newest-first
+  (shares a `GetSessionFileNamesNewestFirst()` helper with `RestoreLastSession`, which now also
+  gets a monotonic sequence number in the session filename - `RecordRun`'s previous guid-only
+  tiebreak sorted same-millisecond runs randomly instead of by call order, which was previously
+  masked by luck but surfaced as a real, reproducible test flake once `ListSessions` made ordering
+  observable from two runs recorded back-to-back). New `HistoryViewModel`/`HistoryView` (registered
+  in `PageService`/`App.axaml.cs`, added as a "History" item in `ShellView`'s `NavigationView`) list
+  each run as a `HistorySessionRow` (`StartedAt`/excerpted `UserPromptText`/`FileCount`, pre-formatted
+  into one display string via a new `History_SessionRow` resource key, following
+  `TutorialViewModel.FormatHistoryEntry`'s precedent over XAML `StringFormat`).
+- [x] T7.2.2 Reopen a past run's tutorial and diffs read-only. — done 2026-10-18: selecting a session
+  rebuilds its `RunSessionFile`s into `ProposedFileChangeViewModel`s via a new shared
+  `Paarde.Core.Helpers.RunSessionFileConverter` (the `ToRunSessionFile`/`ToProposedFileChangeViewModel`
+  conversions that used to be private to `RunSessionStore`, now also used by `HistoryViewModel`) and
+  lists them in a second master list; picking a file shows it in the existing `DiffsDetailControl`
+  unmodified - it only renders `DiffLines`, which `ProposedFileChangeViewModel` already computes from
+  the restored `OriginalContent`/`EditedContent` on construction, so no disk read of the file's
+  *current* state is needed or wanted for a historical run.
+- [x] T7.2.3 Re-run or fork a past prompt. — done 2026-10-18: `RunSession` gained `UserPromptText`
+  (defaults to `""` for pre-existing session files) alongside the existing `Prompt`, since `Prompt` is
+  the fully composed text actually sent to the CLI (instruction template + preset/depth + context
+  files + the user's text) - resending that as-is would double up the instruction template. New
+  `PromptLaunchRequest(PromptText, WorkingDirectoryPath, AutoRun)` navigation parameter, handled in
+  `PromptViewModel.OnNavigatedTo`: loads `UserPromptText`/`WorkingDirectoryPath` into the page, then
+  (`AutoRun: true`, "Re-run") immediately invokes `RunPromptCommand` the same way the button would, or
+  (`AutoRun: false`, "Fork") leaves it for the user to edit first. Both go through the *current*
+  instruction template/preset/depth/context-files pipeline rather than literally replaying the old
+  composed prompt. `IRunSessionStore.RecordRun` widened to `(prompt, rawOutput, userPromptText)`.
+  Covered by new `RunSessionStoreTests`/`RunSessionFileConverterTests`/`HistoryViewModelTests`/
+  `PromptViewModelTests` cases. Full solution builds with 0 warnings/errors, 450/450 tests pass (322
+  Core + 128 Avalonia, up from 431).
 
 **F7.3 — Multi-turn conversation**
 - T7.3.1 Follow-up prompts that carry the prior turn's context (CLI session resume or API history).

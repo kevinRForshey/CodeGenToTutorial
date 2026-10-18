@@ -1,6 +1,6 @@
 using Paarde.Core.Contracts.Services;
+using Paarde.Core.Helpers;
 using Paarde.Core.Models;
-using Paarde.Core.ViewModels;
 
 namespace Paarde.Core.Services;
 
@@ -20,9 +20,14 @@ public class RunSessionStore : IRunSessionStore
     // into one record rather than loose nullable fields so there's no "is everything set yet"
     // null-forgiving operator anywhere: _active is either the one complete session in progress, or
     // there isn't one yet.
-    private sealed record ActiveSession(string Id, DateTimeOffset StartedAt, string FileName, string Prompt, string RawOutput);
+    private sealed record ActiveSession(string Id, DateTimeOffset StartedAt, string FileName, string Prompt, string RawOutput, string UserPromptText);
 
     private ActiveSession? _active;
+
+    // Tiebreaks the filename when two runs land in the same millisecond (easily hit back-to-back,
+    // e.g. in tests): a monotonic counter sorts by call order, whereas the guid id (random per run)
+    // would sort filenames randomly within that millisecond instead.
+    private static long _sequenceCounter;
 
     public RunSessionStore(IFileService fileService, IPromptResultStore promptResultStore, IApplyHistoryLog applyHistoryLog, string sessionsFolderPath)
     {
@@ -32,16 +37,18 @@ public class RunSessionStore : IRunSessionStore
         _sessionsFolderPath = sessionsFolderPath;
     }
 
-    public void RecordRun(string prompt, string rawOutput)
+    public void RecordRun(string prompt, string rawOutput, string userPromptText)
     {
         var startedAt = DateTimeOffset.UtcNow;
         var id = Guid.NewGuid().ToString("N");
+        var sequence = Interlocked.Increment(ref _sequenceCounter);
 
-        // Sortable timestamp prefix so files list in run order without having to open and read
-        // StartedAt from each one; the guid suffix only exists to rule out a same-millisecond clash.
-        var fileName = $"{startedAt:yyyyMMddHHmmssfff}_{id}.json";
+        // Sortable timestamp prefix, then a monotonic sequence number, so files list in run order
+        // without having to open and read StartedAt from each one; the guid suffix is just the run's
+        // id and plays no role in ordering.
+        var fileName = $"{startedAt:yyyyMMddHHmmssfff}_{sequence:D19}_{id}.json";
 
-        _active = new ActiveSession(id, startedAt, fileName, prompt, rawOutput);
+        _active = new ActiveSession(id, startedAt, fileName, prompt, rawOutput, userPromptText);
         Save(_active);
     }
 
@@ -55,18 +62,7 @@ public class RunSessionStore : IRunSessionStore
 
     public RunSession? RestoreLastSession()
     {
-        if (!Directory.Exists(_sessionsFolderPath))
-        {
-            return null;
-        }
-
-        // Sortable filename prefix (see RecordRun) means the lexicographically-last file is also
-        // the most recently started session - no need to open every file to compare StartedAt.
-        var latestFileName = Directory.GetFiles(_sessionsFolderPath)
-            .Select(Path.GetFileName)
-            .OfType<string>()
-            .OrderBy(name => name, StringComparer.Ordinal)
-            .LastOrDefault();
+        var latestFileName = GetSessionFileNamesNewestFirst().FirstOrDefault();
 
         if (latestFileName is null)
         {
@@ -80,13 +76,34 @@ public class RunSessionStore : IRunSessionStore
             return null;
         }
 
-        _active = new ActiveSession(session.Id, session.StartedAt, latestFileName, session.Prompt, session.RawOutput);
+        _active = new ActiveSession(session.Id, session.StartedAt, latestFileName, session.Prompt, session.RawOutput, session.UserPromptText);
 
-        var files = session.Files.Select(ToProposedFileChangeViewModel).ToList();
+        var files = session.Files.Select(RunSessionFileConverter.ToProposedFileChangeViewModel).ToList();
         _promptResultStore.SetResult(session.Tutorial, files, session.WorkingDirectoryPath);
         _applyHistoryLog.Restore(session.ApplyLog);
 
         return session;
+    }
+
+    public IReadOnlyList<RunSession> ListSessions() => GetSessionFileNamesNewestFirst()
+        .Select(fileName => _fileService.Read<RunSession>(_sessionsFolderPath, fileName))
+        .OfType<RunSession>()
+        .ToList();
+
+    // Sortable filename prefix (see RecordRun) means lexicographic order is also run-started order -
+    // no need to open every file to compare StartedAt. Newest first, since that's what both
+    // RestoreLastSession and the History page's listing (T7.2.1) want.
+    private IEnumerable<string> GetSessionFileNamesNewestFirst()
+    {
+        if (!Directory.Exists(_sessionsFolderPath))
+        {
+            return Enumerable.Empty<string>();
+        }
+
+        return Directory.GetFiles(_sessionsFolderPath)
+            .Select(Path.GetFileName)
+            .OfType<string>()
+            .OrderByDescending(name => name, StringComparer.Ordinal);
     }
 
     // Reads Files/Tutorial/WorkingDirectoryPath and the apply log fresh on every call (rather than
@@ -102,41 +119,10 @@ public class RunSessionStore : IRunSessionStore
             active.Prompt,
             active.RawOutput,
             _promptResultStore.Tutorial,
-            _promptResultStore.Files.Select(ToRunSessionFile).ToList(),
-            _applyHistoryLog.Entries.ToList());
+            _promptResultStore.Files.Select(RunSessionFileConverter.ToRunSessionFile).ToList(),
+            _applyHistoryLog.Entries.ToList(),
+            active.UserPromptText);
 
         _fileService.Save(_sessionsFolderPath, active.FileName, session);
     }
-
-    private static RunSessionFile ToRunSessionFile(ProposedFileChangeViewModel file) => new(
-        file.FilePath,
-        file.OriginalContent,
-        file.ProposedContent,
-        file.EditedContent,
-        file.HasSelectableHunks ? true : file.IsSelected ?? true,
-        file.Hunks.Select(ToRunSessionHunk).ToList());
-
-    private static RunSessionHunk ToRunSessionHunk(ProposedHunk hunk) =>
-        new(hunk.Title, hunk.Explanation, hunk.Snippet, hunk.Location, hunk.IsSelected);
-
-    // Inverse of ToRunSessionFile/ToRunSessionHunk, for RestoreLastSession. WholeFileSelected is
-    // only applied when there are no hunks - same "ignored otherwise" rule it was saved under.
-    private static ProposedFileChangeViewModel ToProposedFileChangeViewModel(RunSessionFile file)
-    {
-        var viewModel = new ProposedFileChangeViewModel(file.FilePath, file.ProposedContent, file.OriginalContent)
-        {
-            EditedContent = file.EditedContent,
-            Hunks = file.Hunks.Select(ToProposedHunk).ToList(),
-        };
-
-        if (file.Hunks.Count == 0)
-        {
-            viewModel.IsSelected = file.WholeFileSelected;
-        }
-
-        return viewModel;
-    }
-
-    private static ProposedHunk ToProposedHunk(RunSessionHunk hunk) =>
-        new(hunk.Title, hunk.Explanation, hunk.Snippet, hunk.Location) { IsSelected = hunk.IsSelected };
 }

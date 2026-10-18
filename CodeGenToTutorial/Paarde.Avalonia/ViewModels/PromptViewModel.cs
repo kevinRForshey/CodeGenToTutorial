@@ -6,6 +6,7 @@ using Avalonia.Threading;
 
 using Paarde.Avalonia.Contracts.Services;
 using Paarde.Avalonia.Contracts.ViewModels;
+using Paarde.Avalonia.Models;
 using Paarde.Avalonia.Services;
 using Paarde.Avalonia.Strings;
 using Paarde.Core.Contracts.Services;
@@ -159,6 +160,22 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
         }
 
         StatusMessage = string.Empty;
+
+        // T7.2.3: a launch from the History page overrides whatever was just loaded from settings
+        // above with the prompt/working directory of the session being re-run or forked - Re-run
+        // additionally sends it immediately, same as if the user had clicked RunPromptCommand
+        // themselves, guarded by the same CanRunPrompt the button itself respects.
+        if (parameter is PromptLaunchRequest launchRequest)
+        {
+            PromptText = launchRequest.PromptText;
+            WorkingDirectoryPath = launchRequest.WorkingDirectoryPath;
+
+            if (launchRequest.AutoRun && RunPromptCommand.CanExecute(null))
+            {
+                await RunPromptCommand.ExecuteAsync(null);
+            }
+        }
+
         UpdateEstimatedTokenCountDisplay();
     }
 
@@ -343,7 +360,10 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
             // to persist for those. fullPrompt (not the retry prompt) and result.Output (the retry's
             // output, if a retry happened - CombineUsage already folded that in) are used so the
             // persisted record matches exactly what was actually sent and what actually got parsed.
-            _runSessionStore.RecordRun(fullPrompt, result.Output);
+            // PromptText (not fullPrompt) is also kept as RunSession.UserPromptText, for T7.2.3's
+            // re-run/fork to reload into this same text box without it being sent through the
+            // instruction template a second time.
+            _runSessionStore.RecordRun(fullPrompt, result.Output, PromptText);
         }
         catch (OperationCanceledException)
         {
