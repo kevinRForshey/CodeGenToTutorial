@@ -96,6 +96,19 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
     [ObservableProperty]
     private string usageSummary = string.Empty;
 
+    // T7.3.1: lets the next run ask the CLI to resume this one's conversation instead of starting
+    // a fresh one, so a follow-up prompt carries the prior turn's context. HasPreviousSession
+    // gates the checkbox - there's nothing to continue until a run has actually returned a session
+    // id, and a working directory change invalidates it (see OnWorkingDirectoryPathChanged), since
+    // the CLI's session is scoped to the directory it ran in.
+    [ObservableProperty]
+    private bool continuePreviousConversation;
+
+    [ObservableProperty]
+    private bool hasPreviousSession;
+
+    private string? _lastSessionId;
+
     // T5.4.2: a live "~N tokens" estimate of the exact prompt BuildFullPromptAsync would send,
     // recomputed whenever something that feeds into it changes (text, working directory, preset/
     // depth, attachments) - so the user has a size sense before clicking Send, not just after.
@@ -297,7 +310,11 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
                 _promptResultStore.SetResult(streamedSoFar.Tutorial, streamedSoFar.Files, WorkingDirectoryPath);
             });
 
-            var result = await _llmRunner.RunPromptAsync(fullPrompt, WorkingDirectoryPath, OnTextDelta, linkedCancellationTokenSource.Token);
+            // T7.3.1: both this attempt and its retry below are the same logical turn, so they
+            // resume from the same prior session (if any) rather than the retry starting its own.
+            var resumeSessionId = ContinuePreviousConversation ? _lastSessionId : null;
+
+            var result = await _llmRunner.RunPromptAsync(fullPrompt, WorkingDirectoryPath, OnTextDelta, resumeSessionId, linkedCancellationTokenSource.Token);
             StructuredParseResult? parseResult = null;
 
             if (result.Success)
@@ -311,7 +328,7 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
                 if (parseResult.UsedFallback && parseResult.ValidationError is not null)
                 {
                     var retryPrompt = fullPrompt + string.Format(RetryInstructionSuffix, parseResult.ValidationError);
-                    var retryResult = await _llmRunner.RunPromptAsync(retryPrompt, WorkingDirectoryPath, OnTextDelta, linkedCancellationTokenSource.Token);
+                    var retryResult = await _llmRunner.RunPromptAsync(retryPrompt, WorkingDirectoryPath, OnTextDelta, resumeSessionId, linkedCancellationTokenSource.Token);
 
                     if (retryResult.Success)
                     {
@@ -320,6 +337,11 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
                     }
                 }
             }
+
+            // T7.3.1: captured regardless of ContinuePreviousConversation, so checking the box
+            // right after this run (to continue it) has a session id ready to resume from.
+            _lastSessionId = result.SessionId ?? _lastSessionId;
+            HasPreviousSession = _lastSessionId is not null;
 
             CliOutput = result.Success || string.IsNullOrWhiteSpace(result.ErrorMessage)
                 ? result.Output
@@ -408,6 +430,7 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
         DurationMs = SumNullable(original.DurationMs, retry.DurationMs),
         InputTokens = SumNullable(original.InputTokens, retry.InputTokens),
         OutputTokens = SumNullable(original.OutputTokens, retry.OutputTokens),
+        SessionId = retry.SessionId ?? original.SessionId,
     };
 
     // T5.4.2: the exact string that would be sent to the LLM - shared by RunPromptAsync and the
@@ -502,7 +525,15 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
 
     partial void OnTimeoutSecondsChanged(int value) => _localSettingsService.SaveSettingAsync(TimeoutSecondsSettingsKey, value);
 
-    partial void OnWorkingDirectoryPathChanged(string value) => UpdateEstimatedTokenCountDisplay();
+    partial void OnWorkingDirectoryPathChanged(string value)
+    {
+        // T7.3.1: a resumed CLI session is scoped to the directory it ran in, so switching
+        // directories invalidates whatever conversation was in progress.
+        _lastSessionId = null;
+        HasPreviousSession = false;
+        ContinuePreviousConversation = false;
+        UpdateEstimatedTokenCountDisplay();
+    }
 
     partial void OnSelectedPresetChanged(PromptPreset value)
     {

@@ -906,6 +906,64 @@ public class PromptViewModelTests
     }
 
     [Fact]
+    public async Task RunPromptAsync_SuccessfulRun_ReturnsASessionId_MakesHasPreviousSessionTrue()
+    {
+        var sut = CreateSut();
+        sut.PromptText = "Do something";
+        _llmRunner.ResultToReturn = new LlmRunResult { Success = true, Output = """{"responseType": "answer", "answer": "done"}""", SessionId = "session-1" };
+
+        Assert.False(sut.HasPreviousSession);
+
+        await sut.RunPromptCommand.ExecuteAsync(null);
+
+        Assert.True(sut.HasPreviousSession);
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_ContinuePreviousConversationChecked_PassesTheLastSessionIdToTheRunner()
+    {
+        var sut = CreateSut();
+        sut.PromptText = "First turn";
+        _llmRunner.ResultToReturn = new LlmRunResult { Success = true, Output = """{"responseType": "answer", "answer": "done"}""", SessionId = "session-1" };
+        await sut.RunPromptCommand.ExecuteAsync(null);
+
+        sut.ContinuePreviousConversation = true;
+        sut.PromptText = "Follow-up turn";
+        await sut.RunPromptCommand.ExecuteAsync(null);
+
+        Assert.Equal("session-1", _llmRunner.LastResumeSessionId);
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_ContinuePreviousConversationUnchecked_DoesNotPassAResumeSessionId()
+    {
+        var sut = CreateSut();
+        sut.PromptText = "First turn";
+        _llmRunner.ResultToReturn = new LlmRunResult { Success = true, Output = """{"responseType": "answer", "answer": "done"}""", SessionId = "session-1" };
+        await sut.RunPromptCommand.ExecuteAsync(null);
+
+        sut.PromptText = "Unrelated new turn";
+        await sut.RunPromptCommand.ExecuteAsync(null);
+
+        Assert.Null(_llmRunner.LastResumeSessionId);
+    }
+
+    [Fact]
+    public async Task OnWorkingDirectoryPathChanged_ClearsPreviousSessionAndUnchecksContinue()
+    {
+        var sut = CreateSut();
+        sut.PromptText = "First turn";
+        _llmRunner.ResultToReturn = new LlmRunResult { Success = true, Output = """{"responseType": "answer", "answer": "done"}""", SessionId = "session-1" };
+        await sut.RunPromptCommand.ExecuteAsync(null);
+        sut.ContinuePreviousConversation = true;
+
+        sut.WorkingDirectoryPath = "/a/different/directory";
+
+        Assert.False(sut.HasPreviousSession);
+        Assert.False(sut.ContinuePreviousConversation);
+    }
+
+    [Fact]
     public async Task RunPromptAsync_WhileRunning_SetsElapsedTimeDisplay()
     {
         var sut = CreateSut();

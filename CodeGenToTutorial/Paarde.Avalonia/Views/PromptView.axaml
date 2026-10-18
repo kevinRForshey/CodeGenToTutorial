@@ -52,6 +52,10 @@
             <Button Content="Save prompt" Command="{Binding SavePromptCommand}" />
             <Button Content="Send to Claude Code" Command="{Binding RunPromptCommand}" Classes="accent" />
             <Button Content="Cancel" Command="{Binding CancelPromptCommand}" IsVisible="{Binding IsRunning}" />
+            <CheckBox Content="Continue previous conversation"
+                      IsChecked="{Binding ContinuePreviousConversation}"
+                      IsEnabled="{Binding HasPreviousSession}"
+                      VerticalAlignment="Center" />
             <ui:ProgressRing Width="20" Height="20" VerticalAlignment="Center" IsIndeterminate="True" IsActive="{Binding IsRunning}" />
             <TextBlock Text="{Binding ElapsedTimeDisplay}" VerticalAlignment="Center" IsVisible="{Binding IsRunning}" Opacity="0.7" />
             <TextBlock Text="Preset" VerticalAlignment="Center" Margin="16,0,0,0" Opacity="0.7" />

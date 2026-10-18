@@ -21,8 +21,17 @@ public class ClaudeCliRunnerTests : IDisposable
         {"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Hello"}}}
         {"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":", world"}}}
         {"type":"stream_event","event":{"type":"content_block_stop"}}
-        {"type":"result","subtype":"success","is_error":false,"duration_ms":1234,"total_cost_usd":0.0056,"usage":{"input_tokens":10,"output_tokens":5}}
+        {"type":"result","subtype":"success","is_error":false,"duration_ms":1234,"total_cost_usd":0.0056,"usage":{"input_tokens":10,"output_tokens":5},"session_id":"session-abc"}
         EOF
+        """;
+
+    // Also echoes its argv (one per line) to stderr, so tests can assert on exactly which
+    // arguments ClaudeCliRunner invoked it with (T7.3.1's --resume in particular).
+    private const string ArgvEchoingFakeClaudeScript = """
+        #!/bin/sh
+        cat > /dev/null
+        for arg in "$@"; do echo "$arg" >&2; done
+        echo '{"type":"result","subtype":"success","is_error":false}'
         """;
 
     private readonly string _scriptPath = Path.Combine(Path.GetTempPath(), $"fake-claude-{Guid.NewGuid()}.sh");
@@ -43,6 +52,23 @@ public class ClaudeCliRunnerTests : IDisposable
         {
             File.Delete(_scriptPath);
         }
+
+        foreach (var path in _extraScriptPaths)
+        {
+            File.Delete(path);
+        }
+    }
+
+    private readonly List<string> _extraScriptPaths = [];
+
+    private ClaudeCliRunner CreateRunner(string script)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"fake-claude-{Guid.NewGuid()}.sh");
+        File.WriteAllText(path, script);
+        File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        _extraScriptPaths.Add(path);
+
+        return new ClaudeCliRunner(() => Task.FromResult(new ClaudeCliOptions(path, string.Empty)));
     }
 
     [Fact]
@@ -74,6 +100,29 @@ public class ClaudeCliRunnerTests : IDisposable
         Assert.Equal(1234, result.DurationMs);
         Assert.Equal(10, result.InputTokens);
         Assert.Equal(5, result.OutputTokens);
+        Assert.Equal("session-abc", result.SessionId);
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_ResumeSessionIdGiven_PassesResumeFlagToTheCli()
+    {
+        var runner = CreateRunner(ArgvEchoingFakeClaudeScript);
+
+        var result = await runner.RunPromptAsync("prompt", resumeSessionId: "session-xyz");
+
+        var argv = result.ErrorMessage.Split('\n');
+        Assert.Contains("--resume", argv);
+        Assert.Contains("session-xyz", argv);
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_NoResumeSessionIdGiven_DoesNotPassResumeFlagToTheCli()
+    {
+        var runner = CreateRunner(ArgvEchoingFakeClaudeScript);
+
+        var result = await runner.RunPromptAsync("prompt");
+
+        Assert.DoesNotContain("--resume", result.ErrorMessage.Split('\n'));
     }
 
     [Fact]

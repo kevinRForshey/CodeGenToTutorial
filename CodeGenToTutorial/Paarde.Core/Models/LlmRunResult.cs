@@ -23,4 +23,9 @@ public class LlmRunResult
     public int? InputTokens { get; init; }
 
     public int? OutputTokens { get; init; }
+
+    // Populated from the final "result" line's session_id (T7.3.1) - the id a later call can pass
+    // back as resumeSessionId to continue this exact conversation. Null under the same conditions
+    // as the other result-line fields above.
+    public string? SessionId { get; init; }
 }

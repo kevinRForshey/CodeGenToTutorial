@@ -12,7 +12,11 @@ public interface ILlmRunner
     // onTextDelta, if given, is invoked with each chunk of assistant text as the response streams
     // in - on a background thread for ClaudeCliRunner, so callers that touch UI state must marshal
     // themselves.
-    Task<LlmRunResult> RunPromptAsync(string prompt, string? workingDirectory = null, Action<string>? onTextDelta = null, CancellationToken cancellationToken = default);
+    //
+    // resumeSessionId (T7.3.1), if given, asks the runner to continue that earlier conversation
+    // (the SessionId an earlier LlmRunResult returned) instead of starting a fresh one, so a
+    // follow-up prompt carries the prior turn's context.
+    Task<LlmRunResult> RunPromptAsync(string prompt, string? workingDirectory = null, Action<string>? onTextDelta = null, string? resumeSessionId = null, CancellationToken cancellationToken = default);
 
     // Cheap preflight: lets callers report an unavailable runner with actionable guidance instead
     // of surfacing whatever exception the underlying call happens to throw.

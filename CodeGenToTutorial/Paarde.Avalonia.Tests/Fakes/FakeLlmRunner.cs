@@ -26,6 +26,8 @@ public class FakeLlmRunner : ILlmRunner
 
     public CancellationToken LastCancellationToken { get; private set; }
 
+    public string? LastResumeSessionId { get; private set; }
+
     // When false, RunPromptAsync blocks until cancellationToken is cancelled instead of returning
     // immediately - stands in for a real `claude` invocation that's still running, so tests can
     // exercise PromptViewModel.CancelPromptCommand without a real process.
@@ -38,12 +40,13 @@ public class FakeLlmRunner : ILlmRunner
 
     public Task<bool> IsAvailableAsync() => Task.FromResult(AvailableToReturn);
 
-    public async Task<LlmRunResult> RunPromptAsync(string prompt, string? workingDirectory = null, Action<string>? onTextDelta = null, CancellationToken cancellationToken = default)
+    public async Task<LlmRunResult> RunPromptAsync(string prompt, string? workingDirectory = null, Action<string>? onTextDelta = null, string? resumeSessionId = null, CancellationToken cancellationToken = default)
     {
         CallCount++;
         LastPrompt = prompt;
         _allPrompts.Add(prompt);
         LastWorkingDirectory = workingDirectory;
+        LastResumeSessionId = resumeSessionId;
         LastCancellationToken = cancellationToken;
 
         if (ExceptionToThrow != null)

@@ -1171,7 +1171,23 @@ committed yet — review `git status`/`git diff` before committing.
   Core + 128 Avalonia, up from 431).
 
 **F7.3 — Multi-turn conversation**
-- T7.3.1 Follow-up prompts that carry the prior turn's context (CLI session resume or API history).
+- [x] T7.3.1 Follow-up prompts that carry the prior turn's context (CLI session resume or API
+  history). — done 2026-10-18: chose the CLI's `-r/--resume <session-id>` over `-c/--continue`
+  because `--continue` can't target a specific prior turn (it always resumes "the most recent
+  conversation in cwd", which breaks as soon as a user runs something unrelated in between) while
+  `--resume` needs only a session id this process already has. `LlmRunResult` gained `SessionId`,
+  captured in `ClaudeCliRunner` from the stream-json `"result"` line's `session_id` field (the same
+  line `TotalCostUsd`/`DurationMs`/usage already come from); `ILlmRunner.RunPromptAsync` gained a
+  `resumeSessionId` parameter that `ClaudeCliRunner` turns into `--resume <id>` ahead of the fixed
+  streaming flags. `PromptViewModel` tracks the last run's session id in-memory only (not persisted
+  to `RunSession`/disk - scoped to the current app session, same precedent as T7.1.2's undo stack)
+  behind a new "Continue previous conversation" checkbox (`ContinuePreviousConversation`, gated by
+  `HasPreviousSession` so it can't be checked before a session id exists); a schema-validation retry
+  resumes from the same id as its original attempt since both are the same logical turn. Changing
+  `WorkingDirectoryPath` clears the tracked session id and unchecks the box, since a CLI session is
+  scoped to the directory it ran in. Covered by new `ClaudeCliRunnerTests` (argv echoing fake script
+  asserts `--resume` is/isn't passed; session_id capture) and `PromptViewModelTests` cases. Full
+  solution builds with 0 warnings/errors, 456/456 tests pass (324 Core + 132 Avalonia, up from 450).
 - T7.3.2 "Refine this file" / "explain this step further" inline actions that issue a scoped
   follow-up.
 - T7.3.3 Ask-a-question-about-this-change affordance inside the tutorial.

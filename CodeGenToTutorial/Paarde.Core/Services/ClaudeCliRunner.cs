@@ -35,10 +35,15 @@ public class ClaudeCliRunner : ILlmRunner
         return ExecutablePathResolver.ExistsOnPath(options.ExecutablePath);
     }
 
-    public async Task<LlmRunResult> RunPromptAsync(string prompt, string? workingDirectory = null, Action<string>? onTextDelta = null, CancellationToken cancellationToken = default)
+    public async Task<LlmRunResult> RunPromptAsync(string prompt, string? workingDirectory = null, Action<string>? onTextDelta = null, string? resumeSessionId = null, CancellationToken cancellationToken = default)
     {
         var options = await _optionsProvider();
-        var arguments = options.Arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries).Concat(StreamingArguments);
+
+        // T7.3.1: --resume continues the CLI's own session identified by an earlier result's
+        // session_id, rather than starting a fresh conversation - this is what makes a follow-up
+        // prompt carry the prior turn's context.
+        var resumeArguments = string.IsNullOrWhiteSpace(resumeSessionId) ? Enumerable.Empty<string>() : new[] { "--resume", resumeSessionId };
+        var arguments = options.Arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries).Concat(resumeArguments).Concat(StreamingArguments);
 
         // On Windows this is routed through cmd.exe so PATH resolution picks up the claude.cmd shim installed
         // by npm; other platforms can invoke the executable directly. The prompt is written to stdin rather
@@ -82,6 +87,7 @@ public class ClaudeCliRunner : ILlmRunner
         long? durationMs = null;
         int? inputTokens = null;
         int? outputTokens = null;
+        string? sessionId = null;
 
         // Each line of stdout is one NDJSON object (T6.2.1) rather than plain text now that the CLI
         // is invoked with --output-format stream-json. A line that isn't a well-formed JSON object
@@ -126,6 +132,7 @@ public class ClaudeCliRunner : ILlmRunner
                     durationMs = line["duration_ms"]?.ToObject<long?>();
                     inputTokens = (line["usage"] as JObject)?["input_tokens"]?.ToObject<int?>();
                     outputTokens = (line["usage"] as JObject)?["output_tokens"]?.ToObject<int?>();
+                    sessionId = line["session_id"]?.ToString();
                     break;
             }
         };
@@ -172,6 +179,7 @@ public class ClaudeCliRunner : ILlmRunner
             DurationMs = durationMs,
             InputTokens = inputTokens,
             OutputTokens = outputTokens,
+            SessionId = sessionId,
         };
     }
 }
