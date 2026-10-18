@@ -1,0 +1,1 @@
+Write each step's "explanation" as one or more full paragraphs aimed at someone learning to code with an LLM: cover the reasoning behind the change, how it works, and any alternatives you considered and why you didn't use them.

@@ -1,0 +1,1 @@
+This is a refactor. Preserve existing external behavior exactly - no feature changes - and explain, for each step, why the new structure is better than what it replaces.

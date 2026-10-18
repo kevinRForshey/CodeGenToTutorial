@@ -1,0 +1,1 @@
+This is a request to explain existing code, not to change it. Use the "answer" response shape even if the explanation is long - do not propose file edits unless the user explicitly asked for a change.
