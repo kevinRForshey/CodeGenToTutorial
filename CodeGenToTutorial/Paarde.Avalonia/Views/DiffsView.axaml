@@ -1,7 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:ui="using:FluentAvalonia.UI.Controls"
-             xmlns:conv="using:Avalonia.Data.Converters"
              xmlns:coreVm="using:Paarde.Core.ViewModels"
              xmlns:views="using:Paarde.Avalonia.Views"
              xmlns:vm="using:Paarde.Avalonia.ViewModels"
@@ -44,8 +43,13 @@
                            TextAlignment="Center"
                            FontSize="18"
                            IsVisible="{Binding HasFilesButNoneSelected}" />
-                <views:DiffsDetailControl DataContext="{Binding Selected}"
-                                          IsVisible="{Binding #FileList.SelectedItem, Converter={x:Static conv:ObjectConverters.IsNotNull}}" />
+                <ContentControl Content="{Binding Selected}">
+                    <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="coreVm:ProposedFileChangeViewModel">
+                            <views:DiffsDetailControl />
+                        </DataTemplate>
+                    </ContentControl.ContentTemplate>
+                </ContentControl>
             </Grid>
         </Border>
     </Grid>
