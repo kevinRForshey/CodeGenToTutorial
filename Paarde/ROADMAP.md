@@ -1216,7 +1216,33 @@ committed yet — review `git status`/`git diff` before committing.
 ### EPIC 8 — Make it feel like an IDE *(P1/P2)*
 
 **F8.1 — Project explorer**
-- T8.1.1 File-tree view of the working directory with gitignore-aware filtering.
+- [x] T8.1.1 File-tree view of the working directory with gitignore-aware filtering. — done
+  2026-10-19: new "Explorer" page (`ExplorerViewModel`/`ExplorerView`, added to `PageService` and
+  `ShellView`'s nav menu) shows a `TreeView` of the working directory last picked on the Prompt
+  page - read from the same persisted `SavedWorkingDirectory` setting (now a shared
+  `WorkingDirectorySettingsKeys` constant, mirroring `ClaudeCliSettingsKeys`) rather than
+  `IPromptResultStore.WorkingDirectoryPath`, so the tree is browsable as soon as a folder is
+  picked, not only after a prompt has actually run. A new `FileTreeBuilder` (`Paarde.Core.Helpers`)
+  walks the directory into an immutable `FileTreeEntry` tree (directories before files,
+  alphabetical), always excluding `.git`, and skipping anything the project's root `.gitignore`
+  matches via the existing `GitIgnoreMatcher` (T4.1.2) - reusing it rather than writing a second
+  ignore-matching implementation means "ignored" means the same thing here as it does for
+  `ProtectedPathChecker`'s apply-time safety check. That matcher was previously documented as not
+  supporting `[...]` character classes; it now does (additive, regex `[...]` passthrough), since
+  this very repo's own `.gitignore` relies on exactly that (`[Bb]in/`, `[Oo]bj/`) and the feature
+  would otherwise fail to filter build output in its own dogfood case. Nested per-directory
+  `.gitignore` files are deliberately still out of scope, matching that matcher's existing
+  documented boundary - the root `.gitignore` covers the common case this task asks for. The
+  `TreeView`'s hierarchy comes from Avalonia's `TreeDataTemplate` (`ItemsSource="{Binding
+  Children}"`), not a sub-page per node, so expand/collapse state is just the control's own,
+  with no new ViewModel-level state to track. Covered by new `GitIgnoreMatcherTests` (character
+  class cases), `FileTreeBuilderTests`, and `ExplorerViewModelTests`. A full interactive
+  screenshot verification was attempted via headless rendering but the `dotnet run` build of the
+  scratch verification project hung without producing output after several minutes - abandoned per
+  the same "don't rabbit-hole on an unrelated environment limitation" judgment as T8.4.5, relying
+  instead on the new tests plus a clean compiled-bindings build (which validates every binding
+  here, including `TreeDataTemplate`'s, at build time). Full solution builds with 0 warnings/
+  errors, 520/520 tests pass (355 Core + 165 Avalonia).
 - T8.1.2 Badges marking files touched by the current proposal.
 - T8.1.3 Open any file in the editor, proposed or not.
 

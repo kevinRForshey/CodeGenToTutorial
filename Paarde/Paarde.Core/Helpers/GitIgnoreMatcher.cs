@@ -3,15 +3,17 @@ using System.Text.RegularExpressions;
 
 namespace Paarde.Core.Helpers;
 
-// Minimal .gitignore matcher for ProtectedPathChecker (T4.1.2) - reads a single top-level
-// `.gitignore` from the project's working directory and matches a relative file path against it.
-// Deliberately scoped to the common subset real-world .gitignore files actually use: comments
-// ('#'), blank lines, '!' negation (later lines override earlier ones, same precedence as git),
-// a leading '/' anchoring a pattern to the root, a trailing '/' marking a directory pattern, and
-// '*'/'**'/'?' wildcards. Does NOT support character classes ('[abc]'), nested per-directory
-// .gitignore files, a global/user-level gitignore, or `.git/info/exclude` - git's full ignore
-// semantics are considerably larger than this app's apply-time safety check needs, and this covers
-// every pattern shape in a typical generated .gitignore (Visual Studio's, dotnet's, etc.).
+// Minimal .gitignore matcher, used by ProtectedPathChecker (T4.1.2) and FileTreeBuilder (T8.1.1) -
+// reads a single top-level `.gitignore` from the project's working directory and matches a
+// relative file path against it. Deliberately scoped to the common subset real-world .gitignore
+// files actually use: comments ('#'), blank lines, '!' negation (later lines override earlier
+// ones, same precedence as git), a leading '/' anchoring a pattern to the root, a trailing '/'
+// marking a directory pattern, '*'/'**'/'?' wildcards, and '[...]' character classes (needed for
+// this very repo's own .gitignore, which uses '[Bb]in/'-style case-insensitive patterns). Does NOT
+// support nested per-directory .gitignore files, a global/user-level gitignore, or
+// `.git/info/exclude` - git's full ignore semantics are considerably larger than either consumer
+// needs, and this covers every pattern shape in a typical generated .gitignore (Visual Studio's,
+// dotnet's, etc.).
 public static class GitIgnoreMatcher
 {
     public static bool IsIgnored(string workingDirectoryPath, string relativeFilePath)
@@ -122,6 +124,22 @@ public static class GitIgnoreMatcher
             else if (c == '?')
             {
                 regexText.Append("[^/]");
+            }
+            else if (c == '[')
+            {
+                var closingBracket = pattern.IndexOf(']', i + 1);
+                if (closingBracket < 0)
+                {
+                    regexText.Append(Regex.Escape(c.ToString()));
+                }
+                else
+                {
+                    // Passed through as-is (minus the brackets themselves) rather than escaped - a
+                    // gitignore character class like "[Dd]" or "[a-z]" already matches regex's own
+                    // '[...]' syntax.
+                    regexText.Append('[').Append(pattern.AsSpan(i + 1, closingBracket - i - 1)).Append(']');
+                    i = closingBracket;
+                }
             }
             else
             {

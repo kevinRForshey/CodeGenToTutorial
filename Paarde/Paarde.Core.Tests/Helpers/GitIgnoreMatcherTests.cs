@@ -124,6 +124,25 @@ public class GitIgnoreMatcherTests : IDisposable
     }
 
     [Fact]
+    public void IsIgnored_CharacterClass_MatchesAnyOfTheListedCharacters()
+    {
+        WriteGitIgnore("[Dd]ebug/");
+
+        Assert.True(GitIgnoreMatcher.IsIgnored(_workingDirectory, "Debug/app.dll"));
+        Assert.True(GitIgnoreMatcher.IsIgnored(_workingDirectory, "debug/app.dll"));
+        Assert.False(GitIgnoreMatcher.IsIgnored(_workingDirectory, "Release/app.dll"));
+    }
+
+    [Fact]
+    public void IsIgnored_CharacterClassRange_MatchesCharactersInTheRange()
+    {
+        WriteGitIgnore("file[0-9].txt");
+
+        Assert.True(GitIgnoreMatcher.IsIgnored(_workingDirectory, "file1.txt"));
+        Assert.False(GitIgnoreMatcher.IsIgnored(_workingDirectory, "fileA.txt"));
+    }
+
+    [Fact]
     public void IsIgnored_BareNegationMarkerWithNothingAfterIt_IsSkippedWithoutMatching()
     {
         // "!" alone becomes an empty pattern once the negation marker is stripped - there's nothing

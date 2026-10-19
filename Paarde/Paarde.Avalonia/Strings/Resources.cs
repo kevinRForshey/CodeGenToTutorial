@@ -74,6 +74,9 @@ public static class Resources
         ["Tutorial_ExportAsHtmlTitle"] = "Export tutorial as HTML",
         ["Tutorial_ExportSucceeded"] = "Exported the tutorial to {0}.",
         ["Tutorial_ExportFailed"] = "Failed to export the tutorial: {0}",
+        ["Explorer_NoWorkingDirectory"] = "No working directory selected yet. Pick one on the Prompt page.",
+        ["Explorer_WorkingDirectoryNotFound"] = "The working directory no longer exists: {0}",
+        ["Explorer_LoadFailed"] = "Failed to read the working directory: {0}",
     };
 
     public static string GetLocalized(this string resourceKey) =>

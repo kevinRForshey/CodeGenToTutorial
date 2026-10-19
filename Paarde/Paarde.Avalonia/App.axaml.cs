@@ -100,6 +100,8 @@ public partial class App : Application
             services.AddTransient<TutorialView>();
             services.AddTransient<HistoryViewModel>();
             services.AddTransient<HistoryView>();
+            services.AddTransient<ExplorerViewModel>();
+            services.AddTransient<ExplorerView>();
             services.AddTransient<DiffsViewModel>();
             services.AddTransient<DiffsView>();
             services.AddTransient<PromptViewModel>();

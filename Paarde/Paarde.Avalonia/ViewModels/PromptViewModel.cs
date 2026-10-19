@@ -21,7 +21,6 @@ namespace Paarde.Avalonia.ViewModels;
 public partial class PromptViewModel : ObservableRecipient, INavigationAware
 {
     private const string PromptSettingsKey = "SavedPrompt";
-    private const string WorkingDirectorySettingsKey = "SavedWorkingDirectory";
     private const string TimeoutSecondsSettingsKey = "PromptTimeoutSeconds";
     private const string PresetSettingsKey = "SavedPromptPreset";
     private const string DepthSettingsKey = "SavedTutorialDepth";
@@ -160,7 +159,7 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
     public async void OnNavigatedTo(object parameter)
     {
         PromptText = await _localSettingsService.ReadSettingAsync<string>(PromptSettingsKey) ?? string.Empty;
-        WorkingDirectoryPath = await _localSettingsService.ReadSettingAsync<string>(WorkingDirectorySettingsKey) ?? string.Empty;
+        WorkingDirectoryPath = await _localSettingsService.ReadSettingAsync<string>(WorkingDirectorySettingsKeys.WorkingDirectory) ?? string.Empty;
 
         var savedTimeoutSeconds = await _localSettingsService.ReadSettingAsync<int>(TimeoutSecondsSettingsKey);
         TimeoutSeconds = savedTimeoutSeconds > 0 ? savedTimeoutSeconds : DefaultTimeoutSeconds;
@@ -218,7 +217,7 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
         if (folder != null)
         {
             WorkingDirectoryPath = folder;
-            await _localSettingsService.SaveSettingAsync(WorkingDirectorySettingsKey, WorkingDirectoryPath);
+            await _localSettingsService.SaveSettingAsync(WorkingDirectorySettingsKeys.WorkingDirectory, WorkingDirectoryPath);
         }
     }
 
