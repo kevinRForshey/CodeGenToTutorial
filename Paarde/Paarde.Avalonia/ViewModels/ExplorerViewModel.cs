@@ -28,10 +28,35 @@ public partial class ExplorerViewModel : ObservableObject, INavigationAware
     [ObservableProperty]
     private string statusMessage = string.Empty;
 
+    [ObservableProperty]
+    private FileTreeNodeViewModel? selectedNode;
+
+    [ObservableProperty]
+    private string selectedFilePath = string.Empty;
+
+    [ObservableProperty]
+    private string selectedFileContent = string.Empty;
+
     public ExplorerViewModel(ILocalSettingsService localSettingsService, IPromptResultStore promptResultStore)
     {
         _promptResultStore = promptResultStore;
         _localSettingsService = localSettingsService;
+    }
+
+    // T8.1.3: open any file in the editor, proposed or not - a read-only preview, deliberately not
+    // wired into ProposedFileChangeViewModel.EditedContent for touched files, so Explorer stays a
+    // browse/view surface and editing a proposal stays the Tutorial page's job.
+    partial void OnSelectedNodeChanged(FileTreeNodeViewModel? value)
+    {
+        if (value is null || value.IsDirectory)
+        {
+            SelectedFilePath = string.Empty;
+            SelectedFileContent = string.Empty;
+            return;
+        }
+
+        SelectedFilePath = value.FullPath;
+        SelectedFileContent = FileContentReader.ReadOrEmpty(value.FullPath);
     }
 
     public async void OnNavigatedTo(object parameter)
@@ -47,6 +72,10 @@ public partial class ExplorerViewModel : ObservableObject, INavigationAware
     [RelayCommand]
     private void RefreshTree()
     {
+        // Rebuilding Root below creates an entirely new node tree, so any previously selected node
+        // would otherwise be left pointing at a stale, now-orphaned instance.
+        SelectedNode = null;
+
         if (string.IsNullOrWhiteSpace(WorkingDirectoryPath))
         {
             Root = null;

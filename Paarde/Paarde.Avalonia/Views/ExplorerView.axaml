@@ -2,6 +2,8 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:conv="using:Avalonia.Data.Converters"
              xmlns:vm="using:Paarde.Avalonia.ViewModels"
+             xmlns:controls="using:Paarde.Avalonia.Controls"
+             xmlns:helpers="using:Paarde.Avalonia.Helpers"
              x:Class="Paarde.Avalonia.Views.ExplorerView"
              x:DataType="vm:ExplorerViewModel">
 
@@ -21,20 +23,52 @@
                    Opacity="0.7"
                    IsVisible="{Binding StatusMessage, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}" />
 
-        <TreeView Grid.Row="2"
-                  Margin="8"
-                  ItemsSource="{Binding Root.Children}">
-            <TreeView.ItemTemplate>
-                <TreeDataTemplate DataType="vm:FileTreeNodeViewModel" ItemsSource="{Binding Children}">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <TextBlock Text="{Binding Name}" />
-                        <TextBlock Text="●"
-                                   Foreground="{DynamicResource SystemAccentColor}"
-                                   ToolTip.Tip="Touched by the current proposal"
-                                   IsVisible="{Binding IsTouched}" />
-                    </StackPanel>
-                </TreeDataTemplate>
-            </TreeView.ItemTemplate>
-        </TreeView>
+        <!-- T8.1.3: split view - tree on the left, a read-only preview of whatever file is
+             selected on the right. The preview reuses CodeEditor (same control Tutorial uses for
+             editing proposed changes) but never binds to ProposedFileChangeViewModel.EditedContent
+             - Explorer stays a browse/view surface, editing a proposal stays the Tutorial page's job. -->
+        <Grid Grid.Row="2" Margin="8" ColumnDefinitions="300,Auto,*">
+            <TreeView Grid.Column="0"
+                      ItemsSource="{Binding Root.Children}"
+                      SelectedItem="{Binding SelectedNode, Mode=TwoWay}">
+                <TreeView.ItemTemplate>
+                    <TreeDataTemplate DataType="vm:FileTreeNodeViewModel" ItemsSource="{Binding Children}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="{Binding Name}" />
+                            <TextBlock Text="●"
+                                       Foreground="{DynamicResource SystemAccentColor}"
+                                       ToolTip.Tip="Touched by the current proposal"
+                                       IsVisible="{Binding IsTouched}" />
+                        </StackPanel>
+                    </TreeDataTemplate>
+                </TreeView.ItemTemplate>
+            </TreeView>
+
+            <GridSplitter Grid.Column="1" Width="4" ResizeDirection="Columns" />
+
+            <Grid Grid.Column="2" RowDefinitions="Auto,*">
+                <TextBlock Grid.Row="0"
+                           Margin="8,0,0,4"
+                           Text="{Binding SelectedFilePath}"
+                           FontWeight="Bold"
+                           TextTrimming="CharacterEllipsis"
+                           IsVisible="{Binding SelectedFilePath, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}" />
+
+                <TextBlock Grid.Row="1"
+                           Margin="8"
+                           Text="Select a file on the left to preview it here."
+                           Opacity="0.7"
+                           IsVisible="{Binding SelectedFilePath, Converter={x:Static conv:StringConverters.IsNullOrEmpty}}" />
+
+                <controls:CodeEditor Grid.Row="1"
+                                      Margin="8,0,0,0"
+                                      helpers:TextEditorExtensions.BindableText="{Binding SelectedFileContent, Mode=OneWay}"
+                                      FilePath="{Binding SelectedFilePath}"
+                                      IsReadOnly="True"
+                                      HorizontalScrollBarVisibility="Auto"
+                                      VerticalScrollBarVisibility="Auto"
+                                      IsVisible="{Binding SelectedFilePath, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}" />
+            </Grid>
+        </Grid>
     </Grid>
 </UserControl>

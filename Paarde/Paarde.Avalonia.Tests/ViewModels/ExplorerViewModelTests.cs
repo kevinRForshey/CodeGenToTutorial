@@ -123,4 +123,66 @@ public class ExplorerViewModelTests : IDisposable
         var srcFolder = Assert.Single(sut.Root!.Children);
         Assert.True(Assert.Single(srcFolder.Children).IsTouched);
     }
+
+    [Fact]
+    public async Task SelectedNode_SetToAFile_LoadsItsContentForPreview()
+    {
+        File.WriteAllText(Path.Combine(_workingDirectory, "a.txt"), "file content");
+        await SetSavedWorkingDirectoryAsync(_workingDirectory);
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+        var fileNode = Assert.Single(sut.Root!.Children);
+
+        sut.SelectedNode = fileNode;
+
+        Assert.Equal(fileNode.FullPath, sut.SelectedFilePath);
+        Assert.Equal("file content", sut.SelectedFileContent);
+    }
+
+    [Fact]
+    public async Task SelectedNode_SetToADirectory_ClearsThePreview()
+    {
+        Directory.CreateDirectory(Path.Combine(_workingDirectory, "src"));
+        File.WriteAllText(Path.Combine(_workingDirectory, "src", "a.txt"), "content");
+        await SetSavedWorkingDirectoryAsync(_workingDirectory);
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+        var folderNode = Assert.Single(sut.Root!.Children);
+
+        sut.SelectedNode = folderNode;
+
+        Assert.Empty(sut.SelectedFilePath);
+        Assert.Empty(sut.SelectedFileContent);
+    }
+
+    [Fact]
+    public async Task SelectedNode_SetToNull_ClearsThePreview()
+    {
+        File.WriteAllText(Path.Combine(_workingDirectory, "a.txt"), "content");
+        await SetSavedWorkingDirectoryAsync(_workingDirectory);
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+        sut.SelectedNode = sut.Root!.Children.Single();
+
+        sut.SelectedNode = null;
+
+        Assert.Empty(sut.SelectedFilePath);
+        Assert.Empty(sut.SelectedFileContent);
+    }
+
+    [Fact]
+    public async Task RefreshTreeCommand_AFileWasSelected_ClearsTheStaleSelectionAndPreview()
+    {
+        File.WriteAllText(Path.Combine(_workingDirectory, "a.txt"), "content");
+        await SetSavedWorkingDirectoryAsync(_workingDirectory);
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+        sut.SelectedNode = sut.Root!.Children.Single();
+
+        sut.RefreshTreeCommand.Execute(null);
+
+        Assert.Null(sut.SelectedNode);
+        Assert.Empty(sut.SelectedFilePath);
+        Assert.Empty(sut.SelectedFileContent);
+    }
 }

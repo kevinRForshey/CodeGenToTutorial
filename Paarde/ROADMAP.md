@@ -1258,7 +1258,40 @@ committed yet — review `git status`/`git diff` before committing.
   cases: a touched file, an untouched sibling, no proposal at all, and a touched file nested in a
   subdirectory. Full solution builds with 0 warnings/errors, 523/523 tests pass (355 Core + 168
   Avalonia).
-- T8.1.3 Open any file in the editor, proposed or not.
+- [x] T8.1.3 Open any file in the editor, proposed or not. — done 2026-10-19: `ExplorerViewModel`
+  gained `SelectedNode`, `SelectedFilePath`, and `SelectedFileContent`; selecting a file node reads
+  its content via the existing `FileContentReader.ReadOrEmpty` (same helper
+  `ProposedFileChangeViewModel.RefreshOriginalContent` and `ApplyOrchestrationService` already use),
+  while selecting a directory or clearing the selection clears the preview. `RefreshTree()` also
+  resets `SelectedNode` first, since rebuilding `Root` replaces the whole node tree and would
+  otherwise leave the preview pointing at a stale, orphaned node. `ExplorerView.axaml` is now a
+  split view: the existing `TreeView` (now with `SelectedItem` bound two-way to `SelectedNode`) on
+  the left, a read-only `CodeEditor` (the same control `TutorialDetailControl` uses for editable
+  proposal content, here with `IsReadOnly="True"` and bound one-way) on the right, with a
+  placeholder message when nothing is selected. Deliberately not wired to
+  `ProposedFileChangeViewModel.EditedContent` even for touched files - Explorer stays a browse/view
+  surface, editing a proposal stays the Tutorial page's job. Covered by new
+  `ExplorerViewModelTests` cases: selecting a file loads its content, selecting a directory clears
+  the preview, selecting null clears it, and refreshing the tree clears a stale selection.
+  Also fixed two pre-existing bugs in `CodeEditor` surfaced by this page, found via
+  `Avalonia.Headless` pixel-capture probes (`CaptureRenderedFrame`) since compiled-binding
+  validation and property-level checks both passed while the control still rendered as blank
+  white pixels - standard unit tests can't catch this class of bug. The actual root cause: `CodeEditor`
+  subclasses `TextEditor` (a `TemplatedControl`) without overriding `StyleKeyOverride`, which defaults
+  to `GetType()`; Avalonia therefore looked for a `ControlTheme` keyed `{x:Type CodeEditor}`, found
+  none, and applied no template at all - no background Border, no `TextView`, nothing rendered,
+  regardless of what `Text`/`Background`/`Foreground` were set to. Fixed by overriding
+  `StyleKeyOverride` to return `typeof(TextEditor)` so `CodeEditor` reuses `TextEditor`'s theme.
+  Separately (and still worth keeping): AvaloniaEdit.TextMate only recolors syntax tokens, it never
+  sets the editor's own `Background`/`Foreground`, so once the template fix made the control visible,
+  the DarkPlus theme's light foreground text would otherwise be drawn on whatever background the
+  app's current Fluent theme defaulted to - invisible in Light theme. `CodeEditor` now reads
+  `editor.background` / `editor.foreground` from `Installation.TryGetThemeColor` and applies them
+  directly after `InstallTextMate` returns, since `Installation`'s constructor already fires its one
+  and only `AppliedTheme` event before any subscriber (including a handler added right after
+  `InstallTextMate`) could ever receive it. Both fixes confirmed visually via a headless-rendered PNG
+  showing correctly colored, line-numbered, syntax-highlighted text. Full solution builds with 0
+  warnings/errors, 527/527 tests pass (355 Core + 172 Avalonia).
 
 **F8.2 — Shell & workspace**
 - T8.2.1 Replace the empty `MainView` with a real dashboard/landing page (recent projects, recent
