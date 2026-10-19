@@ -1243,7 +1243,21 @@ committed yet — review `git status`/`git diff` before committing.
   instead on the new tests plus a clean compiled-bindings build (which validates every binding
   here, including `TreeDataTemplate`'s, at build time). Full solution builds with 0 warnings/
   errors, 520/520 tests pass (355 Core + 165 Avalonia).
-- T8.1.2 Badges marking files touched by the current proposal.
+- [x] T8.1.2 Badges marking files touched by the current proposal. — done 2026-10-19: new
+  `FileTreeNodeViewModel` (`Paarde.Avalonia.ViewModels`) wraps each `FileTreeEntry` with an
+  `IsTouched` flag - kept Avalonia-side rather than on `FileTreeEntry` itself since "touched by
+  the current proposal" is UI/session state, not something inherent to a file on disk.
+  `ExplorerViewModel` now also takes `IPromptResultStore` (the same singleton `DiffsViewModel`
+  already reads) and, on each tree build, resolves every `ProposedFileChangeViewModel.FilePath`
+  (relative) to an absolute path the same way `ProposedFileChangeViewModel.RefreshOriginalContent`
+  does (`Path.Combine(workingDirectoryPath, FilePath)`, then `Path.GetFullPath`) and matches it
+  against each `FileTreeEntry.FullPath` with `StringComparison.Ordinal` - the one existing
+  path-comparison precedent in the codebase (`FilePathContainment`). `ExplorerView.axaml`'s
+  `TreeDataTemplate` switched from `FileTreeEntry` to `FileTreeNodeViewModel` and now shows a
+  small accent-colored dot next to a touched file's name. Covered by new `ExplorerViewModelTests`
+  cases: a touched file, an untouched sibling, no proposal at all, and a touched file nested in a
+  subdirectory. Full solution builds with 0 warnings/errors, 523/523 tests pass (355 Core + 168
+  Avalonia).
 - T8.1.3 Open any file in the editor, proposed or not.
 
 **F8.2 — Shell & workspace**
