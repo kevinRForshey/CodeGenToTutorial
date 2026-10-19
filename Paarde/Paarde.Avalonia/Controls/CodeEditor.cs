@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 
 using Avalonia;
@@ -24,6 +25,12 @@ public class CodeEditor : TextEditor
     private readonly TextMate.Installation _textMateInstallation;
     private readonly BracketHighlightRenderer _bracketHighlightRenderer;
 
+    // TemplatedControl resolves its default ControlTheme via StyleKeyOverride, which defaults to
+    // GetType(). Without this override Avalonia looks for a theme keyed {x:Type CodeEditor} - which
+    // doesn't exist - instead of reusing TextEditor's theme, so no template (and therefore nothing:
+    // no background, no text view) ever gets applied to this subclass.
+    protected override Type StyleKeyOverride => typeof(TextEditor);
+
     public string? FilePath
     {
         get => GetValue(FilePathProperty);
@@ -43,6 +50,22 @@ public class CodeEditor : TextEditor
         _textMateInstallation = this.InstallTextMate(RegistryOptions);
         _bracketHighlightRenderer = new BracketHighlightRenderer(TextArea.TextView);
         TextArea.Caret.PositionChanged += (_, _) => _bracketHighlightRenderer.UpdateHighlight(Document, CaretOffset);
+
+        // AvaloniaEdit.TextMate only recolors syntax - it never touches the editor's own
+        // Background/Foreground, so without this the DarkPlus theme's light foreground text is drawn
+        // on whatever background the app's current Fluent theme happens to default to (invisible
+        // against a light background). InstallTextMate already applied the theme once by the time it
+        // returns (its constructor calls SetTheme before we could ever subscribe to AppliedTheme), so
+        // apply the colors directly here instead of relying on that event.
+        if (_textMateInstallation.TryGetThemeColor("editor.background", out var background) && Color.TryParse(background, out var backgroundColor))
+        {
+            Background = new SolidColorBrush(backgroundColor);
+        }
+
+        if (_textMateInstallation.TryGetThemeColor("editor.foreground", out var foreground) && Color.TryParse(foreground, out var foregroundColor))
+        {
+            Foreground = new SolidColorBrush(foregroundColor);
+        }
     }
 
     private void ApplyGrammarForFilePath()

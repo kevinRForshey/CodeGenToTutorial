@@ -2,8 +2,8 @@ using Paarde.Avalonia.Contracts.Services;
 using Paarde.Avalonia.Contracts.ViewModels;
 using Paarde.Avalonia.Services;
 using Paarde.Avalonia.Strings;
+using Paarde.Core.Contracts.Services;
 using Paarde.Core.Helpers;
-using Paarde.Core.Models;
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -17,19 +17,46 @@ namespace Paarde.Avalonia.ViewModels;
 public partial class ExplorerViewModel : ObservableObject, INavigationAware
 {
     private readonly ILocalSettingsService _localSettingsService;
+    private readonly IPromptResultStore _promptResultStore;
 
     [ObservableProperty]
     private string workingDirectoryPath = string.Empty;
 
     [ObservableProperty]
-    private FileTreeEntry? root;
+    private FileTreeNodeViewModel? root;
 
     [ObservableProperty]
     private string statusMessage = string.Empty;
 
-    public ExplorerViewModel(ILocalSettingsService localSettingsService)
+    [ObservableProperty]
+    private FileTreeNodeViewModel? selectedNode;
+
+    [ObservableProperty]
+    private string selectedFilePath = string.Empty;
+
+    [ObservableProperty]
+    private string selectedFileContent = string.Empty;
+
+    public ExplorerViewModel(ILocalSettingsService localSettingsService, IPromptResultStore promptResultStore)
     {
+        _promptResultStore = promptResultStore;
         _localSettingsService = localSettingsService;
+    }
+
+    // T8.1.3: open any file in the editor, proposed or not - a read-only preview, deliberately not
+    // wired into ProposedFileChangeViewModel.EditedContent for touched files, so Explorer stays a
+    // browse/view surface and editing a proposal stays the Tutorial page's job.
+    partial void OnSelectedNodeChanged(FileTreeNodeViewModel? value)
+    {
+        if (value is null || value.IsDirectory)
+        {
+            SelectedFilePath = string.Empty;
+            SelectedFileContent = string.Empty;
+            return;
+        }
+
+        SelectedFilePath = value.FullPath;
+        SelectedFileContent = FileContentReader.ReadOrEmpty(value.FullPath);
     }
 
     public async void OnNavigatedTo(object parameter)
@@ -45,6 +72,10 @@ public partial class ExplorerViewModel : ObservableObject, INavigationAware
     [RelayCommand]
     private void RefreshTree()
     {
+        // Rebuilding Root below creates an entirely new node tree, so any previously selected node
+        // would otherwise be left pointing at a stale, now-orphaned instance.
+        SelectedNode = null;
+
         if (string.IsNullOrWhiteSpace(WorkingDirectoryPath))
         {
             Root = null;
@@ -61,7 +92,11 @@ public partial class ExplorerViewModel : ObservableObject, INavigationAware
 
         try
         {
-            Root = FileTreeBuilder.Build(WorkingDirectoryPath);
+            var touchedFullPaths = _promptResultStore.Files
+                .Select(file => Path.GetFullPath(Path.Combine(WorkingDirectoryPath, file.FilePath)))
+                .ToHashSet(StringComparer.Ordinal);
+
+            Root = FileTreeNodeViewModel.FromEntry(FileTreeBuilder.Build(WorkingDirectoryPath), touchedFullPaths);
             StatusMessage = string.Empty;
         }
         catch (IOException ex)

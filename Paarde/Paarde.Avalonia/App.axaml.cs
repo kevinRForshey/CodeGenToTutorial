@@ -134,6 +134,13 @@ public partial class App : Application
             MainWindow = window;
             desktop.MainWindow = window;
 
+            // On Linux, Avalonia's X11 backend keeps a D-Bus connection alive for the app's lifetime to
+            // watch for OS theme changes. Its teardown races Dispatcher.UIThread.InvokeShutdown() (which
+            // ClassicDesktopStyleApplicationLifetime calls right after raising Exit), surfacing as an
+            // unhandled TaskCanceledException from a background thread. Exiting here, before that
+            // InvokeShutdown() call, sidesteps the race instead of letting Avalonia's internal teardown hit it.
+            desktop.Exit += (_, _) => Environment.Exit(0);
+
             InitializeThemeAndNavigate();
         }
 
