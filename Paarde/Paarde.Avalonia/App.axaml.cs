@@ -56,6 +56,7 @@ public partial class App : Application
             services.AddSingleton<ILlmRunner>(sp => new ClaudeCliRunner(sp.GetRequiredService<ClaudeCliOptionsProvider>().GetOptionsAsync));
             services.AddTransient<IFolderPickerService, FolderPickerService>();
             services.AddTransient<IFilePickerService, FilePickerService>();
+            services.AddTransient<IFileSavePickerService, FileSavePickerService>();
             services.AddSingleton<IPromptResultStore, PromptResultStore>();
             services.AddSingleton<IPromptTemplateProvider, PromptTemplateProvider>();
             services.AddTransient<IFileChangeApplyService, FileChangeApplyService>();
@@ -99,6 +100,8 @@ public partial class App : Application
             services.AddTransient<TutorialView>();
             services.AddTransient<HistoryViewModel>();
             services.AddTransient<HistoryView>();
+            services.AddTransient<ExplorerViewModel>();
+            services.AddTransient<ExplorerView>();
             services.AddTransient<DiffsViewModel>();
             services.AddTransient<DiffsView>();
             services.AddTransient<PromptViewModel>();

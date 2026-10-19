@@ -3,7 +3,9 @@ using System.Collections.ObjectModel;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.VisualTree;
 
+using Paarde.Avalonia.Contracts.Services;
 using Paarde.Avalonia.ViewModels;
 using Paarde.Core.Contracts.Services;
 using Paarde.Core.ViewModels;
@@ -15,6 +17,7 @@ public partial class TutorialDetailControl : UserControl
     private readonly IPromptResultStore _promptResultStore;
     private readonly IFileChangeApplyService _fileChangeApplyService;
     private readonly ILlmRunner _llmRunner;
+    private readonly INavigationService _navigationService;
 
     // T8.4.3: which step the Previous/Next buttons and progress indicator currently point at - reset
     // to the first step whenever Steps is rebuilt (new file selected), since there's no notion of a
@@ -28,10 +31,15 @@ public partial class TutorialDetailControl : UserControl
         _promptResultStore = App.GetService<IPromptResultStore>();
         _fileChangeApplyService = App.GetService<IFileChangeApplyService>();
         _llmRunner = App.GetService<ILlmRunner>();
+        _navigationService = App.GetService<INavigationService>();
         InitializeComponent();
 
         StepsItemsControl.ItemsSource = Steps;
         DataContextChanged += (_, _) => RebuildSteps();
+
+        // T8.4.5: applied once this control is attached to TutorialView's visual tree, by which
+        // point RebuildSteps (above) has already populated Steps for the jump's target file.
+        Loaded += (_, _) => ApplyPendingStepTarget();
 
         // CanUndo/CanRedo are plain CLR properties on AvaloniaEdit's TextEditor, not
         // AvaloniaProperties, so they can't be bound from XAML - TextChanged (which also fires on
@@ -69,11 +77,31 @@ public partial class TutorialDetailControl : UserControl
 
             for (var i = 0; i < hunks.Count; i++)
             {
-                Steps.Add(new TutorialStepViewModel(hunks[i], proposedFileChange, _promptResultStore.WorkingDirectoryPath, _promptResultStore.SessionId, _fileChangeApplyService, _llmRunner, stepNumber: i + 1, totalSteps: hunks.Count));
+                Steps.Add(new TutorialStepViewModel(hunks[i], proposedFileChange, _promptResultStore.WorkingDirectoryPath, _promptResultStore.SessionId, _fileChangeApplyService, _llmRunner, _navigationService, stepNumber: i + 1, totalSteps: hunks.Count));
             }
         }
 
         RefreshStepNavigation();
+    }
+
+    // T8.4.5: scrolls to the step a TutorialJumpRequest targeted, if any. Finding the step by
+    // reference within the just-rebuilt Steps (rather than trusting an index) is robust to Steps'
+    // order matching Hunk's order, which RebuildSteps above already guarantees.
+    private void ApplyPendingStepTarget()
+    {
+        if (this.FindAncestorOfType<TutorialView>()?.ViewModel.TakePendingStepTarget() is not { } target)
+        {
+            return;
+        }
+
+        for (var i = 0; i < Steps.Count; i++)
+        {
+            if (Steps[i].Hunk == target)
+            {
+                GoToStep(i);
+                return;
+            }
+        }
     }
 
     private void OnPreviousStepButtonClick(object? sender, RoutedEventArgs e) => GoToStep(_currentStepIndex - 1);

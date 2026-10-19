@@ -82,6 +82,8 @@
                                 <Button Content="Apply this change" Command="{Binding ApplyCommand}" />
                                 <Button Content="Explain further" Command="{Binding ExplainFurtherCommand}"
                                          ToolTip.Tip="Ask Claude Code to go deeper on this step, continuing this tutorial's conversation." />
+                                <Button Content="View in Diff" Command="{Binding ViewInDiffCommand}"
+                                         ToolTip.Tip="Jump to this step's change on the Diffs page." />
                                 <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" />
                             </StackPanel>
                             <controls:MarkdownTextBlock Text="{Binding FurtherExplanation}" FontStyle="Italic" Opacity="0.85"

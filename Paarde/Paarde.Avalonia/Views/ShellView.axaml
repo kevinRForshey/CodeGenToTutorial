@@ -24,6 +24,11 @@
                     <ui:SymbolIconSource Symbol="Send" />
                 </ui:NavigationViewItem.IconSource>
             </ui:NavigationViewItem>
+            <ui:NavigationViewItem Content="Explorer" helpers:NavigationHelper.NavigateTo="Paarde.Avalonia.ViewModels.ExplorerViewModel">
+                <ui:NavigationViewItem.IconSource>
+                    <ui:SymbolIconSource Symbol="Folder" />
+                </ui:NavigationViewItem.IconSource>
+            </ui:NavigationViewItem>
             <ui:NavigationViewItem Content="Diffs" helpers:NavigationHelper.NavigateTo="Paarde.Avalonia.ViewModels.DiffsViewModel">
                 <ui:NavigationViewItem.IconSource>
                     <ui:SymbolIconSource Symbol="Code" />

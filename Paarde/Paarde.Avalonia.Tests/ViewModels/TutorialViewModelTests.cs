@@ -1,3 +1,4 @@
+using Paarde.Avalonia.Models;
 using Paarde.Avalonia.Tests.Fakes;
 using Paarde.Avalonia.ViewModels;
 using Paarde.Core.Models;
@@ -14,8 +15,9 @@ public class TutorialViewModelTests
     private readonly FakeDialogService _dialogService = new();
     private readonly FakeLlmRunner _llmRunner = new();
     private readonly PromptTemplateProvider _promptTemplateProvider = new();
+    private readonly FakeFileSavePickerService _fileSavePickerService = new();
 
-    private TutorialViewModel CreateSut() => new(_promptResultStore, _applyOrchestrationService, _applyHistoryLog, _dialogService, _llmRunner, _promptTemplateProvider);
+    private TutorialViewModel CreateSut() => new(_promptResultStore, _applyOrchestrationService, _applyHistoryLog, _dialogService, _llmRunner, _promptTemplateProvider, _fileSavePickerService);
 
     [Fact]
     public void OnNavigatedTo_TutorialOverviewPresent_PopulatesTutorialAndHasTutorialOverview()
@@ -607,5 +609,120 @@ public class TutorialViewModelTests
 
         Assert.Same(originalFile, sut.Files[0]);
         Assert.Contains("a.txt", sut.RefineStatusMessage);
+    }
+
+    [Fact]
+    public void CanExportTutorial_NoFilesAndNoOverview_IsFalse()
+    {
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+
+        Assert.False(sut.ExportTutorialAsMarkdownCommand.CanExecute(null));
+        Assert.False(sut.ExportTutorialAsHtmlCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public void CanExportTutorial_OverviewOnlyNoFiles_IsTrue()
+    {
+        _promptResultStore.SetResult("This run adds a widget.", [], "/tmp");
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+
+        Assert.True(sut.ExportTutorialAsMarkdownCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task ExportTutorialAsMarkdownAsync_UserCancelsPicker_WritesNothingAndLeavesStatusEmpty()
+    {
+        _promptResultStore.SetResult("tutorial", [new ProposedFileChangeViewModel("a.txt", "proposed", "original")], "/tmp");
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+        _fileSavePickerService.PathToReturn = null;
+
+        await sut.ExportTutorialAsMarkdownCommand.ExecuteAsync(null);
+
+        Assert.Equal(string.Empty, sut.ExportStatusMessage);
+    }
+
+    [Fact]
+    public async Task ExportTutorialAsMarkdownAsync_UserPicksAPath_WritesTheMarkdownAndReportsSuccess()
+    {
+        _promptResultStore.SetResult(
+            "Adds a widget.",
+            [new ProposedFileChangeViewModel("a.txt", "proposed", "original") { Hunks = [new ProposedHunk("Add it", "Explanation.", "snippet", null)] }],
+            "/tmp");
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+        var path = Path.Combine(Path.GetTempPath(), $"paarde-export-test-{Guid.NewGuid():N}.md");
+        _fileSavePickerService.PathToReturn = path;
+
+        try
+        {
+            await sut.ExportTutorialAsMarkdownCommand.ExecuteAsync(null);
+
+            var written = await File.ReadAllTextAsync(path);
+            Assert.Contains("Adds a widget.", written);
+            Assert.Contains("### Step 1: Add it", written);
+            Assert.Contains(path, sut.ExportStatusMessage);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task ExportTutorialAsHtmlAsync_UserPicksAPath_WritesTheHtml()
+    {
+        _promptResultStore.SetResult(
+            "Adds a widget.",
+            [new ProposedFileChangeViewModel("a.txt", "proposed", "original") { Hunks = [new ProposedHunk("Add it", "Explanation.", "snippet", null)] }],
+            "/tmp");
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+        var path = Path.Combine(Path.GetTempPath(), $"paarde-export-test-{Guid.NewGuid():N}.html");
+        _fileSavePickerService.PathToReturn = path;
+
+        try
+        {
+            await sut.ExportTutorialAsHtmlCommand.ExecuteAsync(null);
+
+            var written = await File.ReadAllTextAsync(path);
+            Assert.StartsWith("<!DOCTYPE html>", written);
+            Assert.Contains("Add it", written);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void OnNavigatedTo_TutorialJumpRequest_SelectsTheRequestedFileAndExposesAPendingStepTarget()
+    {
+        var hunk = new ProposedHunk("Add it", "Explanation.", "snippet", null);
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original") { Hunks = [hunk] };
+        var otherFile = new ProposedFileChangeViewModel("b.txt", "proposed", "original");
+        _promptResultStore.SetResult("tutorial", [otherFile, file], "/tmp");
+        var sut = CreateSut();
+
+        sut.OnNavigatedTo(new TutorialJumpRequest(file, hunk));
+
+        Assert.Same(file, sut.Selected);
+        Assert.Same(hunk, sut.TakePendingStepTarget());
+    }
+
+    [Fact]
+    public void TakePendingStepTarget_CalledTwice_OnlyReturnsTheTargetOnce()
+    {
+        var hunk = new ProposedHunk("Add it", "Explanation.", "snippet", null);
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original") { Hunks = [hunk] };
+        _promptResultStore.SetResult("tutorial", [file], "/tmp");
+        var sut = CreateSut();
+        sut.OnNavigatedTo(new TutorialJumpRequest(file, hunk));
+
+        sut.TakePendingStepTarget();
+
+        Assert.Null(sut.TakePendingStepTarget());
     }
 }

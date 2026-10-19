@@ -1,3 +1,5 @@
+using Paarde.Avalonia.Contracts.Services;
+using Paarde.Avalonia.Models;
 using Paarde.Avalonia.Strings;
 using Paarde.Core.Contracts.Services;
 using Paarde.Core.Helpers;
@@ -22,6 +24,7 @@ public partial class TutorialStepViewModel : ObservableObject
     private readonly string? _resumeSessionId;
     private readonly IFileChangeApplyService _fileChangeApplyService;
     private readonly ILlmRunner _llmRunner;
+    private readonly INavigationService _navigationService;
 
     public string Title { get; }
 
@@ -50,7 +53,7 @@ public partial class TutorialStepViewModel : ObservableObject
     [ObservableProperty]
     private bool isExplaining;
 
-    public TutorialStepViewModel(ProposedHunk hunk, ProposedFileChangeViewModel file, string workingDirectoryPath, string? resumeSessionId, IFileChangeApplyService fileChangeApplyService, ILlmRunner llmRunner, int stepNumber, int totalSteps)
+    public TutorialStepViewModel(ProposedHunk hunk, ProposedFileChangeViewModel file, string workingDirectoryPath, string? resumeSessionId, IFileChangeApplyService fileChangeApplyService, ILlmRunner llmRunner, INavigationService navigationService, int stepNumber, int totalSteps)
     {
         Title = hunk.Title;
         Explanation = hunk.Explanation;
@@ -62,14 +65,20 @@ public partial class TutorialStepViewModel : ObservableObject
         _resumeSessionId = resumeSessionId;
         _fileChangeApplyService = fileChangeApplyService;
         _llmRunner = llmRunner;
+        _navigationService = navigationService;
 
-        // Hunk.IsApplied lives on a different ObservableObject than this view model's own
-        // [ObservableProperty]s, so CanApply needs an explicit nudge whenever it changes.
+        // Hunk.IsApplied/MatchedDiffHunks live on a different ObservableObject than this view
+        // model's own [ObservableProperty]s, so CanApply/CanViewInDiff need an explicit nudge
+        // whenever either changes.
         Hunk.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(ProposedHunk.IsApplied))
             {
                 ApplyCommand.NotifyCanExecuteChanged();
+            }
+            else if (e.PropertyName == nameof(ProposedHunk.MatchedDiffHunks))
+            {
+                ViewInDiffCommand.NotifyCanExecuteChanged();
             }
         };
     }
@@ -91,6 +100,15 @@ public partial class TutorialStepViewModel : ObservableObject
     }
 
     private bool CanApply() => !Hunk.IsApplied && !string.IsNullOrWhiteSpace(_workingDirectoryPath);
+
+    // T8.4.5: jumps to this step's change on the Diffs page. Disabled when the step's Location
+    // didn't resolve to any DiffHunk (e.g. the snippet turned out identical to what was already
+    // there) - there's nothing to scroll to in that case.
+    [RelayCommand(CanExecute = nameof(CanViewInDiff))]
+    private void ViewInDiff() =>
+        _navigationService.NavigateTo(typeof(DiffsViewModel).FullName!, new DiffJumpRequest(_file, Hunk.MatchedDiffHunks[0], Hunk));
+
+    private bool CanViewInDiff() => Hunk.MatchedDiffHunks.Count > 0;
 
     // T7.3.2: a scoped follow-up asking Claude to go deeper on just this one step, resuming the
     // conversation that produced it (T7.3.1) rather than starting fresh - so it already has the

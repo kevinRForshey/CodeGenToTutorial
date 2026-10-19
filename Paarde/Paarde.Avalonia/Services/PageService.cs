@@ -19,6 +19,7 @@ public class PageService : IPageService
         Configure<DiffsViewModel, DiffsView>();
         Configure<TutorialViewModel, TutorialView>();
         Configure<HistoryViewModel, HistoryView>();
+        Configure<ExplorerViewModel, ExplorerView>();
         Configure<SettingsViewModel, SettingsView>();
     }
 

@@ -70,6 +70,13 @@ public static class Resources
         ["Tutorial_RefineFailed"] = "Failed to refine {0}: {1}",
         ["Tutorial_RefineNoMatchingFile"] = "Claude's response didn't include an updated version of {0}.",
         ["Tutorial_RefineSucceeded"] = "Refined {0}.",
+        ["Tutorial_ExportAsMarkdownTitle"] = "Export tutorial as Markdown",
+        ["Tutorial_ExportAsHtmlTitle"] = "Export tutorial as HTML",
+        ["Tutorial_ExportSucceeded"] = "Exported the tutorial to {0}.",
+        ["Tutorial_ExportFailed"] = "Failed to export the tutorial: {0}",
+        ["Explorer_NoWorkingDirectory"] = "No working directory selected yet. Pick one on the Prompt page.",
+        ["Explorer_WorkingDirectoryNotFound"] = "The working directory no longer exists: {0}",
+        ["Explorer_LoadFailed"] = "Failed to read the working directory: {0}",
     };
 
     public static string GetLocalized(this string resourceKey) =>

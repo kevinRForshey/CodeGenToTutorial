@@ -1216,7 +1216,33 @@ committed yet — review `git status`/`git diff` before committing.
 ### EPIC 8 — Make it feel like an IDE *(P1/P2)*
 
 **F8.1 — Project explorer**
-- T8.1.1 File-tree view of the working directory with gitignore-aware filtering.
+- [x] T8.1.1 File-tree view of the working directory with gitignore-aware filtering. — done
+  2026-10-19: new "Explorer" page (`ExplorerViewModel`/`ExplorerView`, added to `PageService` and
+  `ShellView`'s nav menu) shows a `TreeView` of the working directory last picked on the Prompt
+  page - read from the same persisted `SavedWorkingDirectory` setting (now a shared
+  `WorkingDirectorySettingsKeys` constant, mirroring `ClaudeCliSettingsKeys`) rather than
+  `IPromptResultStore.WorkingDirectoryPath`, so the tree is browsable as soon as a folder is
+  picked, not only after a prompt has actually run. A new `FileTreeBuilder` (`Paarde.Core.Helpers`)
+  walks the directory into an immutable `FileTreeEntry` tree (directories before files,
+  alphabetical), always excluding `.git`, and skipping anything the project's root `.gitignore`
+  matches via the existing `GitIgnoreMatcher` (T4.1.2) - reusing it rather than writing a second
+  ignore-matching implementation means "ignored" means the same thing here as it does for
+  `ProtectedPathChecker`'s apply-time safety check. That matcher was previously documented as not
+  supporting `[...]` character classes; it now does (additive, regex `[...]` passthrough), since
+  this very repo's own `.gitignore` relies on exactly that (`[Bb]in/`, `[Oo]bj/`) and the feature
+  would otherwise fail to filter build output in its own dogfood case. Nested per-directory
+  `.gitignore` files are deliberately still out of scope, matching that matcher's existing
+  documented boundary - the root `.gitignore` covers the common case this task asks for. The
+  `TreeView`'s hierarchy comes from Avalonia's `TreeDataTemplate` (`ItemsSource="{Binding
+  Children}"`), not a sub-page per node, so expand/collapse state is just the control's own,
+  with no new ViewModel-level state to track. Covered by new `GitIgnoreMatcherTests` (character
+  class cases), `FileTreeBuilderTests`, and `ExplorerViewModelTests`. A full interactive
+  screenshot verification was attempted via headless rendering but the `dotnet run` build of the
+  scratch verification project hung without producing output after several minutes - abandoned per
+  the same "don't rabbit-hole on an unrelated environment limitation" judgment as T8.4.5, relying
+  instead on the new tests plus a clean compiled-bindings build (which validates every binding
+  here, including `TreeDataTemplate`'s, at build time). Full solution builds with 0 warnings/
+  errors, 520/520 tests pass (355 Core + 165 Avalonia).
 - T8.1.2 Badges marking files touched by the current proposal.
 - T8.1.3 Open any file in the editor, proposed or not.
 
@@ -1278,8 +1304,54 @@ committed yet — review `git status`/`git diff` before committing.
   position tracking, not a persisted "applied" progress metric. Verified by rendering the nav
   panel/step header layout headlessly (`Avalonia.Headless` + `UseSkia()`). Full solution builds with
   0 warnings/errors, 491/491 tests pass (342 Core + 149 Avalonia).
-- T8.4.4 Export the tutorial to markdown/HTML.
-- T8.4.5 Jump from a tutorial step to the corresponding hunk in the diff viewer, and back.
+- [x] T8.4.4 Export the tutorial to markdown/HTML. — done
+  2026-10-18: new `TutorialExporter` (`Paarde.Core.Helpers`) builds a self-contained Markdown or HTML
+  document from the overview plus each file's steps, numbered per file the same way
+  `TutorialStepViewModel.StepLabel` (T8.4.3) numbers them in the UI - `BuildHtml` reuses
+  `MarkdownInlineParser` (T8.4.2) to render explanations consistently with the in-app
+  `MarkdownTextBlock` rather than a second markdown implementation, HTML-escaping everything else.
+  `TutorialView` gained "Export as Markdown"/"Export as HTML" buttons bound to two new
+  `TutorialViewModel` commands (disabled when there's neither an overview nor any files), which use
+  a new `IFileSavePickerService` (`FileSavePickerService`, following the existing `IFolderPickerService`/
+  `IFilePickerService` pattern around `IStorageProvider`) to pick a destination before writing with
+  `File.WriteAllText` and reporting the result via a new `ExportStatusMessage`. Verified by running
+  the exporter against representative multi-file, multi-step input and inspecting the generated
+  Markdown/HTML directly. Covered by new `TutorialExporterTests` and `TutorialViewModelTests` export
+  cases. Full solution builds with 0 warnings/errors, 501/501 tests pass (347 Core + 154 Avalonia).
+- [x] T8.4.5 Jump from a tutorial step to the corresponding hunk in the diff viewer, and back. — done
+  2026-10-18: a step's "View in Diff" button (`TutorialStepViewModel.ViewInDiffCommand`, disabled
+  when `Hunk.MatchedDiffHunks` is empty - nothing resolved to jump to) navigates to the Diffs page
+  with a new `DiffJumpRequest` (`Paarde.Avalonia.Models`, following the existing `PromptLaunchRequest`
+  pattern) carrying the shared `ProposedFileChangeViewModel` instance, the target `DiffHunk`, and the
+  originating step. `DiffsViewModel.OnNavigatedTo` selects that file and stashes the hunk as a
+  "take-once" pending scroll target; `DiffsDetailControl`'s `Loaded` event (fired once this control -
+  materialized per selected file via `DiffsView`'s `ContentTemplate` - is attached, by which point its
+  `DataContext` is already set) reads it back via `this.FindAncestorOfType<DiffsView>()?.ViewModel` and
+  scrolls the (now-named) `DiffLinesItemsControl` to `DiffHunk.SourceRangeStart` - the same
+  `ItemsControl.ScrollIntoView(int)` already used for step navigation (T8.4.3). The way back is a
+  "Back to Tutorial" button on the Diffs page itself (bound to a new `BackToTutorialCommand`, visible
+  only when `DiffsViewModel.ReturnToStep` is set - i.e. the page was reached via a jump), which
+  navigates to the Tutorial page with a new `TutorialJumpRequest` carrying the file and that step;
+  `TutorialDetailControl` resolves it the same take-once-pending-target way, via its own `Loaded`
+  event and `GoToStep` (T8.4.3), finding the target step by reference within the just-rebuilt `Steps`.
+  Considered and rejected: restructuring `DiffsDetailControl`'s flat `DiffLines` list into
+  hunk-grouped sections to add a per-hunk "jump back" affordance on every hunk - unlike the "jump
+  forward, then back to where you came from" round trip this task actually describes, that would
+  have changed what the Diffs page shows (unified-diff hunks omit distant unchanged context
+  `DiffBuilder.GroupIntoHunks` already drops, unlike today's full-file `DiffLines` view) for no
+  additional capability, so the existing flat view and a single page-level "back" action were kept.
+  Likewise rejected: `CommunityToolkit.Mvvm`'s `IMessenger` (available via `ObservableRecipient` but
+  unused anywhere else in the codebase) and a new Core-level navigation-state service - the existing
+  `INavigationService.NavigateTo(pageKey, parameter)` plus a take-once field on each page's view
+  model, already established by `HistoryViewModel.Launch()`/`PromptViewModel.OnNavigatedTo`, was
+  sufficient. Covered by new `DiffsViewModelTests`, `TutorialStepViewModelTests`, and
+  `TutorialViewModelTests` cases exercising both jump directions, the `CanExecute` guard, and the
+  pending-target take-once behavior; the rest of the binding/navigation wiring (command bindings,
+  button visibility, `ScrollIntoView` calls) is validated by Avalonia's compiled bindings at build
+  time, since `AvaloniaUseCompiledBindingsByDefault` is enabled. A full interactive click-through
+  was attempted via headless rendering but blocked by a pre-existing, unrelated FluentAvalonia
+  `SymbolIcon` font-resolution limitation in this headless environment, not a defect in this change.
+  Full solution builds with 0 warnings/errors, 508/508 tests pass (347 Core + 161 Avalonia).
 
 ---
 
