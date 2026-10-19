@@ -22,7 +22,7 @@ public class SelectionPersistenceTests
             "/tmp");
 
         var tutorialViewModel = new TutorialViewModel(promptResultStore, new FakeApplyOrchestrationService(), new FakeApplyHistoryLog(), new FakeDialogService(), new FakeLlmRunner(), new PromptTemplateProvider(), new FakeFileSavePickerService());
-        var diffsViewModel = new DiffsViewModel(promptResultStore);
+        var diffsViewModel = new DiffsViewModel(promptResultStore, new FakeNavigationService());
         tutorialViewModel.OnNavigatedTo(null!);
         diffsViewModel.OnNavigatedTo(null!);
 
@@ -42,7 +42,7 @@ public class SelectionPersistenceTests
             "/tmp");
 
         var tutorialViewModel = new TutorialViewModel(promptResultStore, new FakeApplyOrchestrationService(), new FakeApplyHistoryLog(), new FakeDialogService(), new FakeLlmRunner(), new PromptTemplateProvider(), new FakeFileSavePickerService());
-        var diffsViewModel = new DiffsViewModel(promptResultStore);
+        var diffsViewModel = new DiffsViewModel(promptResultStore, new FakeNavigationService());
         tutorialViewModel.OnNavigatedTo(null!);
         diffsViewModel.OnNavigatedTo(null!);
 

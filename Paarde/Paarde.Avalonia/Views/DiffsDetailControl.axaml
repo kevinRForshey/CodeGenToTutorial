@@ -18,7 +18,7 @@
         </StackPanel>
 
         <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
-            <ItemsControl ItemsSource="{Binding DiffLines}">
+            <ItemsControl Name="DiffLinesItemsControl" ItemsSource="{Binding DiffLines}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="models:DiffLine">
                         <Grid Margin="4,0" ColumnDefinitions="Auto,*" Background="{Binding Kind, Converter={StaticResource DiffLineKindToBackgroundConverter}}">

@@ -1,3 +1,4 @@
+using Paarde.Avalonia.Models;
 using Paarde.Avalonia.Tests.Fakes;
 using Paarde.Avalonia.ViewModels;
 using Paarde.Core.Models;
@@ -694,5 +695,34 @@ public class TutorialViewModelTests
         {
             File.Delete(path);
         }
+    }
+
+    [Fact]
+    public void OnNavigatedTo_TutorialJumpRequest_SelectsTheRequestedFileAndExposesAPendingStepTarget()
+    {
+        var hunk = new ProposedHunk("Add it", "Explanation.", "snippet", null);
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original") { Hunks = [hunk] };
+        var otherFile = new ProposedFileChangeViewModel("b.txt", "proposed", "original");
+        _promptResultStore.SetResult("tutorial", [otherFile, file], "/tmp");
+        var sut = CreateSut();
+
+        sut.OnNavigatedTo(new TutorialJumpRequest(file, hunk));
+
+        Assert.Same(file, sut.Selected);
+        Assert.Same(hunk, sut.TakePendingStepTarget());
+    }
+
+    [Fact]
+    public void TakePendingStepTarget_CalledTwice_OnlyReturnsTheTargetOnce()
+    {
+        var hunk = new ProposedHunk("Add it", "Explanation.", "snippet", null);
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original") { Hunks = [hunk] };
+        _promptResultStore.SetResult("tutorial", [file], "/tmp");
+        var sut = CreateSut();
+        sut.OnNavigatedTo(new TutorialJumpRequest(file, hunk));
+
+        sut.TakePendingStepTarget();
+
+        Assert.Null(sut.TakePendingStepTarget());
     }
 }

@@ -1292,7 +1292,40 @@ committed yet — review `git status`/`git diff` before committing.
   the exporter against representative multi-file, multi-step input and inspecting the generated
   Markdown/HTML directly. Covered by new `TutorialExporterTests` and `TutorialViewModelTests` export
   cases. Full solution builds with 0 warnings/errors, 501/501 tests pass (347 Core + 154 Avalonia).
-- T8.4.5 Jump from a tutorial step to the corresponding hunk in the diff viewer, and back.
+- [x] T8.4.5 Jump from a tutorial step to the corresponding hunk in the diff viewer, and back. — done
+  2026-10-18: a step's "View in Diff" button (`TutorialStepViewModel.ViewInDiffCommand`, disabled
+  when `Hunk.MatchedDiffHunks` is empty - nothing resolved to jump to) navigates to the Diffs page
+  with a new `DiffJumpRequest` (`Paarde.Avalonia.Models`, following the existing `PromptLaunchRequest`
+  pattern) carrying the shared `ProposedFileChangeViewModel` instance, the target `DiffHunk`, and the
+  originating step. `DiffsViewModel.OnNavigatedTo` selects that file and stashes the hunk as a
+  "take-once" pending scroll target; `DiffsDetailControl`'s `Loaded` event (fired once this control -
+  materialized per selected file via `DiffsView`'s `ContentTemplate` - is attached, by which point its
+  `DataContext` is already set) reads it back via `this.FindAncestorOfType<DiffsView>()?.ViewModel` and
+  scrolls the (now-named) `DiffLinesItemsControl` to `DiffHunk.SourceRangeStart` - the same
+  `ItemsControl.ScrollIntoView(int)` already used for step navigation (T8.4.3). The way back is a
+  "Back to Tutorial" button on the Diffs page itself (bound to a new `BackToTutorialCommand`, visible
+  only when `DiffsViewModel.ReturnToStep` is set - i.e. the page was reached via a jump), which
+  navigates to the Tutorial page with a new `TutorialJumpRequest` carrying the file and that step;
+  `TutorialDetailControl` resolves it the same take-once-pending-target way, via its own `Loaded`
+  event and `GoToStep` (T8.4.3), finding the target step by reference within the just-rebuilt `Steps`.
+  Considered and rejected: restructuring `DiffsDetailControl`'s flat `DiffLines` list into
+  hunk-grouped sections to add a per-hunk "jump back" affordance on every hunk - unlike the "jump
+  forward, then back to where you came from" round trip this task actually describes, that would
+  have changed what the Diffs page shows (unified-diff hunks omit distant unchanged context
+  `DiffBuilder.GroupIntoHunks` already drops, unlike today's full-file `DiffLines` view) for no
+  additional capability, so the existing flat view and a single page-level "back" action were kept.
+  Likewise rejected: `CommunityToolkit.Mvvm`'s `IMessenger` (available via `ObservableRecipient` but
+  unused anywhere else in the codebase) and a new Core-level navigation-state service - the existing
+  `INavigationService.NavigateTo(pageKey, parameter)` plus a take-once field on each page's view
+  model, already established by `HistoryViewModel.Launch()`/`PromptViewModel.OnNavigatedTo`, was
+  sufficient. Covered by new `DiffsViewModelTests`, `TutorialStepViewModelTests`, and
+  `TutorialViewModelTests` cases exercising both jump directions, the `CanExecute` guard, and the
+  pending-target take-once behavior; the rest of the binding/navigation wiring (command bindings,
+  button visibility, `ScrollIntoView` calls) is validated by Avalonia's compiled bindings at build
+  time, since `AvaloniaUseCompiledBindingsByDefault` is enabled. A full interactive click-through
+  was attempted via headless rendering but blocked by a pre-existing, unrelated FluentAvalonia
+  `SymbolIcon` font-resolution limitation in this headless environment, not a defect in this change.
+  Full solution builds with 0 warnings/errors, 508/508 tests pass (347 Core + 161 Avalonia).
 
 ---
 

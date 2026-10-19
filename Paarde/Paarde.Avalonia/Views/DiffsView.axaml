@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:ui="using:FluentAvalonia.UI.Controls"
+             xmlns:conv="using:Avalonia.Data.Converters"
              xmlns:coreVm="using:Paarde.Core.ViewModels"
              xmlns:views="using:Paarde.Avalonia.Views"
              xmlns:vm="using:Paarde.Avalonia.ViewModels"
@@ -8,25 +9,33 @@
              x:DataType="vm:DiffsViewModel">
 
     <Grid ColumnDefinitions="280,*">
-        <ListBox Grid.Column="0"
-                 Name="FileList"
-                 ItemsSource="{Binding Files}"
-                 SelectedItem="{Binding Selected, Mode=TwoWay}">
-            <ListBox.ItemTemplate>
-                <DataTemplate x:DataType="coreVm:ProposedFileChangeViewModel">
-                    <Grid Height="48" ColumnDefinitions="Auto,Auto,*">
-                        <CheckBox Grid.Column="0" IsThreeState="True" VerticalAlignment="Center"
-                                  IsChecked="{Binding IsSelected, Mode=TwoWay}"
-                                  ToolTip.Tip="Select which of this file's changes to apply." />
-                        <ui:SymbolIcon Grid.Column="1" Symbol="Document" VerticalAlignment="Center" Margin="4,0,0,0" />
-                        <StackPanel Grid.Column="2" Margin="8,0,0,0" VerticalAlignment="Center">
-                            <TextBlock Text="{Binding FilePath}" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Text="{Binding SelectionSummary}" FontSize="11" Opacity="0.7" />
-                        </StackPanel>
-                    </Grid>
-                </DataTemplate>
-            </ListBox.ItemTemplate>
-        </ListBox>
+        <Grid Grid.Column="0" RowDefinitions="Auto,*">
+            <!-- T8.4.5: only shown when this page was reached via a tutorial step's "View in Diff"
+                 jump (ReturnToStep set) - returns to that step, the reverse of the jump here. -->
+            <Button Grid.Row="0" Margin="8,8,8,0" Content="◀ Back to Tutorial" Command="{Binding BackToTutorialCommand}"
+                     HorizontalAlignment="Stretch"
+                     IsVisible="{Binding ReturnToStep, Converter={x:Static conv:ObjectConverters.IsNotNull}}" />
+
+            <ListBox Grid.Row="1"
+                     Name="FileList"
+                     ItemsSource="{Binding Files}"
+                     SelectedItem="{Binding Selected, Mode=TwoWay}">
+                <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="coreVm:ProposedFileChangeViewModel">
+                        <Grid Height="48" ColumnDefinitions="Auto,Auto,*">
+                            <CheckBox Grid.Column="0" IsThreeState="True" VerticalAlignment="Center"
+                                      IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                      ToolTip.Tip="Select which of this file's changes to apply." />
+                            <ui:SymbolIcon Grid.Column="1" Symbol="Document" VerticalAlignment="Center" Margin="4,0,0,0" />
+                            <StackPanel Grid.Column="2" Margin="8,0,0,0" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding FilePath}" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding SelectionSummary}" FontSize="11" Opacity="0.7" />
+                            </StackPanel>
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Grid>
 
         <Border Grid.Column="1" Padding="16">
             <Grid>

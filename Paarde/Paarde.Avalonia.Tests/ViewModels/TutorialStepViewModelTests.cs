@@ -1,3 +1,4 @@
+using Paarde.Avalonia.Models;
 using Paarde.Avalonia.Tests.Fakes;
 using Paarde.Avalonia.ViewModels;
 using Paarde.Core.Models;
@@ -9,6 +10,7 @@ public class TutorialStepViewModelTests
 {
     private readonly FakeFileChangeApplyService _fileChangeApplyService = new();
     private readonly FakeLlmRunner _llmRunner = new();
+    private readonly FakeNavigationService _navigationService = new();
 
     private TutorialStepViewModel CreateSut(string? resumeSessionId = "session-1") =>
         new(
@@ -18,6 +20,7 @@ public class TutorialStepViewModelTests
             resumeSessionId,
             _fileChangeApplyService,
             _llmRunner,
+            _navigationService,
             stepNumber: 1,
             totalSteps: 1);
 
@@ -31,12 +34,37 @@ public class TutorialStepViewModelTests
             "session-1",
             _fileChangeApplyService,
             _llmRunner,
+            _navigationService,
             stepNumber: 2,
             totalSteps: 4);
 
         Assert.Equal(2, sut.StepNumber);
         Assert.Equal(4, sut.TotalSteps);
         Assert.Equal("Step 2:", sut.StepLabel);
+    }
+
+    [Fact]
+    public void CanViewInDiff_HunkWithNoMatchedDiffHunks_IsFalse()
+    {
+        var sut = CreateSut();
+
+        Assert.False(sut.ViewInDiffCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public void ViewInDiff_HunkWithAMatchedDiffHunk_NavigatesToDiffsWithThatHunkAndThisStep()
+    {
+        var hunk = new ProposedHunk("Add line2", string.Empty, "line2", new HunkLocation(1, 1));
+        var file = new ProposedFileChangeViewModel("a.cs", "line1\nline2", "line1") { Hunks = new[] { hunk } };
+        var sut = new TutorialStepViewModel(hunk, file, "/tmp", "session-1", _fileChangeApplyService, _llmRunner, _navigationService, stepNumber: 1, totalSteps: 1);
+
+        Assert.True(sut.ViewInDiffCommand.CanExecute(null));
+        sut.ViewInDiffCommand.Execute(null);
+
+        var request = Assert.IsType<DiffJumpRequest>(_navigationService.LastParameter);
+        Assert.Same(file, request.File);
+        Assert.Same(hunk.MatchedDiffHunks[0], request.TargetHunk);
+        Assert.Same(hunk, request.OriginStep);
     }
 
     [Fact]

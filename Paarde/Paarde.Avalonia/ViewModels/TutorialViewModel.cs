@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 
 using Paarde.Avalonia.Contracts.Services;
 using Paarde.Avalonia.Contracts.ViewModels;
+using Paarde.Avalonia.Models;
 using Paarde.Avalonia.Strings;
 using Paarde.Core.Contracts.Services;
 using Paarde.Core.Helpers;
@@ -22,6 +23,11 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
     private readonly ILlmRunner _llmRunner;
     private readonly IPromptTemplateProvider _promptTemplateProvider;
     private readonly IFileSavePickerService _fileSavePickerService;
+
+    // T8.4.5: the step TutorialDetailControl should scroll to once it's materialized for the file a
+    // TutorialJumpRequest selected - "take once" (read and cleared by TutorialDetailControl.axaml.cs)
+    // so a later, unrelated re-materialization of the same control never re-triggers the scroll.
+    private ProposedHunk? _pendingStepTarget;
 
     // T8.4.1: the `## Tutorial` overview PromptViewModel parses into PromptResultStore.Tutorial but
     // no view previously read - pulled on navigation the same way Files already is, rather than a
@@ -100,6 +106,15 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
             Files.Add(file);
         }
 
+        // T8.4.5: a jump from the Diffs page's "Back to tutorial" selects its file directly and
+        // remembers which step to scroll to, rather than relying on EnsureItemSelected's first-file
+        // default below.
+        if (parameter is TutorialJumpRequest jump)
+        {
+            _pendingStepTarget = jump.TargetStep;
+            Selected = jump.File;
+        }
+
         // The WinUI version only auto-selects the first file once the master/detail view reports it has
         // room to show both panes side by side; the hand-built two-pane layout here always shows both,
         // so it's safe to select eagerly instead of waiting for a ViewStateChanged-equivalent signal.
@@ -148,6 +163,15 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
     public void EnsureItemSelected()
     {
         Selected ??= Files.FirstOrDefault();
+    }
+
+    // "Take once" accessor for the step target a TutorialJumpRequest set - called by
+    // TutorialDetailControl.axaml.cs once it's materialized for the target file.
+    public ProposedHunk? TakePendingStepTarget()
+    {
+        var target = _pendingStepTarget;
+        _pendingStepTarget = null;
+        return target;
     }
 
     // F3.3: applies every selected hunk/whole-file change across every file in the tutorial, not
