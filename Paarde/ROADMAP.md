@@ -1278,7 +1278,20 @@ committed yet — review `git status`/`git diff` before committing.
   position tracking, not a persisted "applied" progress metric. Verified by rendering the nav
   panel/step header layout headlessly (`Avalonia.Headless` + `UseSkia()`). Full solution builds with
   0 warnings/errors, 491/491 tests pass (342 Core + 149 Avalonia).
-- T8.4.4 Export the tutorial to markdown/HTML.
+- [x] T8.4.4 Export the tutorial to markdown/HTML. — done
+  2026-10-18: new `TutorialExporter` (`Paarde.Core.Helpers`) builds a self-contained Markdown or HTML
+  document from the overview plus each file's steps, numbered per file the same way
+  `TutorialStepViewModel.StepLabel` (T8.4.3) numbers them in the UI - `BuildHtml` reuses
+  `MarkdownInlineParser` (T8.4.2) to render explanations consistently with the in-app
+  `MarkdownTextBlock` rather than a second markdown implementation, HTML-escaping everything else.
+  `TutorialView` gained "Export as Markdown"/"Export as HTML" buttons bound to two new
+  `TutorialViewModel` commands (disabled when there's neither an overview nor any files), which use
+  a new `IFileSavePickerService` (`FileSavePickerService`, following the existing `IFolderPickerService`/
+  `IFilePickerService` pattern around `IStorageProvider`) to pick a destination before writing with
+  `File.WriteAllText` and reporting the result via a new `ExportStatusMessage`. Verified by running
+  the exporter against representative multi-file, multi-step input and inspecting the generated
+  Markdown/HTML directly. Covered by new `TutorialExporterTests` and `TutorialViewModelTests` export
+  cases. Full solution builds with 0 warnings/errors, 501/501 tests pass (347 Core + 154 Avalonia).
 - T8.4.5 Jump from a tutorial step to the corresponding hunk in the diff viewer, and back.
 
 ---

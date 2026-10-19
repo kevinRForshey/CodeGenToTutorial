@@ -21,6 +21,7 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
     private readonly IDialogService _dialogService;
     private readonly ILlmRunner _llmRunner;
     private readonly IPromptTemplateProvider _promptTemplateProvider;
+    private readonly IFileSavePickerService _fileSavePickerService;
 
     // T8.4.1: the `## Tutorial` overview PromptViewModel parses into PromptResultStore.Tutorial but
     // no view previously read - pulled on navigation the same way Files already is, rather than a
@@ -47,6 +48,12 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
     [ObservableProperty]
     private bool isRefining;
 
+    // T8.4.4: status for the export-to-file commands below, surfaced the same inline way as
+    // ApplyStatusMessage rather than a dialog - exporting isn't a destructive/multi-outcome
+    // operation worth interrupting the user for.
+    [ObservableProperty]
+    private string exportStatusMessage = string.Empty;
+
     public ObservableCollection<ProposedFileChangeViewModel> Files { get; } = new();
 
     // T4.2.3: display-ready rows for the apply-history log, newest first. Populated from
@@ -58,7 +65,7 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
     // show before the first apply of the session.
     public bool HasApplyHistory => ApplyHistoryEntries.Count > 0;
 
-    public TutorialViewModel(IPromptResultStore promptResultStore, IApplyOrchestrationService applyOrchestrationService, IApplyHistoryLog applyHistoryLog, IDialogService dialogService, ILlmRunner llmRunner, IPromptTemplateProvider promptTemplateProvider)
+    public TutorialViewModel(IPromptResultStore promptResultStore, IApplyOrchestrationService applyOrchestrationService, IApplyHistoryLog applyHistoryLog, IDialogService dialogService, ILlmRunner llmRunner, IPromptTemplateProvider promptTemplateProvider, IFileSavePickerService fileSavePickerService)
     {
         _promptResultStore = promptResultStore;
         _applyOrchestrationService = applyOrchestrationService;
@@ -66,6 +73,7 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
         _dialogService = dialogService;
         _llmRunner = llmRunner;
         _promptTemplateProvider = promptTemplateProvider;
+        _fileSavePickerService = fileSavePickerService;
 
         // ObservableCollection<T> raises PropertyChanged("Count") on its own, but HasNoFiles/
         // HasFilesButNoneSelected are derived from that count rather than being Count itself, so
@@ -74,6 +82,8 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
         {
             OnPropertyChanged(nameof(HasNoFiles));
             OnPropertyChanged(nameof(HasFilesButNoneSelected));
+            ExportTutorialAsMarkdownCommand.NotifyCanExecuteChanged();
+            ExportTutorialAsHtmlCommand.NotifyCanExecuteChanged();
         };
 
         ApplyHistoryEntries.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasApplyHistory));
@@ -118,7 +128,12 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
     // plain-text/unstructured response) can still have a non-empty overview worth showing.
     public bool HasTutorialOverview => !string.IsNullOrWhiteSpace(Tutorial);
 
-    partial void OnTutorialChanged(string value) => OnPropertyChanged(nameof(HasTutorialOverview));
+    partial void OnTutorialChanged(string value)
+    {
+        OnPropertyChanged(nameof(HasTutorialOverview));
+        ExportTutorialAsMarkdownCommand.NotifyCanExecuteChanged();
+        ExportTutorialAsHtmlCommand.NotifyCanExecuteChanged();
+    }
 
     partial void OnSelectedChanged(ProposedFileChangeViewModel? value)
     {
@@ -350,6 +365,39 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
     }
 
     private bool CanRefineSelectedFile() => Selected is not null && !string.IsNullOrWhiteSpace(RefineInstruction) && !IsRefining;
+
+    // T8.4.4: builds a self-contained document (TutorialExporter, Core) a user can save and share
+    // outside the app - Markdown and HTML share this one picker-then-write flow, differing only in
+    // which exporter/file-type/extension they pass in.
+    [RelayCommand(CanExecute = nameof(CanExportTutorial))]
+    private Task ExportTutorialAsMarkdownAsync() =>
+        ExportTutorialAsync("Tutorial_ExportAsMarkdownTitle".GetLocalized(), "tutorial.md", "Markdown", "md", TutorialExporter.BuildMarkdown);
+
+    [RelayCommand(CanExecute = nameof(CanExportTutorial))]
+    private Task ExportTutorialAsHtmlAsync() =>
+        ExportTutorialAsync("Tutorial_ExportAsHtmlTitle".GetLocalized(), "tutorial.html", "HTML", "html", TutorialExporter.BuildHtml);
+
+    private bool CanExportTutorial() => Files.Count > 0 || HasTutorialOverview;
+
+    private async Task ExportTutorialAsync(string title, string suggestedFileName, string fileTypeName, string extension, Func<string, IReadOnlyList<ProposedFileChangeViewModel>, string> buildContent)
+    {
+        var path = await _fileSavePickerService.PickSaveFileAsync(title, suggestedFileName, fileTypeName, [extension]);
+
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
+
+        try
+        {
+            File.WriteAllText(path, buildContent(Tutorial, Files));
+            ExportStatusMessage = string.Format("Tutorial_ExportSucceeded".GetLocalized(), path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            ExportStatusMessage = string.Format("Tutorial_ExportFailed".GetLocalized(), ex.Message);
+        }
+    }
 
     // Files/IPromptResultStore.Files both hold the same instances (see OnNavigatedTo), and
     // ProposedFileChangeViewModel can't be mutated into a new file's shape in place (Hunks is

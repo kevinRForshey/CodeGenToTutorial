@@ -70,6 +70,10 @@ public static class Resources
         ["Tutorial_RefineFailed"] = "Failed to refine {0}: {1}",
         ["Tutorial_RefineNoMatchingFile"] = "Claude's response didn't include an updated version of {0}.",
         ["Tutorial_RefineSucceeded"] = "Refined {0}.",
+        ["Tutorial_ExportAsMarkdownTitle"] = "Export tutorial as Markdown",
+        ["Tutorial_ExportAsHtmlTitle"] = "Export tutorial as HTML",
+        ["Tutorial_ExportSucceeded"] = "Exported the tutorial to {0}.",
+        ["Tutorial_ExportFailed"] = "Failed to export the tutorial: {0}",
     };
 
     public static string GetLocalized(this string resourceKey) =>
