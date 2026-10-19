@@ -1294,7 +1294,7 @@ committed yet — review `git status`/`git diff` before committing.
   warnings/errors, 527/527 tests pass (355 Core + 172 Avalonia).
 
 **F8.2 — Shell & workspace**
-- T8.2.1 Replace the empty `MainView` with a real dashboard/landing page (recent projects, recent
+- [x] T8.2.1 Replace the empty `MainView` with a real dashboard/landing page (recent projects, recent
   runs, quick prompt). — partial progress 2026-10-18: `MainView` is no longer an empty `Grid` - it
   now shows a logo/wordmark header (a plain vector monogram badge; no image-generation tooling was
   available to produce real artwork) and a static numbered "Getting started" walkthrough of the
@@ -1303,6 +1303,32 @@ committed yet — review `git status`/`git diff` before committing.
   `.axaml` rather than `Strings/Resources.cs`. Recent projects, recent runs, and a quick-prompt
   entry point are still outstanding - this task isn't done, just no longer blocked on there being
   nothing on the page at all.
+  Done 2026-10-19: `MainViewModel` gained `IRunSessionStore`/`ILocalSettingsService`/
+  `INavigationService` dependencies (all already-registered singletons) and now implements
+  `INavigationAware`. `OnNavigatedTo` reads `IRunSessionStore.ListSessions()` (the same source the
+  History page uses) and populates `RecentRuns` (newest 5, reusing `HistorySessionRow.From` for
+  identical display formatting) and `RecentProjects` (newest 5 *distinct* `WorkingDirectoryPath`
+  values - `Distinct()` over an already-newest-first list keeps each path's most recent occurrence
+  without a second sort). Both lists are selection-driven (`SelectedRecentRun`/
+  `SelectedRecentProject` + an `Open`/`Switch to this project` button) rather than a command bound
+  per row reaching back out to `MainViewModel` from inside an `ItemsControl`'s `DataTemplate` -
+  mirrors `HistoryViewModel.Selected`/`ForkCommand` exactly, and sidesteps any ancestor-binding
+  fragility under compiled bindings. `OpenRecentRunCommand` reopens a run on the Prompt page via a
+  `PromptLaunchRequest` with `AutoRun: false` (same as `HistoryViewModel.Fork` - this is the app's
+  first screen, so sending straight to the CLI without a chance to review first would be
+  surprising). `OpenRecentProjectCommand` is deliberately *not* a `PromptLaunchRequest` - it only
+  saves the chosen path under `WorkingDirectorySettingsKeys.WorkingDirectory` (the same setting
+  `PromptViewModel`/`ExplorerViewModel` already read) and navigates with no parameter, so it
+  doesn't clobber whatever draft prompt text is already saved there the way overriding
+  `PromptText` would. The quick-prompt box (`QuickPromptText` + `SendQuickPromptCommand`, gated on
+  non-blank text) also hands off via `PromptLaunchRequest` with `AutoRun: false`, reading the
+  last-saved working directory first so the Prompt page doesn't lose it the way passing `""` would.
+  Covered by new `MainViewModelTests` (empty state, population/cap/distinct-projects from
+  `ListSessions`, both commands' `CanExecute` gating and navigation parameters, quick-prompt gating
+  and navigation). Full solution builds with 0 warnings/errors, 536/536 tests pass (355 Core + 181
+  Avalonia). Not visually verified - this sandbox has no X server and no committed
+  `Avalonia.Headless` test host (prior attempts at this, e.g. T8.1.1/T8.4.5, were one-off scratch
+  probes, not infrastructure left in the repo) - reviewed by hand and via the new tests instead.
 - T8.2.2 Tabbed editing of multiple files.
 - T8.2.3 Resizable/collapsible panes; persist layout.
 - T8.2.4 Recent-projects list and fast project switching.

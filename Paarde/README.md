@@ -22,7 +22,9 @@ with an explanation, and nothing is written to your files until you choose to ap
    in-app before it's written, and apply only what you want.
 5. **Apply, undo, revert** — apply the selected changes to disk, undo the last apply, or revert
    everything the current session has applied — all without leaving the app.
-6. **History** — every run is saved. Browse past runs, re-run one as-is, or fork it (reload its
+6. **Explore** — browse your whole project tree, gitignore-aware, with files touched by the current
+   proposal marked; open any file, proposed or not, in a read-only preview.
+7. **History** — every run is saved. Browse past runs, re-run one as-is, or fork it (reload its
    prompt and working directory for editing) to continue down a different path.
 
 ## Why Avalonia (cross-platform by design)
@@ -87,7 +89,15 @@ Paarde runs the same way on Windows, Linux, and macOS — there's no platform-sp
 
 ## Usage
 
-### 1. Prompt page
+### 1. Main page
+
+The landing page when Paarde opens: a quick "Getting started" walkthrough of the Prompt → Tutorial/
+Diffs → Apply → Settings flow for first-time users, a **quick prompt** box that hands straight off
+to the Prompt page, and - once you've run at least one prompt - **Recent runs** (reopen a past
+run's prompt and working directory to edit before sending) and **Recent projects** (switch the
+Prompt page's working directory to one you've used before) lists.
+
+### 2. Prompt page
 
 - **Project location** — click **Browse...** to choose the folder Claude Code should treat as its
   working directory. This is the folder it reads from and writes to.
@@ -106,21 +116,36 @@ Paarde runs the same way on Windows, Linux, and macOS — there's no platform-sp
   count show that a response is streaming in; once it completes you're told how many files are ready
   to review. **Cancel** stops an in-flight run.
 
-### 2. Diffs page
+### 3. Explorer page
+
+Browse the full file tree of your current working directory — not just the files touched by a
+proposal. The tree is gitignore-aware (it matches your project's root `.gitignore` the same way
+apply-time safety checks do) and always excludes `.git`. Files touched by the current proposal are
+marked with a small accent dot next to their name. Select any file, proposed or not, to see its
+content in a read-only, syntax-highlighted preview on the right.
+
+### 4. Diffs page
 
 Pick a file from the list on the left to see a color-coded line-by-line diff against what's
 currently on disk (or, for a brand-new file, the whole thing shown as additions). **Copy file
-contents** copies the proposed content to your clipboard.
+contents** copies the proposed content to your clipboard. If you arrived here by jumping from a
+tutorial step (see below), a **Back to Tutorial** button returns you to that exact step.
 
-### 3. Tutorial page
+### 5. Tutorial page
 
 This is where you actually decide what to keep:
 
+- An **Overview** section at the top shows Claude's plain-language summary of the whole response,
+  when one was given.
+- Explanations and overview text render basic Markdown — bold/italic emphasis, `code` spans, and
+  bullet/numbered lists — instead of flat text.
 - Pick a file from the list to see its explanation and an **editable** code box — you can tweak
   Claude's proposed content before anything is applied.
-- Where the response breaks a file's change into discrete steps, each shows its own title,
-  explanation, a checkbox to include/exclude it, and an **Apply this change** / **Explain further**
-  button.
+- Where the response breaks a file's change into discrete steps, each shows its own numbered title
+  ("Step N:"), explanation, a checkbox to include/exclude it, and **Apply this change** / **Explain
+  further** / **View in Diff** buttons. A progress bar plus Previous/Next buttons above the steps
+  list let you step through them in order; **View in Diff** jumps straight to that step's hunk on
+  the Diffs page.
 - Use **Select all / Select none / Invert selection** per file, or check/uncheck a file in the list
   to include or exclude it entirely.
 - **Undo** / **Redo** revert your in-editor edits; **Revert to proposed** discards your edits back to
@@ -132,14 +157,16 @@ This is where you actually decide what to keep:
   before the session started.
 - **Refine selected file** sends a scoped follow-up instruction that only asks Claude to change the
   currently selected file, continuing the same conversation.
+- **Export as Markdown** / **Export as HTML** save the overview and every file's steps as a
+  self-contained document you can share or archive outside the app.
 
-### 4. History page
+### 6. History page
 
 Every run is persisted automatically. Select a past session from the list to see its files; use
 **Fork** to reload that run's prompt and working directory onto the Prompt page for editing, or
 **Re-run** to send it again immediately.
 
-### 5. Settings page
+### 7. Settings page
 
 - **Theme** — Light, Dark, or Default (follow the OS).
 - **Claude Code CLI** — override the executable path and arguments if `claude` isn't on your `PATH`
