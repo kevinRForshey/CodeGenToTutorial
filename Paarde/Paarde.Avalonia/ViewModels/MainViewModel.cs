@@ -106,10 +106,12 @@ public partial class MainViewModel : ObservableRecipient, INavigationAware
 
     private bool CanOpenRecentRun() => SelectedRecentRun is not null;
 
-    // Fast project switching (T8.2.4's eventual list-of-its-own, surfaced here in miniature for
-    // T8.2.1): persists the chosen path as the saved working directory - the same setting
-    // PromptViewModel/ExplorerViewModel already read - then hands off, rather than clearing
-    // whatever draft prompt text is already saved the way a PromptLaunchRequest would.
+    // Fast project switching (T8.2.1's dashboard miniature of this; T8.2.4 added the Prompt
+    // page's own recent-working-directories dropdown, via PromptViewModel.RecentWorkingDirectories,
+    // for switching without leaving that page): persists the chosen path as the saved working
+    // directory - the same setting PromptViewModel/ExplorerViewModel already read - then hands
+    // off, rather than clearing whatever draft prompt text is already saved the way a
+    // PromptLaunchRequest would.
     [RelayCommand(CanExecute = nameof(CanOpenRecentProject))]
     private async Task OpenRecentProjectAsync()
     {

@@ -104,7 +104,8 @@ Prompt page's working directory to one you've used before) lists.
 ### 2. Prompt page
 
 - **Project location** — click **Browse...** to choose the folder Claude Code should treat as its
-  working directory. This is the folder it reads from and writes to.
+  working directory. This is the folder it reads from and writes to. The **Recent...** dropdown
+  next to it switches straight to a previously-used working directory without leaving this page.
 - **Context files** — optionally attach specific files or a whole folder as extra context for the
   model, beyond what's in the working directory.
 - **Prompt text** — describe what you want built, fixed, or changed, in plain English. A live

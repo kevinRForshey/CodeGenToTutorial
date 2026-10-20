@@ -27,6 +27,10 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
     private const string ContextPathsSettingsKey = "SavedContextPaths";
     private const int DefaultTimeoutSeconds = 300;
 
+    // T8.2.4: keeps the quick-switch list to a glance-able size, same rationale/value as
+    // MainViewModel.MaxRecentProjects (T8.2.1's dashboard list this mirrors).
+    private const int MaxRecentWorkingDirectories = 5;
+
     // T5.3.1: the instructions prepended to every prompt sent to Claude Code used to live here as a
     // hard-coded const; now it's Paarde.Core/Prompts/TutorialInstructionPromptV1.txt,
     // loaded through IPromptTemplateProvider so the schema contract can change (a new versioned
@@ -67,6 +71,18 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
 
     [ObservableProperty]
     private string workingDirectoryPath = string.Empty;
+
+    // T8.2.4: fast project switching without leaving this page - MainViewModel's Recent Projects
+    // (T8.2.1) only helps when landing on the Main page, not while already here. Selecting an
+    // item just switches WorkingDirectoryPath and resets back to null (see
+    // OnSelectedRecentWorkingDirectoryChanged) rather than staying "selected", since the real
+    // current value is already shown in the working-directory text box above.
+    public ObservableCollection<string> RecentWorkingDirectories { get; } = new();
+
+    public bool HasRecentWorkingDirectories => RecentWorkingDirectories.Count > 0;
+
+    [ObservableProperty]
+    private string? selectedRecentWorkingDirectory;
 
     [ObservableProperty]
     private int timeoutSeconds = DefaultTimeoutSeconds;
@@ -154,6 +170,7 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
         // T5.4.2: ObservableCollection<T> doesn't go through an [ObservableProperty]'s On*Changed
         // hook, so attachments need their own recompute trigger here instead.
         AttachedPaths.CollectionChanged += (_, _) => UpdateEstimatedTokenCountDisplay();
+        RecentWorkingDirectories.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasRecentWorkingDirectories));
     }
 
     public async void OnNavigatedTo(object parameter)
@@ -178,6 +195,18 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
         }
 
         StatusMessage = string.Empty;
+
+        // T8.2.4: newest-first (IRunSessionStore.ListSessions' own contract), same
+        // Distinct()-keeps-most-recent approach as MainViewModel's Recent Projects.
+        RecentWorkingDirectories.Clear();
+        foreach (var path in _runSessionStore.ListSessions()
+            .Select(session => session.WorkingDirectoryPath)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct()
+            .Take(MaxRecentWorkingDirectories))
+        {
+            RecentWorkingDirectories.Add(path);
+        }
 
         // T7.2.3: a launch from the History page overrides whatever was just loaded from settings
         // above with the prompt/working directory of the session being re-run or forked - Re-run
@@ -554,6 +583,21 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
     }
 
     partial void OnSelectedAttachedPathChanged(string? value) => RemoveAttachedPathCommand.NotifyCanExecuteChanged();
+
+    // T8.2.4: picking a recent working directory switches to it immediately and persists it the
+    // same way BrowseWorkingDirectoryAsync does, then clears the selection back to null so the
+    // dropdown returns to its placeholder rather than appearing permanently "stuck" on one entry.
+    partial void OnSelectedRecentWorkingDirectoryChanged(string? value)
+    {
+        if (value is null)
+        {
+            return;
+        }
+
+        WorkingDirectoryPath = value;
+        _localSettingsService.SaveSettingAsync(WorkingDirectorySettingsKeys.WorkingDirectory, WorkingDirectoryPath);
+        SelectedRecentWorkingDirectory = null;
+    }
 
     private async void UpdateEstimatedTokenCountDisplay()
     {

@@ -1394,7 +1394,25 @@ committed yet — review `git status`/`git diff` before committing.
   Avalonia). Not visually verified - same sandbox limitation as every other UI-only task (no X
   server, no committed `Avalonia.Headless` test host) - reviewed by hand and via the new tests
   instead.
-- T8.2.4 Recent-projects list and fast project switching.
+- [x] T8.2.4 **Recent-projects list and fast project switching.** — done 2026-10-20: T8.2.1 already
+  put a Recent Projects list on the Main page, but that only helps when landing on that page - it
+  doesn't help while already working on the Prompt page. This adds a `RecentWorkingDirectories`
+  collection + `HasRecentWorkingDirectories`/`SelectedRecentWorkingDirectory` to `PromptViewModel`,
+  populated on `OnNavigatedTo` the same way (`IRunSessionStore.ListSessions()` -> distinct
+  `WorkingDirectoryPath`, newest-first, capped at 5) as `MainViewModel.RecentProjects`, and a
+  `Recent...` `ComboBox` next to the existing **Browse...** button in `PromptView.axaml` (only
+  visible once there's at least one entry). Picking an item immediately sets `WorkingDirectoryPath`,
+  persists it via the same `WorkingDirectorySettingsKeys.WorkingDirectory` setting
+  `BrowseWorkingDirectoryAsync` already writes, and resets the selection back to null so the
+  dropdown returns to its placeholder rather than looking permanently stuck on one entry - the
+  working directory text box above it already shows the current value, so the combo doesn't need
+  to keep "holding" it. No new service or command was needed; this is deliberately the same
+  shape as `MainViewModel`'s existing recent-projects handling rather than a new abstraction.
+  Covered by 4 new `PromptViewModelTests`: no sessions leaves the list empty, recent working
+  directories come back distinct and capped at 5, and selecting an entry switches/persists the
+  working directory and clears the selection. Full solution builds with 0 warnings/errors,
+  551/551 tests pass (355 Core + 196 Avalonia). Not visually verified - same sandbox limitation as
+  every other UI-only task (no X server, no committed `Avalonia.Headless` test host).
 
 **F8.3 — Better diff viewer**
 - T8.3.1 Side-by-side mode in addition to inline.
