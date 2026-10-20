@@ -1473,7 +1473,40 @@ committed yet — review `git status`/`git diff` before committing.
   570/570 tests pass (374 Core + 196 Avalonia, up from 558). Not visually verified - same sandbox
   limitation as every other UI-only task (no X server, no committed `Avalonia.Headless` test host);
   confirmed only that the app still launches without throwing (`timeout`; exit code 124).
-- T8.3.3 Intra-line (word-level) highlighting.
+- [x] T8.3.3 **Intra-line (word-level) highlighting.** — done 2026-10-20: `DiffBuilder`'s line-level
+  LCS diff was refactored behind a shared private `ComputeDiff(string[], string[])` so the same
+  algorithm (and the same `MaxLcsCells` fallback) could be reused at word granularity; a new public
+  `BuildWordDiff(originalLine, proposedLine)` tokenizes each line with a word-boundary regex (word
+  runs vs. non-word/whitespace runs, split losslessly so the tokens always reconstruct the original
+  line exactly) and returns the token-level diff as the same `DiffLine` record type line diffs
+  already use, rather than inventing a parallel model. `SideBySideDiffRow` gained two new optional
+  trailing properties, `OriginalWordSpans`/`ProposedWordSpans` (`IReadOnlyList<DiffLine>?`, default
+  null), populated inside `BuildSideBySideRows`'s existing run-pairing (`FlushRun`) only for a
+  genuine Removed/Added pair - not a padded cell, and not an Unchanged line, neither of which has
+  anything meaningful to diff against - via a small `ExtractSide` helper that filters the word diff
+  down to one side by excluding the other side's token kind. The inline view has no equivalent
+  row-level pairing to hang this off of (an inline Removed line and its Added partner are two
+  separate rows), so a dedicated `ComputeInlineWordSpans` walks `diffLines` the same way
+  `BuildSideBySideRows` does but just to build a `LineIndex -> word spans` map, consumed by
+  `BuildCollapsibleRows` (which also gained a matching optional `WordSpans` property on
+  `CollapsibleDiffRow`); `CollapsibleSideBySideDiffRow` needed no change since its wrapped `Row`
+  already carries the new properties. Rendering required a new custom control,
+  `DiffWordSpanTextBlock` (a `TextBlock` subclass modeled on the existing `MarkdownTextBlock`
+  precedent, since `TextBlock.Inlines` can't be populated via a plain per-item XAML binding), which
+  rebuilds its `Inlines` as plain `Run`s when `WordSpans` is null (falling back to one run of
+  `LineText`, identical to a normal `TextBlock`) or as per-token `Run`s with a stronger-alpha
+  version of `DiffLineKindToBackgroundConverter`'s own Added/Removed hue behind only the tokens
+  whose own `Kind` is Added/Removed - wired into both `DiffsDetailControl.axaml` templates in place
+  of the plain `TextBlock` that used to render `Line.Text`/`Row.OriginalText`/`Row.ProposedText`.
+  Covered by 11 new `DiffBuilderTests` cases (identical lines tokenize to all-Unchanged, a single
+  changed word is isolated from its unchanged neighbors, both sides' token lists losslessly
+  reconstruct their own original line, completely different lines mark everything changed, a paired
+  side-by-side row gets word spans on both sides while an Unchanged line or a padded/unpaired row
+  gets none, and the same pairing-or-not behavior for the inline view's `WordSpans` and for
+  `BuildCollapsibleSideBySideRows`'s wrapped `Row`). Full solution builds with 0 warnings/errors,
+  581/581 tests pass (385 Core + 196 Avalonia, up from 570). Not visually verified - same sandbox
+  limitation as every other UI-only task (no X server, no committed `Avalonia.Headless` test host);
+  confirmed only that the app still launches without throwing (`timeout`; exit code 124).
 - T8.3.4 Syntax highlighting inside the diff; next/previous-change navigation.
 
 **F8.4 — Tutorial presentation**
