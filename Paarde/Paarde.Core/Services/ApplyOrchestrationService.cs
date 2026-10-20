@@ -3,6 +3,9 @@ using Paarde.Core.Helpers;
 using Paarde.Core.Models;
 using Paarde.Core.ViewModels;
 
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+
 namespace Paarde.Core.Services;
 
 // Drives "Apply Selected" across every file in a tutorial result (F3.3), on top of
@@ -18,13 +21,18 @@ public class ApplyOrchestrationService : IApplyOrchestrationService
     private readonly IGitStatusService _gitStatusService;
     private readonly IRunSessionStore _runSessionStore;
 
+    // T9.2.1: see GitStatusService's constructor remark - optional/defaulted so the many existing
+    // direct-construction call sites (DI registration, every test) don't need to change.
+    private readonly ILogger<ApplyOrchestrationService> _logger;
+
     public ApplyOrchestrationService(
         IFileChangeApplyService fileChangeApplyService,
         IApplyBackupStore applyBackupStore,
         IApplyHistoryStore applyHistoryStore,
         IApplyHistoryLog applyHistoryLog,
         IGitStatusService gitStatusService,
-        IRunSessionStore runSessionStore)
+        IRunSessionStore runSessionStore,
+        ILogger<ApplyOrchestrationService>? logger = null)
     {
         _fileChangeApplyService = fileChangeApplyService;
         _applyBackupStore = applyBackupStore;
@@ -32,6 +40,7 @@ public class ApplyOrchestrationService : IApplyOrchestrationService
         _applyHistoryLog = applyHistoryLog;
         _gitStatusService = gitStatusService;
         _runSessionStore = runSessionStore;
+        _logger = logger ?? NullLogger<ApplyOrchestrationService>.Instance;
     }
 
     public ApplyPreview Preview(IReadOnlyList<ProposedFileChangeViewModel> files, string workingDirectoryPath)
@@ -166,6 +175,7 @@ public class ApplyOrchestrationService : IApplyOrchestrationService
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
             {
+                _logger.LogWarning(ex, "Failed to write {FilePath} back to {WorkingDirectory} while reverting.", change.FilePath, workingDirectoryPath);
                 results.Add(new RevertFileResult(change.FilePath, Succeeded: false, ex.Message));
             }
         }
@@ -201,6 +211,7 @@ public class ApplyOrchestrationService : IApplyOrchestrationService
         {
             // The path-containment check (or a blank working directory) rejected it - treat the same
             // as any other failed write rather than letting it escape the batch or the read.
+            _logger.LogWarning(ex, "Failed to read {FilePath} ahead of applying it in {WorkingDirectory}.", file.FilePath, workingDirectoryPath);
             return (new FileApplyResult(file.FilePath, FileApplyOutcome.Failed, ex.Message), null);
         }
 
@@ -230,6 +241,7 @@ public class ApplyOrchestrationService : IApplyOrchestrationService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
+            _logger.LogWarning(ex, "Failed to apply {FilePath} in {WorkingDirectory}.", file.FilePath, workingDirectoryPath);
             return (new FileApplyResult(file.FilePath, FileApplyOutcome.Failed, ex.Message), null);
         }
     }

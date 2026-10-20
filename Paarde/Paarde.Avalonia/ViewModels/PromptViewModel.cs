@@ -16,6 +16,9 @@ using Paarde.Core.Models;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+
 namespace Paarde.Avalonia.ViewModels;
 
 public partial class PromptViewModel : ObservableRecipient, INavigationAware
@@ -50,6 +53,7 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
     private readonly IPromptResultStore _promptResultStore;
     private readonly IPromptTemplateProvider _promptTemplateProvider;
     private readonly IRunSessionStore _runSessionStore;
+    private readonly ILogger<PromptViewModel> _logger;
 
     [ObservableProperty]
     private string promptText = string.Empty;
@@ -157,7 +161,7 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
 
     private Stopwatch? _runStopwatch;
 
-    public PromptViewModel(ILlmRunner llmRunner, ILocalSettingsService localSettingsService, IFolderPickerService folderPickerService, IFilePickerService filePickerService, IPromptResultStore promptResultStore, IPromptTemplateProvider promptTemplateProvider, IRunSessionStore runSessionStore)
+    public PromptViewModel(ILlmRunner llmRunner, ILocalSettingsService localSettingsService, IFolderPickerService folderPickerService, IFilePickerService filePickerService, IPromptResultStore promptResultStore, IPromptTemplateProvider promptTemplateProvider, IRunSessionStore runSessionStore, ILogger<PromptViewModel>? logger = null)
     {
         _llmRunner = llmRunner;
         _localSettingsService = localSettingsService;
@@ -166,6 +170,7 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
         _promptResultStore = promptResultStore;
         _promptTemplateProvider = promptTemplateProvider;
         _runSessionStore = runSessionStore;
+        _logger = logger ?? NullLogger<PromptViewModel>.Instance;
 
         // T5.4.2: ObservableCollection<T> doesn't go through an [ObservableProperty]'s On*Changed
         // hook, so attachments need their own recompute trigger here instead.
@@ -173,57 +178,71 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
         RecentWorkingDirectories.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasRecentWorkingDirectories));
     }
 
+    // T9.2.3: async void because INavigationAware.OnNavigatedTo returns void - wrapped so a
+    // corrupt settings file (the one thing every ReadSettingAsync call here can actually throw
+    // on) is logged and reported via StatusMessage rather than unwound unobserved out of
+    // NavigationService.OnNavigated. RunPromptCommand.ExecuteAsync's own run (T7.2.3's
+    // launchRequest.AutoRun path) already has its own broad catch (see RunPromptAsync below), so
+    // it can't itself be the source of what this catches.
     public async void OnNavigatedTo(object parameter)
     {
-        PromptText = await _localSettingsService.ReadSettingAsync<string>(PromptSettingsKey) ?? string.Empty;
-        WorkingDirectoryPath = await _localSettingsService.ReadSettingAsync<string>(WorkingDirectorySettingsKeys.WorkingDirectory) ?? string.Empty;
-
-        var savedTimeoutSeconds = await _localSettingsService.ReadSettingAsync<int>(TimeoutSecondsSettingsKey);
-        TimeoutSeconds = savedTimeoutSeconds > 0 ? savedTimeoutSeconds : DefaultTimeoutSeconds;
-
-        var savedPreset = await _localSettingsService.ReadSettingAsync<string>(PresetSettingsKey);
-        SelectedPreset = Enum.TryParse<PromptPreset>(savedPreset, out var preset) ? preset : PromptPreset.General;
-
-        var savedDepth = await _localSettingsService.ReadSettingAsync<string>(DepthSettingsKey);
-        SelectedDepth = Enum.TryParse<TutorialDepth>(savedDepth, out var depth) ? depth : TutorialDepth.Standard;
-
-        var savedContextPaths = await _localSettingsService.ReadSettingAsync<List<string>>(ContextPathsSettingsKey);
-        AttachedPaths.Clear();
-        foreach (var path in savedContextPaths ?? [])
+        try
         {
-            AttachedPaths.Add(path);
-        }
+            PromptText = await _localSettingsService.ReadSettingAsync<string>(PromptSettingsKey) ?? string.Empty;
+            WorkingDirectoryPath = await _localSettingsService.ReadSettingAsync<string>(WorkingDirectorySettingsKeys.WorkingDirectory) ?? string.Empty;
 
-        StatusMessage = string.Empty;
+            var savedTimeoutSeconds = await _localSettingsService.ReadSettingAsync<int>(TimeoutSecondsSettingsKey);
+            TimeoutSeconds = savedTimeoutSeconds > 0 ? savedTimeoutSeconds : DefaultTimeoutSeconds;
 
-        // T8.2.4: newest-first (IRunSessionStore.ListSessions' own contract), same
-        // Distinct()-keeps-most-recent approach as MainViewModel's Recent Projects.
-        RecentWorkingDirectories.Clear();
-        foreach (var path in _runSessionStore.ListSessions()
-            .Select(session => session.WorkingDirectoryPath)
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Distinct()
-            .Take(MaxRecentWorkingDirectories))
-        {
-            RecentWorkingDirectories.Add(path);
-        }
+            var savedPreset = await _localSettingsService.ReadSettingAsync<string>(PresetSettingsKey);
+            SelectedPreset = Enum.TryParse<PromptPreset>(savedPreset, out var preset) ? preset : PromptPreset.General;
 
-        // T7.2.3: a launch from the History page overrides whatever was just loaded from settings
-        // above with the prompt/working directory of the session being re-run or forked - Re-run
-        // additionally sends it immediately, same as if the user had clicked RunPromptCommand
-        // themselves, guarded by the same CanRunPrompt the button itself respects.
-        if (parameter is PromptLaunchRequest launchRequest)
-        {
-            PromptText = launchRequest.PromptText;
-            WorkingDirectoryPath = launchRequest.WorkingDirectoryPath;
+            var savedDepth = await _localSettingsService.ReadSettingAsync<string>(DepthSettingsKey);
+            SelectedDepth = Enum.TryParse<TutorialDepth>(savedDepth, out var depth) ? depth : TutorialDepth.Standard;
 
-            if (launchRequest.AutoRun && RunPromptCommand.CanExecute(null))
+            var savedContextPaths = await _localSettingsService.ReadSettingAsync<List<string>>(ContextPathsSettingsKey);
+            AttachedPaths.Clear();
+            foreach (var path in savedContextPaths ?? [])
             {
-                await RunPromptCommand.ExecuteAsync(null);
+                AttachedPaths.Add(path);
             }
-        }
 
-        UpdateEstimatedTokenCountDisplay();
+            StatusMessage = string.Empty;
+
+            // T8.2.4: newest-first (IRunSessionStore.ListSessions' own contract), same
+            // Distinct()-keeps-most-recent approach as MainViewModel's Recent Projects.
+            RecentWorkingDirectories.Clear();
+            foreach (var path in _runSessionStore.ListSessions()
+                .Select(session => session.WorkingDirectoryPath)
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Distinct()
+                .Take(MaxRecentWorkingDirectories))
+            {
+                RecentWorkingDirectories.Add(path);
+            }
+
+            // T7.2.3: a launch from the History page overrides whatever was just loaded from settings
+            // above with the prompt/working directory of the session being re-run or forked - Re-run
+            // additionally sends it immediately, same as if the user had clicked RunPromptCommand
+            // themselves, guarded by the same CanRunPrompt the button itself respects.
+            if (parameter is PromptLaunchRequest launchRequest)
+            {
+                PromptText = launchRequest.PromptText;
+                WorkingDirectoryPath = launchRequest.WorkingDirectoryPath;
+
+                if (launchRequest.AutoRun && RunPromptCommand.CanExecute(null))
+                {
+                    await RunPromptCommand.ExecuteAsync(null);
+                }
+            }
+
+            UpdateEstimatedTokenCountDisplay();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load saved settings while navigating to the Prompt page.");
+            StatusMessage = string.Format("Prompt_LoadSettingsFailed".GetLocalized(), ex.Message);
+        }
     }
 
     public void OnNavigatedFrom()
@@ -433,6 +452,12 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
         }
         catch (Exception ex)
         {
+            // Deliberately broad, not narrowed to specific exception types (T9.2.2): this wraps an
+            // entire external CLI invocation plus JSON parsing of whatever it returned, and neither
+            // of those has an enumerable closed set of exception types worth special-casing - a
+            // user-facing status message and a log entry matter more here than which exception type
+            // it happened to be.
+            _logger.LogError(ex, "Prompt run failed.");
             StatusMessage = string.Format("Prompt_RunError".GetLocalized(), ex.Message);
         }
         finally

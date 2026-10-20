@@ -11,8 +11,10 @@ using Paarde.Avalonia.Views;
 using Paarde.Core.Contracts.Services;
 using Paarde.Core.Services;
 
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Paarde.Avalonia;
@@ -47,6 +49,18 @@ public partial class App : Application
         Host = Microsoft.Extensions.Hosting.Host.
         CreateDefaultBuilder().
         UseContentRoot(AppContext.BaseDirectory).
+        // T9.2.1: adds a plain-text log file under <ApplicationDataFolder>/Logs alongside
+        // CreateDefaultBuilder's own Console/Debug providers (both still useful when run from a
+        // terminal/under a debugger) - this is the one a user without either of those can actually
+        // find and attach to a bug report. Configured here, ahead of ConfigureServices below,
+        // since logging has to exist before any registered service can receive an ILogger<T>.
+        ConfigureLogging((context, logging) =>
+        {
+            var applicationDataFolder = ResolveApplicationDataFolder(context.Configuration);
+            var logFilePath = Path.Combine(applicationDataFolder, "Logs", $"log-{DateTime.Now:yyyyMMdd}.txt");
+
+            logging.AddProvider(new FileLoggerProvider(logFilePath));
+        }).
         ConfigureServices((context, services) =>
         {
             // Services
@@ -71,8 +85,7 @@ public partial class App : Application
             services.AddSingleton<IRunSessionStore>(sp =>
             {
                 var options = sp.GetRequiredService<IOptions<LocalSettingsOptions>>().Value;
-                var localApplicationData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-                var applicationDataFolder = Path.Combine(localApplicationData, options.ApplicationDataFolder ?? "Paarde.Avalonia/ApplicationData");
+                var applicationDataFolder = ResolveApplicationDataFolder(options);
                 var sessionsFolder = Path.Combine(applicationDataFolder, "Sessions");
 
                 return new RunSessionStore(
@@ -117,13 +130,48 @@ public partial class App : Application
         Build();
     }
 
+    // T9.2.1: shared by the logging setup above (which runs ahead of DI and so only has
+    // IConfiguration to read LocalSettingsOptions from) and the IRunSessionStore registration
+    // (which already has it bound via IOptions<LocalSettingsOptions>) - previously each resolved
+    // this path with its own duplicated default-folder literal; now there's exactly one.
+    private static string ResolveApplicationDataFolder(IConfiguration configuration) =>
+        ResolveApplicationDataFolder(configuration.GetSection(nameof(LocalSettingsOptions)).Get<LocalSettingsOptions>() ?? new LocalSettingsOptions());
+
+    private static string ResolveApplicationDataFolder(LocalSettingsOptions options)
+    {
+        var localApplicationData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        return Path.Combine(localApplicationData, options.ApplicationDataFolder ?? "Paarde.Avalonia/ApplicationData");
+    }
+
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
     }
 
+    // T9.2.2: a last-resort safety net for whatever an inner try/catch didn't - these are the two
+    // places .NET surfaces an exception that unwound past every frame on its own thread/task
+    // rather than one this app explicitly awaited. Neither handler can stop the process from
+    // terminating (AppDomain.UnhandledException always precedes a crash; an unobserved task
+    // exception merely stops it from being rethrown on the finalizer thread), but logging here
+    // means a crash still leaves a record in the same file a user would be asked to send.
+    private void RegisterGlobalCrashHandlers()
+    {
+        var logger = GetService<ILogger<App>>();
+
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+            logger.LogCritical(e.ExceptionObject as Exception, "Unhandled exception on {Thread}; the process is terminating.", Environment.CurrentManagedThreadId);
+
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+        {
+            logger.LogError(e.Exception, "Unobserved task exception.");
+            e.SetObserved();
+        };
+    }
+
     public override void OnFrameworkInitializationCompleted()
     {
+        RegisterGlobalCrashHandlers();
+
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             // desktop.MainWindow must be assigned synchronously before this method returns: Avalonia's
@@ -147,17 +195,30 @@ public partial class App : Application
         base.OnFrameworkInitializationCompleted();
     }
 
+    // T9.2.3: async void because OnFrameworkInitializationCompleted (an override, so its own
+    // signature can't change) can't await it - any exception thrown here would otherwise unwind
+    // past that override and surface as an AppDomain.UnhandledException crash (see
+    // RegisterGlobalCrashHandlers above) instead of a reported, recoverable failure. Wrapping it
+    // here settles that: the app still comes up (with whatever theme Avalonia's default already
+    // applied and no restored session) rather than never showing a window at all.
     private async void InitializeThemeAndNavigate()
     {
-        var themeSelectorService = GetService<IThemeSelectorService>();
-        await themeSelectorService.InitializeAsync();
-        await themeSelectorService.SetRequestedThemeAsync();
+        try
+        {
+            var themeSelectorService = GetService<IThemeSelectorService>();
+            await themeSelectorService.InitializeAsync();
+            await themeSelectorService.SetRequestedThemeAsync();
 
-        // T7.1.2: pushes the last recorded run's tutorial/files/apply-log into IPromptResultStore/
-        // IApplyHistoryLog before anything navigates, so the Tutorial and Diffs pages already have
-        // it whenever the user first visits them - a no-op if no run has ever been recorded.
-        GetService<IRunSessionStore>().RestoreLastSession();
+            // T7.1.2: pushes the last recorded run's tutorial/files/apply-log into IPromptResultStore/
+            // IApplyHistoryLog before anything navigates, so the Tutorial and Diffs pages already have
+            // it whenever the user first visits them - a no-op if no run has ever been recorded.
+            GetService<IRunSessionStore>().RestoreLastSession();
 
-        GetService<INavigationService>().NavigateTo(typeof(MainViewModel).FullName!);
+            GetService<INavigationService>().NavigateTo(typeof(MainViewModel).FullName!);
+        }
+        catch (Exception ex)
+        {
+            GetService<ILogger<App>>().LogError(ex, "Failed to initialize theme/restore the last session/navigate to the main page on startup.");
+        }
     }
 }

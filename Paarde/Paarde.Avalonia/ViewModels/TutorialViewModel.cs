@@ -12,6 +12,9 @@ using Paarde.Core.ViewModels;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+
 namespace Paarde.Avalonia.ViewModels;
 
 public partial class TutorialViewModel : ObservableRecipient, INavigationAware, IConfirmNavigationAway
@@ -23,6 +26,7 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
     private readonly ILlmRunner _llmRunner;
     private readonly IPromptTemplateProvider _promptTemplateProvider;
     private readonly IFileSavePickerService _fileSavePickerService;
+    private readonly ILogger<TutorialViewModel> _logger;
 
     // T8.4.5: the step TutorialDetailControl should scroll to once it's materialized for the file a
     // TutorialJumpRequest selected - "take once" (read and cleared by TutorialDetailControl.axaml.cs)
@@ -79,7 +83,7 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
     // show before the first apply of the session.
     public bool HasApplyHistory => ApplyHistoryEntries.Count > 0;
 
-    public TutorialViewModel(IPromptResultStore promptResultStore, IApplyOrchestrationService applyOrchestrationService, IApplyHistoryLog applyHistoryLog, IDialogService dialogService, ILlmRunner llmRunner, IPromptTemplateProvider promptTemplateProvider, IFileSavePickerService fileSavePickerService)
+    public TutorialViewModel(IPromptResultStore promptResultStore, IApplyOrchestrationService applyOrchestrationService, IApplyHistoryLog applyHistoryLog, IDialogService dialogService, ILlmRunner llmRunner, IPromptTemplateProvider promptTemplateProvider, IFileSavePickerService fileSavePickerService, ILogger<TutorialViewModel>? logger = null)
     {
         _promptResultStore = promptResultStore;
         _applyOrchestrationService = applyOrchestrationService;
@@ -88,6 +92,7 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
         _llmRunner = llmRunner;
         _promptTemplateProvider = promptTemplateProvider;
         _fileSavePickerService = fileSavePickerService;
+        _logger = logger ?? NullLogger<TutorialViewModel>.Instance;
 
         // ObservableCollection<T> raises PropertyChanged("Count") on its own, but HasNoFiles/
         // HasFilesButNoneSelected are derived from that count rather than being Count itself, so
@@ -465,6 +470,7 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            _logger.LogWarning(ex, "Failed to export the tutorial to {Path}.", path);
             ExportStatusMessage = string.Format("Tutorial_ExportFailed".GetLocalized(), ex.Message);
         }
     }

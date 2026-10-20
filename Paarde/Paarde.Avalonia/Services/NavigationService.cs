@@ -7,12 +7,16 @@ using Paarde.Avalonia.Helpers;
 using FluentAvalonia.UI.Controls;
 using FluentAvalonia.UI.Navigation;
 
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+
 namespace Paarde.Avalonia.Services;
 
 public class NavigationService : INavigationService
 {
     private readonly IPageService _pageService;
     private readonly IDialogService _dialogService;
+    private readonly ILogger<NavigationService> _logger;
     private object? _lastParameterUsed;
     private Frame? _frame;
 
@@ -36,10 +40,11 @@ public class NavigationService : INavigationService
     [MemberNotNullWhen(true, nameof(Frame), nameof(_frame))]
     public bool CanGoBack => Frame != null && Frame.CanGoBack;
 
-    public NavigationService(IPageService pageService, IDialogService dialogService)
+    public NavigationService(IPageService pageService, IDialogService dialogService, ILogger<NavigationService>? logger = null)
     {
         _pageService = pageService;
         _dialogService = dialogService;
+        _logger = logger ?? NullLogger<NavigationService>.Instance;
     }
 
     private void RegisterFrameEvents()
@@ -128,34 +133,45 @@ public class NavigationService : INavigationService
         ConfirmThenRetryNavigation(e.NavigationMode, e.SourcePageType, e.Parameter);
     }
 
+    // T9.2.3: async void because it's raised from OnNavigating's event handler (itself required to
+    // be synchronous by Frame.Navigating's delegate signature), so there's no caller able to await
+    // it - wrapped in its own try/catch (rather than just the inner try/finally below) so an
+    // exception from the dialog await itself doesn't unwind unobserved past this method too.
     private async void ConfirmThenRetryNavigation(NavigationMode mode, Type targetPageType, object? parameter)
     {
-        var shouldLeave = await _dialogService.ConfirmAsync(
-            "Discard unsaved edits?",
-            "You have unsaved edits on this page. Leaving now will discard them.",
-            "Leave without saving",
-            "Stay");
-
-        if (!shouldLeave)
-        {
-            return;
-        }
-
-        _suppressUnsavedChangesCheck = true;
         try
         {
-            if (mode == NavigationMode.Back)
+            var shouldLeave = await _dialogService.ConfirmAsync(
+                "Discard unsaved edits?",
+                "You have unsaved edits on this page. Leaving now will discard them.",
+                "Leave without saving",
+                "Stay");
+
+            if (!shouldLeave)
             {
-                GoBack();
+                return;
             }
-            else
+
+            _suppressUnsavedChangesCheck = true;
+            try
             {
-                NavigateToPageType(targetPageType, parameter, clearNavigation: false);
+                if (mode == NavigationMode.Back)
+                {
+                    GoBack();
+                }
+                else
+                {
+                    NavigateToPageType(targetPageType, parameter, clearNavigation: false);
+                }
+            }
+            finally
+            {
+                _suppressUnsavedChangesCheck = false;
             }
         }
-        finally
+        catch (Exception ex)
         {
-            _suppressUnsavedChangesCheck = false;
+            _logger.LogError(ex, "Failed to confirm and retry a navigation blocked by unsaved changes.");
         }
     }
 

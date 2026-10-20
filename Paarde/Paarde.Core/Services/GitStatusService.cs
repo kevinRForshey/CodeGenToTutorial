@@ -4,6 +4,9 @@ using System.Text;
 using Paarde.Core.Contracts.Services;
 using Paarde.Core.Models;
 
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+
 namespace Paarde.Core.Services;
 
 // Detects whether workingDirectoryPath sits inside a git working tree and, if so, which files are
@@ -14,6 +17,16 @@ namespace Paarde.Core.Services;
 // warning, not a security boundary, so it fails open rather than blocking an apply.
 public class GitStatusService : IGitStatusService
 {
+    // T9.2.1: optional and defaulted to a no-op so every existing `new GitStatusService()` call
+    // site (production DI registration, every test) keeps compiling unchanged - only the Avalonia
+    // host, which actually configures a logging provider, needs to pass a real one.
+    private readonly ILogger<GitStatusService> _logger;
+
+    public GitStatusService(ILogger<GitStatusService>? logger = null)
+    {
+        _logger = logger ?? NullLogger<GitStatusService>.Instance;
+    }
+
     public GitStatus GetStatus(string workingDirectoryPath)
     {
         if (string.IsNullOrWhiteSpace(workingDirectoryPath) || !Directory.Exists(workingDirectoryPath))
@@ -48,7 +61,7 @@ public class GitStatusService : IGitStatusService
         return arrowIndex >= 0 ? path[(arrowIndex + 4)..] : path;
     }
 
-    private static bool TryRunGit(string workingDirectoryPath, out string output)
+    private bool TryRunGit(string workingDirectoryPath, out string output)
     {
         output = string.Empty;
 
@@ -82,7 +95,9 @@ public class GitStatusService : IGitStatusService
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException)
         {
             // git isn't on PATH, or the OS refused to start it - treated the same as "not a
-            // repository" (see class remarks).
+            // repository" (see class remarks), but still worth a line in the log file since it's
+            // otherwise silent.
+            _logger.LogWarning(ex, "Failed to run `git status --porcelain` in {WorkingDirectory}; treating as not a git repository.", workingDirectoryPath);
             return false;
         }
     }
