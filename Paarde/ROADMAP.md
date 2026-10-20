@@ -1415,7 +1415,31 @@ committed yet — review `git status`/`git diff` before committing.
   every other UI-only task (no X server, no committed `Avalonia.Headless` test host).
 
 **F8.3 — Better diff viewer**
-- T8.3.1 Side-by-side mode in addition to inline.
+- [x] T8.3.1 **Side-by-side mode in addition to inline.** — done 2026-10-20: a new
+  `DiffBuilder.BuildSideBySideRows(IReadOnlyList<DiffLine>)` (Core, alongside `BuildLineDiff`/
+  `GroupIntoHunks`) turns the existing flat line-level diff into `SideBySideDiffRow`s - pairing up
+  each maximal run of consecutive Removed/Added lines index-by-index (preserving each side's own
+  order) so an old/new line pair lands on the same row, padding the shorter side with a blank cell
+  when a run has more lines on one side than the other; an Unchanged line gets its own row with
+  identical text on both sides. `DiffsDetailControl` (shared by the Diffs page, History page's file
+  view, and the Diffs jump-to-hunk flow) gained a `Side-by-side` `ToggleButton` next to its existing
+  `Copy file contents` button and a second `ItemsControl`, hidden by default, templated over
+  `SideBySideDiffRow` as two columns with a thin divider. This is deliberately local view state,
+  not persisted and not added to the shared `ProposedFileChangeViewModel` (which both the Tutorial
+  and Diffs pages bind to the same instance of) - the view mode is a property of this one control,
+  not of the file being shown. `SideBySideItemsControl.ItemsSource` is set from code-behind
+  (recomputed on `DataContextChanged`, i.e. switching files, and on the bound file's own
+  `DiffLines` changing, i.e. an edit) rather than bound in XAML, since `BuildSideBySideRows`'s
+  output isn't something `ProposedFileChangeViewModel` itself exposes. T8.4.5's scroll-to-hunk jump
+  (`ApplyPendingScrollTarget`) always switches back to inline first and resets the toggle - the
+  side-by-side rows have no equivalent index-based scroll target, and landing in the wrong mode
+  after a deliberate jump would be confusing. Covered by 8 new `DiffBuilderTests` (no changes pairs
+  every unchanged line with itself, equal-count removed/added pairs one-to-one, more-added and
+  more-removed cases pad the shorter side with blank rows, a change sandwiched between unchanged
+  lines keeps those on their own rows, an empty diff returns no rows, and prefix text is blank only
+  for a padded cell). Full solution builds with 0 warnings/errors, 558/558 tests pass (362 Core +
+  196 Avalonia). Not visually verified - same sandbox limitation as every other UI-only task (no X
+  server, no committed `Avalonia.Headless` test host).
 - T8.3.2 Collapse unchanged regions with expand-context controls.
 - T8.3.3 Intra-line (word-level) highlighting.
 - T8.3.4 Syntax highlighting inside the diff; next/previous-change navigation.

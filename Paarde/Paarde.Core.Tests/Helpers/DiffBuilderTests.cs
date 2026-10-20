@@ -304,4 +304,100 @@ public class DiffBuilderTests
 
         Assert.Equal("line1\nline2", result);
     }
+
+    [Fact]
+    public void BuildSideBySideRows_NoChanges_PairsEachUnchangedLineWithItself()
+    {
+        var diffLines = DiffBuilder.BuildLineDiff("line1\nline2", "line1\nline2");
+
+        var rows = DiffBuilder.BuildSideBySideRows(diffLines);
+
+        Assert.Equal(
+            [
+                ("line1", DiffLineKind.Unchanged, "line1", DiffLineKind.Unchanged),
+                ("line2", DiffLineKind.Unchanged, "line2", DiffLineKind.Unchanged),
+            ],
+            rows.Select(r => (r.OriginalText, r.OriginalKind, r.ProposedText, r.ProposedKind)));
+    }
+
+    [Fact]
+    public void BuildSideBySideRows_SameCountOfRemovedAndAdded_PairsThemOneToOne()
+    {
+        var diffLines = DiffBuilder.BuildLineDiff("a\nb", "x\ny");
+
+        var rows = DiffBuilder.BuildSideBySideRows(diffLines);
+
+        Assert.Equal(
+            [
+                ("a", DiffLineKind.Removed, "x", DiffLineKind.Added),
+                ("b", DiffLineKind.Removed, "y", DiffLineKind.Added),
+            ],
+            rows.Select(r => (r.OriginalText, r.OriginalKind, r.ProposedText, r.ProposedKind)));
+    }
+
+    [Fact]
+    public void BuildSideBySideRows_MoreAddedThanRemoved_PadsOriginalSideWithBlankRows()
+    {
+        var diffLines = DiffBuilder.BuildLineDiff("a", "x\ny\nz");
+
+        var rows = DiffBuilder.BuildSideBySideRows(diffLines);
+
+        Assert.Equal(
+            [
+                ("a", DiffLineKind.Removed, "x", DiffLineKind.Added),
+                (null, null, "y", DiffLineKind.Added),
+                (null, null, "z", DiffLineKind.Added),
+            ],
+            rows.Select(r => (r.OriginalText, r.OriginalKind, r.ProposedText, r.ProposedKind)));
+    }
+
+    [Fact]
+    public void BuildSideBySideRows_MoreRemovedThanAdded_PadsProposedSideWithBlankRows()
+    {
+        var diffLines = DiffBuilder.BuildLineDiff("x\ny\nz", "a");
+
+        var rows = DiffBuilder.BuildSideBySideRows(diffLines);
+
+        Assert.Equal(
+            [
+                ("x", DiffLineKind.Removed, "a", DiffLineKind.Added),
+                ("y", DiffLineKind.Removed, null, null),
+                ("z", DiffLineKind.Removed, null, null),
+            ],
+            rows.Select(r => (r.OriginalText, r.OriginalKind, r.ProposedText, r.ProposedKind)));
+    }
+
+    [Fact]
+    public void BuildSideBySideRows_ChangeBetweenUnchangedLines_KeepsUnchangedLinesOnTheirOwnRows()
+    {
+        var diffLines = DiffBuilder.BuildLineDiff("line1\nold\nline3", "line1\nnew\nline3");
+
+        var rows = DiffBuilder.BuildSideBySideRows(diffLines);
+
+        Assert.Equal(
+            [
+                ("line1", DiffLineKind.Unchanged, "line1", DiffLineKind.Unchanged),
+                ("old", DiffLineKind.Removed, "new", DiffLineKind.Added),
+                ("line3", DiffLineKind.Unchanged, "line3", DiffLineKind.Unchanged),
+            ],
+            rows.Select(r => (r.OriginalText, r.OriginalKind, r.ProposedText, r.ProposedKind)));
+    }
+
+    [Fact]
+    public void BuildSideBySideRows_Empty_ReturnsNoRows()
+    {
+        var rows = DiffBuilder.BuildSideBySideRows(Array.Empty<DiffLine>());
+
+        Assert.Empty(rows);
+    }
+
+    [Fact]
+    public void SideBySideDiffRow_Prefixes_AreBlankOnlyForPaddedSide()
+    {
+        var diffLines = DiffBuilder.BuildLineDiff("a", "x\ny");
+        var rows = DiffBuilder.BuildSideBySideRows(diffLines);
+
+        Assert.Equal(("- ", "+ "), (rows[0].OriginalPrefix, rows[0].ProposedPrefix));
+        Assert.Equal(("", "+ "), (rows[1].OriginalPrefix, rows[1].ProposedPrefix));
+    }
 }

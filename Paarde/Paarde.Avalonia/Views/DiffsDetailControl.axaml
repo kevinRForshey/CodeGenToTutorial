@@ -15,6 +15,10 @@
                        FontWeight="SemiBold"
                        x:CompileBindings="False" />
             <Button Content="Copy file contents" Click="OnCopyButtonClick" />
+            <!-- T8.3.1: local view-only state (not persisted, not on the shared Core view model -
+                 see DiffsDetailControl.axaml.cs) toggling between the flat inline diff and a
+                 side-by-side one. -->
+            <ToggleButton Name="SideBySideToggle" Content="Side-by-side" Click="OnViewModeToggled" />
         </StackPanel>
 
         <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
@@ -28,6 +32,41 @@
                                        FontFamily="Cascadia Mono,Consolas,monospace"
                                        Text="{Binding Text}"
                                        TextWrapping="NoWrap" />
+                        </Grid>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+
+        <!-- T8.3.1: ItemsSource is set from code-behind, not bound - SideBySideDiffRow comes from
+             DiffBuilder.BuildSideBySideRows(DiffLines), computed on demand rather than kept on the
+             shared ProposedFileChangeViewModel, since the view mode is local to this control. -->
+        <ScrollViewer Grid.Row="1"
+                      Name="SideBySideScrollViewer"
+                      IsVisible="False"
+                      HorizontalScrollBarVisibility="Auto"
+                      VerticalScrollBarVisibility="Auto">
+            <ItemsControl Name="SideBySideItemsControl">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="models:SideBySideDiffRow">
+                        <Grid Margin="4,0" ColumnDefinitions="*,Auto,*">
+                            <Grid Grid.Column="0" ColumnDefinitions="Auto,*" Background="{Binding OriginalKind, Converter={StaticResource DiffLineKindToBackgroundConverter}}">
+                                <TextBlock Grid.Column="0" FontFamily="Cascadia Mono,Consolas,monospace" Text="{Binding OriginalPrefix}" />
+                                <TextBlock Grid.Column="1"
+                                           Margin="4,0,0,0"
+                                           FontFamily="Cascadia Mono,Consolas,monospace"
+                                           Text="{Binding OriginalText}"
+                                           TextWrapping="NoWrap" />
+                            </Grid>
+                            <Border Grid.Column="1" Width="1" Margin="8,0" Background="Gray" Opacity="0.3" />
+                            <Grid Grid.Column="2" ColumnDefinitions="Auto,*" Background="{Binding ProposedKind, Converter={StaticResource DiffLineKindToBackgroundConverter}}">
+                                <TextBlock Grid.Column="0" FontFamily="Cascadia Mono,Consolas,monospace" Text="{Binding ProposedPrefix}" />
+                                <TextBlock Grid.Column="1"
+                                           Margin="4,0,0,0"
+                                           FontFamily="Cascadia Mono,Consolas,monospace"
+                                           Text="{Binding ProposedText}"
+                                           TextWrapping="NoWrap" />
+                            </Grid>
                         </Grid>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>

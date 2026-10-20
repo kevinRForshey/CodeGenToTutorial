@@ -132,9 +132,10 @@ content in a read-only, syntax-highlighted preview on the right.
 ### 4. Diffs page
 
 Pick a file from the list on the left to see a color-coded line-by-line diff against what's
-currently on disk (or, for a brand-new file, the whole thing shown as additions). **Copy file
-contents** copies the proposed content to your clipboard. If you arrived here by jumping from a
-tutorial step (see below), a **Back to Tutorial** button returns you to that exact step.
+currently on disk (or, for a brand-new file, the whole thing shown as additions). **Side-by-side**
+toggles between that inline view and an old/new two-column layout. **Copy file contents** copies
+the proposed content to your clipboard. If you arrived here by jumping from a tutorial step (see
+below), a **Back to Tutorial** button returns you to that exact step.
 
 ### 5. Tutorial page
 

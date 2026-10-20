@@ -29,6 +29,56 @@ public static class DiffBuilder
         return result;
     }
 
+    // T8.3.1: pairs up a flat line-level diff into side-by-side rows for the diff viewer's
+    // side-by-side mode. Each maximal run of consecutive Removed/Added lines is split back into
+    // its removed-only and added-only sub-sequences (preserving each's own relative order) and
+    // paired off index-by-index, so a changed line's old and new text land on the same row -
+    // padding the shorter side with a blank cell (null text/kind) when the run has more lines on
+    // one side than the other. An Unchanged line always gets its own row with identical text on
+    // both sides.
+    public static IReadOnlyList<SideBySideDiffRow> BuildSideBySideRows(IReadOnlyList<DiffLine> diffLines)
+    {
+        var rows = new List<SideBySideDiffRow>();
+        var removedRun = new List<DiffLine>();
+        var addedRun = new List<DiffLine>();
+
+        void FlushRun()
+        {
+            var pairCount = Math.Max(removedRun.Count, addedRun.Count);
+
+            for (var i = 0; i < pairCount; i++)
+            {
+                var left = i < removedRun.Count ? removedRun[i] : null;
+                var right = i < addedRun.Count ? addedRun[i] : null;
+                rows.Add(new SideBySideDiffRow(left?.Text, left?.Kind, right?.Text, right?.Kind));
+            }
+
+            removedRun.Clear();
+            addedRun.Clear();
+        }
+
+        foreach (var line in diffLines)
+        {
+            switch (line.Kind)
+            {
+                case DiffLineKind.Removed:
+                    removedRun.Add(line);
+                    break;
+                case DiffLineKind.Added:
+                    addedRun.Add(line);
+                    break;
+                default:
+                    FlushRun();
+                    rows.Add(new SideBySideDiffRow(line.Text, line.Kind, line.Text, line.Kind));
+                    break;
+            }
+        }
+
+        FlushRun();
+
+        return rows;
+    }
+
     // Groups a flat line-level diff into unified-diff-style hunks: each changed region plus up to
     // contextLines of surrounding unchanged lines. Changed regions separated by no more than
     // 2 * contextLines of unchanged lines are merged into one hunk (their shared context would
