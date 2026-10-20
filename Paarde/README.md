@@ -139,8 +139,10 @@ This is where you actually decide what to keep:
   when one was given.
 - Explanations and overview text render basic Markdown — bold/italic emphasis, `code` spans, and
   bullet/numbered lists — instead of flat text.
-- Pick a file from the list to see its explanation and an **editable** code box — you can tweak
-  Claude's proposed content before anything is applied.
+- Pick a file from the list to open it as a **tab** with its explanation and an **editable** code
+  box — you can tweak Claude's proposed content before anything is applied. Picking more files
+  opens more tabs, so you can switch between several without losing your place; a `*` on a tab
+  marks unsaved edits, and **Close Tab** closes the active one.
 - Where the response breaks a file's change into discrete steps, each shows its own numbered title
   ("Step N:"), explanation, a checkbox to include/exclude it, and **Apply this change** / **Explain
   further** / **View in Diff** buttons. A progress bar plus Previous/Next buttons above the steps

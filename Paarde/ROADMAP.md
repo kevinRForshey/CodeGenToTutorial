@@ -1329,7 +1329,43 @@ committed yet — review `git status`/`git diff` before committing.
   Avalonia). Not visually verified - this sandbox has no X server and no committed
   `Avalonia.Headless` test host (prior attempts at this, e.g. T8.1.1/T8.4.5, were one-off scratch
   probes, not infrastructure left in the repo) - reviewed by hand and via the new tests instead.
-- T8.2.2 Tabbed editing of multiple files.
+- [x] T8.2.2 Tabbed editing of multiple files. — done 2026-10-19: the Tutorial page's detail pane
+  previously showed only `Selected` via a single `ContentControl`, throwing away and rebuilding
+  `TutorialDetailControl` on every selection change - so switching back to a file you'd already
+  edited lost nothing (the edit lives on the `ProposedFileChangeViewModel` itself), but there was
+  no way to see more than one file's editor at a time or jump directly back to one without
+  re-picking it from the master list. `TutorialViewModel` gained an `OpenTabs`
+  `ObservableCollection<ProposedFileChangeViewModel>` - a subset of `Files`, populated lazily as the
+  user selects files rather than all of `Files` up front, so the page opens with just the one file
+  `EnsureItemSelected` already auto-selects as its single tab. `OnSelectedChanged` now adds `value`
+  to `OpenTabs` if it isn't already there (a no-op once a file's tab is already open, including the
+  jump-from-Diffs and refine-this-file paths, which both just set `Selected`); `ReplaceFile` swaps a
+  refined file into its old tab's position in `OpenTabs` the same way it already does for `Files`
+  and `_promptResultStore.Files`, so refining a file never leaves a stale duplicate tab behind.
+  Closing a tab is a new `CloseSelectedTabCommand` (gated on `Selected is not null`) acting on
+  `Selected` rather than a per-tab close button bound back to the view model - mirrors the
+  `Selected`+action-button pattern this codebase already uses throughout (e.g.
+  `HistoryViewModel.Selected`/`ForkCommand`, and T8.2.1's `MainViewModel`) instead of introducing
+  this repo's first per-row/per-tab `DataTemplate` command binding back to a parent `DataContext`.
+  Closing a tab selects a neighboring one (`OpenTabs[Math.Min(index, OpenTabs.Count - 1)]`) so the
+  detail pane stays populated while other tabs remain open, or `null` if that was the last tab -
+  deliberately doesn't auto-reopen anything from `Files` afterward, respecting the explicit close.
+  `OpenTabs` resets on every `OnNavigatedTo` alongside `Files`/`Selected`, which is safe rather than
+  a regression: `TutorialViewModel` is `AddTransient`, so a fresh instance (and therefore empty
+  `OpenTabs`) is already resolved on every navigation to this page today, independent of this
+  change. `TutorialView.axaml` replaces the old `ContentControl` with a `Grid` (shown only when
+  `HasOpenTabs`) containing a "Close Tab" button bound to `CloseSelectedTabCommand` and a
+  `TabControl` (`ItemsSource="{Binding OpenTabs}"`, `SelectedItem="{Binding Selected, Mode=TwoWay}"`)
+  whose tab headers show each file's trimmed path plus a `*` when `IsDirty`, and whose content
+  template still hosts `TutorialDetailControl` per tab - built with Avalonia's own `TabControl`, no
+  new xmlns import needed. Covered by new `TutorialViewModelTests`: auto-selected file opens as the
+  lone initial tab, selecting another file adds an additional tab without closing others,
+  reselecting an already-open tab doesn't duplicate it, `CloseSelectedTabCommand` `CanExecute`
+  gating and closing a non-last tab selects its neighbor, closing the last tab clears `Selected`,
+  and refining a file swaps it into the same tab position rather than appending a new one. Full
+  solution builds with 0 warnings/errors, 543/543 tests pass (355 Core + 188 Avalonia). Not visually
+  verified - same sandbox limitation as T8.2.1 and every other UI-only task (no X server, no
+  committed `Avalonia.Headless` test host) - reviewed by hand and via the new tests instead.
 - T8.2.3 Resizable/collapsible panes; persist layout.
 - T8.2.4 Recent-projects list and fast project switching.
 

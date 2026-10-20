@@ -62,6 +62,14 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
 
     public ObservableCollection<ProposedFileChangeViewModel> Files { get; } = new();
 
+    // T8.2.2: files currently open as tabs in the detail pane - a subset of Files, populated as the
+    // user selects files from the master list (see OnSelectedChanged below) rather than all of Files
+    // up front, so the page opens with just the one initial tab EnsureItemSelected already picked.
+    // Reset on every OnNavigatedTo along with Files/Selected - this view model is resolved fresh
+    // (AddTransient) on every navigation to this page, so there's nothing to preserve across a
+    // navigate-away-and-back the way there would be if it were a singleton.
+    public ObservableCollection<ProposedFileChangeViewModel> OpenTabs { get; } = new();
+
     // T4.2.3: display-ready rows for the apply-history log, newest first. Populated from
     // IApplyHistoryLog rather than bound to it directly, since that store's Entries is a plain
     // IReadOnlyList<ApplyHistoryEntry> with no change notification the view could bind to.
@@ -93,6 +101,7 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
         };
 
         ApplyHistoryEntries.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasApplyHistory));
+        OpenTabs.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasOpenTabs));
     }
 
     public void OnNavigatedTo(object parameter)
@@ -100,6 +109,7 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
         Tutorial = _promptResultStore.Tutorial;
 
         Files.Clear();
+        OpenTabs.Clear();
 
         foreach (var file in _promptResultStore.Files)
         {
@@ -139,6 +149,10 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
 
     public bool HasFilesButNoneSelected => Files.Count > 0 && Selected == null;
 
+    // Drives whether the tab strip/detail pane shows itself at all - distinct from
+    // HasFilesButNoneSelected, which is about there being files to pick from in the first place.
+    public bool HasOpenTabs => OpenTabs.Count > 0;
+
     // Drives whether the tutorial-overview header shows itself - a response with no files (or a
     // plain-text/unstructured response) can still have a non-empty overview worth showing.
     public bool HasTutorialOverview => !string.IsNullOrWhiteSpace(Tutorial);
@@ -152,8 +166,18 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
 
     partial void OnSelectedChanged(ProposedFileChangeViewModel? value)
     {
+        // T8.2.2: selecting a file from the master list (or a jump/refine elsewhere in this view
+        // model) opens it as a tab if it isn't one already, rather than requiring a separate
+        // "open" action - ReplaceFile already swaps a refined file into OpenTabs directly, so this
+        // is a no-op for that path.
+        if (value is not null && !OpenTabs.Contains(value))
+        {
+            OpenTabs.Add(value);
+        }
+
         OnPropertyChanged(nameof(HasFilesButNoneSelected));
         RefineSelectedFileCommand.NotifyCanExecuteChanged();
+        CloseSelectedTabCommand.NotifyCanExecuteChanged();
     }
 
     partial void OnRefineInstructionChanged(string value) => RefineSelectedFileCommand.NotifyCanExecuteChanged();
@@ -390,6 +414,28 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
 
     private bool CanRefineSelectedFile() => Selected is not null && !string.IsNullOrWhiteSpace(RefineInstruction) && !IsRefining;
 
+    // T8.2.2: closes the active tab - a single command acting on Selected rather than a close
+    // affordance on each tab header, consistent with how this page already drives per-row actions
+    // (ApplySelected/Fork/Rerun etc. elsewhere in this codebase act on a Selected item rather than a
+    // command bound per-row back out to this view model's DataContext from inside a DataTemplate).
+    [RelayCommand(CanExecute = nameof(CanCloseSelectedTab))]
+    private void CloseSelectedTab()
+    {
+        if (Selected is not { } file)
+        {
+            return;
+        }
+
+        var index = OpenTabs.IndexOf(file);
+        OpenTabs.Remove(file);
+
+        // Land on a neighboring tab rather than clearing the detail pane entirely while other tabs
+        // are still open; Min guards the case where the closed tab was the last one in the list.
+        Selected = OpenTabs.Count == 0 ? null : OpenTabs[Math.Min(index, OpenTabs.Count - 1)];
+    }
+
+    private bool CanCloseSelectedTab() => Selected is not null;
+
     // T8.4.4: builds a self-contained document (TutorialExporter, Core) a user can save and share
     // outside the app - Markdown and HTML share this one picker-then-write flow, differing only in
     // which exporter/file-type/extension they pass in.
@@ -441,6 +487,16 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
         if (storeIndex >= 0)
         {
             _promptResultStore.Files[storeIndex] = newFile;
+        }
+
+        // Swaps the refined file into the same tab position rather than letting OnSelectedChanged's
+        // add-if-missing logic (below, via Selected = newFile) append it as a brand new tab while
+        // leaving oldFile's now-stale tab behind.
+        var tabIndex = OpenTabs.IndexOf(oldFile);
+
+        if (tabIndex >= 0)
+        {
+            OpenTabs[tabIndex] = newFile;
         }
 
         Selected = newFile;
