@@ -20,6 +20,12 @@
                  see DiffsDetailControl.axaml.cs) toggling between the flat inline diff and a
                  side-by-side one. -->
             <ToggleButton Name="SideBySideToggle" Content="Side-by-side" Click="OnViewModeToggled" />
+            <!-- T8.3.4: next/previous-change navigation - always jumps the inline view (see
+                 DiffsDetailControl.axaml.cs's ScrollToHunk) since there's no side-by-side-row
+                 equivalent of a hunk's SourceRangeStart to scroll to. -->
+            <Button Name="PreviousChangeButton" Content="Previous change" Click="OnPreviousChangeClick" />
+            <Button Name="NextChangeButton" Content="Next change" Click="OnNextChangeClick" />
+            <TextBlock Name="ChangeNavigationStatusText" VerticalAlignment="Center" Opacity="0.7" />
         </StackPanel>
 
         <!-- T8.3.2: ItemsSource is set from code-behind (RefreshDisplayRows), not bound -
@@ -41,6 +47,7 @@
                                                                  FontFamily="Cascadia Mono,Consolas,monospace"
                                                                  LineText="{Binding Line.Text}"
                                                                  WordSpans="{Binding WordSpans}"
+                                                                 FilePath="{Binding $parent[UserControl].((coreVm:ProposedFileChangeViewModel)DataContext).FilePath}"
                                                                  TextWrapping="NoWrap" />
                             </Grid>
                             <Button IsVisible="{Binding IsCollapsedPlaceholder}"
@@ -75,6 +82,7 @@
                                                                      FontFamily="Cascadia Mono,Consolas,monospace"
                                                                      LineText="{Binding Row.OriginalText}"
                                                                      WordSpans="{Binding Row.OriginalWordSpans}"
+                                                                     FilePath="{Binding $parent[UserControl].((coreVm:ProposedFileChangeViewModel)DataContext).FilePath}"
                                                                      TextWrapping="NoWrap" />
                                 </Grid>
                                 <Border Grid.Column="1" Width="1" Margin="8,0" Background="Gray" Opacity="0.3" />
@@ -85,6 +93,7 @@
                                                                      FontFamily="Cascadia Mono,Consolas,monospace"
                                                                      LineText="{Binding Row.ProposedText}"
                                                                      WordSpans="{Binding Row.ProposedWordSpans}"
+                                                                     FilePath="{Binding $parent[UserControl].((coreVm:ProposedFileChangeViewModel)DataContext).FilePath}"
                                                                      TextWrapping="NoWrap" />
                                 </Grid>
                             </Grid>

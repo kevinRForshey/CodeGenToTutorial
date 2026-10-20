@@ -1507,7 +1507,47 @@ committed yet — review `git status`/`git diff` before committing.
   581/581 tests pass (385 Core + 196 Avalonia, up from 570). Not visually verified - same sandbox
   limitation as every other UI-only task (no X server, no committed `Avalonia.Headless` test host);
   confirmed only that the app still launches without throwing (`timeout`; exit code 124).
-- T8.3.4 Syntax highlighting inside the diff; next/previous-change navigation.
+- [x] T8.3.4 **Syntax highlighting inside the diff; next/previous-change navigation.** — done
+  2026-10-20: added a new `Paarde.Avalonia.Helpers.SyntaxTokenizer`, wrapping the same
+  TextMateSharp registry/theme `CodeEditor` already uses for the full-file editor (DarkPlus), but
+  tokenizing one line at a time (`IGrammar.TokenizeLine`) rather than through
+  `AvaloniaEdit.TextMate`'s document-wide installation, since a diff row has no backing
+  AvaloniaEdit document; the grammar lookup is cached per file extension. Each token's foreground
+  color comes from `Theme.Match(token.Scopes)`'s best-ranked rule, falling back to no color
+  override (inheriting the ambient foreground) for an extension with no known grammar or a token
+  the theme has nothing specific to say about. Rendering a diff row now needs two independent,
+  differently-bounded tokenizations of the same line layered together - T8.3.3's word-level diff
+  (background highlight) and this syntax tokenization (foreground) - so the merge itself was
+  pulled out of `DiffWordSpanTextBlock` into a new pure, unit-testable
+  `Paarde.Avalonia.Helpers.DiffLineRenderer.Build`, which normalizes both tokenizations into
+  length-based spans covering the full line and walks them in lockstep, splitting at whichever
+  boundary (diff or syntax) comes first, so every resulting run has one unambiguous Kind/Color
+  pair; `DiffWordSpanTextBlock` itself just calls it and turns the result into `Run`s.
+  `DiffWordSpanTextBlock` gained a `FilePath` property, wired in `DiffsDetailControl.axaml` via an
+  ancestor binding (`$parent[UserControl].((coreVm:ProposedFileChangeViewModel)DataContext).FilePath`,
+  compiling fine despite reaching outside the row's own `x:DataType` scope) rather than threading
+  `FilePath` through every row model, since it's the same for every row in a given file. Next/
+  previous-change navigation reuses `DiffBuilder.GroupIntoHunks` (the same hunks T8.4.5's
+  jump-from-tutorial-step feature targets) - two new toolbar buttons plus a status label
+  ("Change X of N") drive a `_currentHunkIndex` kept in `DiffsDetailControl`'s code-behind,
+  resetting to "haven't navigated to one yet" whenever `DiffLines` is recomputed (file switch or
+  edit, same invalidation trigger T8.3.2's expanded-region tracking already uses) and clamped
+  rather than wrapping at either end; scrolling always switches to the inline view first, same
+  reasoning `ApplyPendingScrollTarget` already established (the side-by-side view has no
+  index-based scroll target), and both now share a `FindDisplayIndex(lineIndex)` helper pulled out
+  of `ApplyPendingScrollTarget` rather than duplicating its row lookup. A T8.4.5 jump now also sets
+  `_currentHunkIndex` to the hunk it landed on, so a following Next/Previous click continues from
+  there instead of restarting. Covered by 11 new tests: 5 `SyntaxTokenizerTests` (a known
+  extension colors a recognized keyword token, its tokens losslessly reconstruct the original
+  line, an unknown extension/null file path/empty line all fall back to no tokens) and 6
+  `DiffLineRendererTests` on the pure merge (no word spans and no syntax tokens yields one
+  colorless span, word spans alone carry Kind through with no Color, syntax tokens alone carry
+  Color through with no Kind, misaligned boundaries between the two split at every boundary, and
+  the merged spans always reconstruct the original line exactly). Full solution builds with 0
+  warnings/errors, 592/592 tests pass (385 Core + 207 Avalonia, up from 581). Not visually verified
+  - same sandbox limitation as every other UI-only task (no X server, no committed
+  `Avalonia.Headless` test host); confirmed only that the app still launches without throwing
+  (`timeout`; exit code 124).
 
 **F8.4 — Tutorial presentation**
 - [x] T8.4.1 **Display the `## Tutorial` overview that is currently parsed and thrown away.** — done
