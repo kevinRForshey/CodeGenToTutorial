@@ -725,4 +725,113 @@ public class TutorialViewModelTests
 
         Assert.Null(sut.TakePendingStepTarget());
     }
+
+    [Fact]
+    public void OnNavigatedTo_FilesPresent_OpensTheAutoSelectedFileAsATab()
+    {
+        _promptResultStore.SetResult("tutorial", [new ProposedFileChangeViewModel("a.txt", "proposed", "original")], "/tmp");
+        var sut = CreateSut();
+
+        sut.OnNavigatedTo(null!);
+
+        Assert.True(sut.HasOpenTabs);
+        Assert.Same(sut.Selected, Assert.Single(sut.OpenTabs));
+    }
+
+    [Fact]
+    public void SelectingAnotherFile_OpensItAsAnAdditionalTabWithoutClosingTheOthers()
+    {
+        var fileA = new ProposedFileChangeViewModel("a.txt", "proposed", "original");
+        var fileB = new ProposedFileChangeViewModel("b.txt", "proposed", "original");
+        _promptResultStore.SetResult("tutorial", [fileA, fileB], "/tmp");
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+
+        sut.Selected = fileB;
+
+        Assert.Equal(2, sut.OpenTabs.Count);
+        Assert.Contains(fileA, sut.OpenTabs);
+        Assert.Contains(fileB, sut.OpenTabs);
+    }
+
+    [Fact]
+    public void ReselectingAnAlreadyOpenTab_DoesNotDuplicateIt()
+    {
+        var fileA = new ProposedFileChangeViewModel("a.txt", "proposed", "original");
+        var fileB = new ProposedFileChangeViewModel("b.txt", "proposed", "original");
+        _promptResultStore.SetResult("tutorial", [fileA, fileB], "/tmp");
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+        sut.Selected = fileB;
+
+        sut.Selected = fileA;
+
+        Assert.Equal(2, sut.OpenTabs.Count);
+    }
+
+    [Fact]
+    public void CanCloseSelectedTab_NoFileSelected_CannotBeExecuted()
+    {
+        var sut = CreateSut();
+
+        Assert.False(sut.CloseSelectedTabCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public void CloseSelectedTabCommand_ClosingANonLastTab_SelectsTheNeighboringTab()
+    {
+        var fileA = new ProposedFileChangeViewModel("a.txt", "proposed", "original");
+        var fileB = new ProposedFileChangeViewModel("b.txt", "proposed", "original");
+        var fileC = new ProposedFileChangeViewModel("c.txt", "proposed", "original");
+        _promptResultStore.SetResult("tutorial", [fileA, fileB, fileC], "/tmp");
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+        sut.Selected = fileB;
+        sut.Selected = fileC;
+        sut.Selected = fileB;
+
+        Assert.True(sut.CloseSelectedTabCommand.CanExecute(null));
+        sut.CloseSelectedTabCommand.Execute(null);
+
+        Assert.DoesNotContain(fileB, sut.OpenTabs);
+        Assert.Same(fileC, sut.Selected);
+    }
+
+    [Fact]
+    public void CloseSelectedTabCommand_ClosingTheLastRemainingTab_ClearsSelection()
+    {
+        _promptResultStore.SetResult("tutorial", [new ProposedFileChangeViewModel("a.txt", "proposed", "original")], "/tmp");
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+
+        sut.CloseSelectedTabCommand.Execute(null);
+
+        Assert.Null(sut.Selected);
+        Assert.False(sut.HasOpenTabs);
+    }
+
+    [Fact]
+    public async Task RefineSelectedFileAsync_Success_SwapsTheRefinedFileIntoTheSameTabPosition()
+    {
+        var fileA = new ProposedFileChangeViewModel("a.txt", "proposed", "original");
+        var fileB = new ProposedFileChangeViewModel("b.txt", "proposed", "original");
+        _promptResultStore.SetResult("tutorial", [fileA, fileB], "/tmp");
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+        sut.Selected = fileB;
+        sut.RefineInstruction = "add a comment";
+        _llmRunner.ResultToReturn = new LlmRunResult
+        {
+            Success = true,
+            Output = """{"responseType": "development", "tutorial": "Refined.", "files": [{"path": "a.txt", "content": "refined content", "steps": []}]}""",
+        };
+        sut.Selected = fileA;
+
+        await sut.RefineSelectedFileCommand.ExecuteAsync(null);
+
+        Assert.Equal(2, sut.OpenTabs.Count);
+        Assert.DoesNotContain(fileA, sut.OpenTabs);
+        Assert.Same(sut.Files[0], sut.OpenTabs[0]);
+        Assert.Same(fileB, sut.OpenTabs[1]);
+    }
 }

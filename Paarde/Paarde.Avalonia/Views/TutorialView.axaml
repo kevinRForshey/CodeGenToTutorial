@@ -9,7 +9,15 @@
              x:Class="Paarde.Avalonia.Views.TutorialView"
              x:DataType="vm:TutorialViewModel">
 
-    <Grid ColumnDefinitions="280,*">
+    <!-- T8.2.3: resizable/persisted pane width - see ResizablePaneHelper, wired up in
+         TutorialView.axaml.cs. Dragging FileListSplitter all the way shut collapses the file list. -->
+    <Grid Name="WorkspaceGrid">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="280" />
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
         <Grid Grid.Column="0" RowDefinitions="Auto,*,Auto">
             <StackPanel Grid.Row="0" Margin="8" Spacing="4">
                 <Button Content="Apply Selected" Command="{Binding ApplySelectedCommand}" HorizontalAlignment="Stretch"
@@ -73,7 +81,9 @@
             </StackPanel>
         </Grid>
 
-        <Border Grid.Column="1" Padding="16">
+        <GridSplitter Grid.Column="1" Name="FileListSplitter" Width="4" ResizeDirection="Columns" />
+
+        <Border Grid.Column="2" Padding="16">
             <Grid RowDefinitions="Auto,*">
                 <!-- T8.4.1: the overview from the model's `## Tutorial` section - previously parsed
                      into PromptResultStore.Tutorial and never shown anywhere. -->
@@ -98,13 +108,42 @@
                                TextAlignment="Center"
                                FontSize="18"
                                IsVisible="{Binding HasFilesButNoneSelected}" />
-                    <ContentControl Content="{Binding Selected}">
-                        <ContentControl.ContentTemplate>
-                            <DataTemplate x:DataType="coreVm:ProposedFileChangeViewModel">
-                                <views:TutorialDetailControl />
-                            </DataTemplate>
-                        </ContentControl.ContentTemplate>
-                    </ContentControl>
+
+                    <!-- T8.2.2: tabbed editing - every file the user has selected from the master
+                         list this visit stays open as its own tab (TutorialDetailControl instance),
+                         rather than the previous single ContentControl that threw its detail pane
+                         away and rebuilt it on every selection change. -->
+                    <Grid RowDefinitions="Auto,*" IsVisible="{Binding HasOpenTabs}">
+                        <Button Grid.Row="0"
+                                Content="Close Tab"
+                                HorizontalAlignment="Right"
+                                Margin="0,0,0,4"
+                                Command="{Binding CloseSelectedTabCommand}"
+                                ToolTip.Tip="Close the active tab." />
+                        <TabControl Grid.Row="1"
+                                    ItemsSource="{Binding OpenTabs}"
+                                    SelectedItem="{Binding Selected, Mode=TwoWay}">
+                            <TabControl.ItemTemplate>
+                                <DataTemplate x:DataType="coreVm:ProposedFileChangeViewModel">
+                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                        <TextBlock Text="{Binding FilePath}"
+                                                   MaxWidth="200"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTip.Tip="{Binding FilePath}" />
+                                        <TextBlock Text="*"
+                                                   FontWeight="Bold"
+                                                   IsVisible="{Binding IsDirty}"
+                                                   ToolTip.Tip="This file has unsaved edits." />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </TabControl.ItemTemplate>
+                            <TabControl.ContentTemplate>
+                                <DataTemplate x:DataType="coreVm:ProposedFileChangeViewModel">
+                                    <views:TutorialDetailControl />
+                                </DataTemplate>
+                            </TabControl.ContentTemplate>
+                        </TabControl>
+                    </Grid>
                 </Grid>
             </Grid>
         </Border>

@@ -8,7 +8,15 @@
              x:Class="Paarde.Avalonia.Views.DiffsView"
              x:DataType="vm:DiffsViewModel">
 
-    <Grid ColumnDefinitions="280,*">
+    <!-- T8.2.3: resizable/persisted pane width - see ResizablePaneHelper, wired up in
+         DiffsView.axaml.cs. Dragging FileListSplitter all the way shut collapses the file list. -->
+    <Grid Name="WorkspaceGrid">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="280" />
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
         <Grid Grid.Column="0" RowDefinitions="Auto,*">
             <!-- T8.4.5: only shown when this page was reached via a tutorial step's "View in Diff"
                  jump (ReturnToStep set) - returns to that step, the reverse of the jump here. -->
@@ -37,7 +45,9 @@
             </ListBox>
         </Grid>
 
-        <Border Grid.Column="1" Padding="16">
+        <GridSplitter Grid.Column="1" Name="FileListSplitter" Width="4" ResizeDirection="Columns" />
+
+        <Border Grid.Column="2" Padding="16">
             <Grid>
                 <TextBlock Text="No proposed changes yet. Run a prompt first, then come back here to review the diff."
                            HorizontalAlignment="Center"

@@ -304,4 +304,285 @@ public class DiffBuilderTests
 
         Assert.Equal("line1\nline2", result);
     }
+
+    [Fact]
+    public void BuildSideBySideRows_NoChanges_PairsEachUnchangedLineWithItself()
+    {
+        var diffLines = DiffBuilder.BuildLineDiff("line1\nline2", "line1\nline2");
+
+        var rows = DiffBuilder.BuildSideBySideRows(diffLines);
+
+        Assert.Equal(
+            [
+                ("line1", DiffLineKind.Unchanged, "line1", DiffLineKind.Unchanged),
+                ("line2", DiffLineKind.Unchanged, "line2", DiffLineKind.Unchanged),
+            ],
+            rows.Select(r => (r.OriginalText, r.OriginalKind, r.ProposedText, r.ProposedKind)));
+    }
+
+    [Fact]
+    public void BuildSideBySideRows_SameCountOfRemovedAndAdded_PairsThemOneToOne()
+    {
+        var diffLines = DiffBuilder.BuildLineDiff("a\nb", "x\ny");
+
+        var rows = DiffBuilder.BuildSideBySideRows(diffLines);
+
+        Assert.Equal(
+            [
+                ("a", DiffLineKind.Removed, "x", DiffLineKind.Added),
+                ("b", DiffLineKind.Removed, "y", DiffLineKind.Added),
+            ],
+            rows.Select(r => (r.OriginalText, r.OriginalKind, r.ProposedText, r.ProposedKind)));
+    }
+
+    [Fact]
+    public void BuildSideBySideRows_MoreAddedThanRemoved_PadsOriginalSideWithBlankRows()
+    {
+        var diffLines = DiffBuilder.BuildLineDiff("a", "x\ny\nz");
+
+        var rows = DiffBuilder.BuildSideBySideRows(diffLines);
+
+        Assert.Equal(
+            [
+                ("a", DiffLineKind.Removed, "x", DiffLineKind.Added),
+                (null, null, "y", DiffLineKind.Added),
+                (null, null, "z", DiffLineKind.Added),
+            ],
+            rows.Select(r => (r.OriginalText, r.OriginalKind, r.ProposedText, r.ProposedKind)));
+    }
+
+    [Fact]
+    public void BuildSideBySideRows_MoreRemovedThanAdded_PadsProposedSideWithBlankRows()
+    {
+        var diffLines = DiffBuilder.BuildLineDiff("x\ny\nz", "a");
+
+        var rows = DiffBuilder.BuildSideBySideRows(diffLines);
+
+        Assert.Equal(
+            [
+                ("x", DiffLineKind.Removed, "a", DiffLineKind.Added),
+                ("y", DiffLineKind.Removed, null, null),
+                ("z", DiffLineKind.Removed, null, null),
+            ],
+            rows.Select(r => (r.OriginalText, r.OriginalKind, r.ProposedText, r.ProposedKind)));
+    }
+
+    [Fact]
+    public void BuildSideBySideRows_ChangeBetweenUnchangedLines_KeepsUnchangedLinesOnTheirOwnRows()
+    {
+        var diffLines = DiffBuilder.BuildLineDiff("line1\nold\nline3", "line1\nnew\nline3");
+
+        var rows = DiffBuilder.BuildSideBySideRows(diffLines);
+
+        Assert.Equal(
+            [
+                ("line1", DiffLineKind.Unchanged, "line1", DiffLineKind.Unchanged),
+                ("old", DiffLineKind.Removed, "new", DiffLineKind.Added),
+                ("line3", DiffLineKind.Unchanged, "line3", DiffLineKind.Unchanged),
+            ],
+            rows.Select(r => (r.OriginalText, r.OriginalKind, r.ProposedText, r.ProposedKind)));
+    }
+
+    [Fact]
+    public void BuildSideBySideRows_Empty_ReturnsNoRows()
+    {
+        var rows = DiffBuilder.BuildSideBySideRows(Array.Empty<DiffLine>());
+
+        Assert.Empty(rows);
+    }
+
+    [Fact]
+    public void SideBySideDiffRow_Prefixes_AreBlankOnlyForPaddedSide()
+    {
+        var diffLines = DiffBuilder.BuildLineDiff("a", "x\ny");
+        var rows = DiffBuilder.BuildSideBySideRows(diffLines);
+
+        Assert.Equal(("- ", "+ "), (rows[0].OriginalPrefix, rows[0].ProposedPrefix));
+        Assert.Equal(("", "+ "), (rows[1].OriginalPrefix, rows[1].ProposedPrefix));
+    }
+
+    [Fact]
+    public void BuildCollapsibleRows_ShortUnchangedRun_NothingCollapses()
+    {
+        // 3 unchanged lines, 1 change, 3 unchanged lines - every unchanged run fits entirely within
+        // contextLines of the single change, so nothing is far enough away to collapse.
+        var original = "a\nb\nc\nOLD\nd\ne\nf";
+        var proposed = "a\nb\nc\nNEW\nd\ne\nf";
+        var diffLines = DiffBuilder.BuildLineDiff(original, proposed);
+
+        var rows = DiffBuilder.BuildCollapsibleRows(diffLines, new HashSet<int>());
+
+        Assert.Equal(diffLines.Count, rows.Count);
+        Assert.DoesNotContain(rows, r => r.IsCollapsedPlaceholder);
+        Assert.Equal(diffLines, rows.Select(r => r.Line));
+    }
+
+    [Fact]
+    public void BuildCollapsibleRows_LongUnchangedRunBetweenChanges_CollapsesTheMiddleKeepingContext()
+    {
+        var unchangedGap = string.Join('\n', Enumerable.Range(0, 20).Select(i => $"gap-{i}"));
+        var original = $"OLD1\n{unchangedGap}\nOLD2";
+        var proposed = $"NEW1\n{unchangedGap}\nNEW2";
+        var diffLines = DiffBuilder.BuildLineDiff(original, proposed);
+
+        var rows = DiffBuilder.BuildCollapsibleRows(diffLines, new HashSet<int>(), contextLines: 3);
+
+        var placeholder = Assert.Single(rows, r => r.IsCollapsedPlaceholder);
+        Assert.Equal(20 - 3 - 3, placeholder.CollapsedLineCount);
+        Assert.Contains(rows, r => r.Line?.Text == "gap-0");
+        Assert.Contains(rows, r => r.Line?.Text == "gap-2");
+        Assert.DoesNotContain(rows, r => r.Line?.Text == "gap-3");
+        Assert.DoesNotContain(rows, r => r.Line?.Text is "gap-16");
+        Assert.Contains(rows, r => r.Line?.Text == "gap-17");
+        Assert.Contains(rows, r => r.Line?.Text == "gap-19");
+    }
+
+    [Fact]
+    public void BuildCollapsibleRows_LeadingUnchangedRunHasNoChangeBefore_CollapsesAllButContextBeforeTheChange()
+    {
+        var leadingGap = string.Join('\n', Enumerable.Range(0, 10).Select(i => $"lead-{i}"));
+        var original = $"{leadingGap}\nOLD";
+        var proposed = $"{leadingGap}\nNEW";
+        var diffLines = DiffBuilder.BuildLineDiff(original, proposed);
+
+        var rows = DiffBuilder.BuildCollapsibleRows(diffLines, new HashSet<int>(), contextLines: 3);
+
+        var placeholder = Assert.Single(rows, r => r.IsCollapsedPlaceholder);
+        Assert.Equal(0, placeholder.LineIndex);
+        Assert.Equal(7, placeholder.CollapsedLineCount);
+        Assert.Contains(rows, r => r.Line?.Text == "lead-7");
+        Assert.Contains(rows, r => r.Line?.Text == "lead-9");
+    }
+
+    [Fact]
+    public void BuildCollapsibleRows_TrailingUnchangedRunHasNoChangeAfter_CollapsesAllButContextAfterTheChange()
+    {
+        var trailingGap = string.Join('\n', Enumerable.Range(0, 10).Select(i => $"trail-{i}"));
+        var original = $"OLD\n{trailingGap}";
+        var proposed = $"NEW\n{trailingGap}";
+        var diffLines = DiffBuilder.BuildLineDiff(original, proposed);
+
+        var rows = DiffBuilder.BuildCollapsibleRows(diffLines, new HashSet<int>(), contextLines: 3);
+
+        var placeholder = Assert.Single(rows, r => r.IsCollapsedPlaceholder);
+        Assert.Equal(7, placeholder.CollapsedLineCount);
+        Assert.Contains(rows, r => r.Line?.Text == "trail-0");
+        Assert.Contains(rows, r => r.Line?.Text == "trail-2");
+        Assert.DoesNotContain(rows, r => r.Line?.Text == "trail-3");
+    }
+
+    [Fact]
+    public void BuildCollapsibleRows_NoChangesAtAll_CollapsesTheWholeFile()
+    {
+        const string text = "a\nb\nc\nd\ne\nf\ng\nh";
+        var diffLines = DiffBuilder.BuildLineDiff(text, text);
+
+        var rows = DiffBuilder.BuildCollapsibleRows(diffLines, new HashSet<int>(), contextLines: 3);
+
+        var placeholder = Assert.Single(rows);
+        Assert.True(placeholder.IsCollapsedPlaceholder);
+        Assert.Equal(diffLines.Count, placeholder.CollapsedLineCount);
+    }
+
+    [Fact]
+    public void BuildCollapsibleRows_ExpandedSegment_ShowsItsRealLinesInstead()
+    {
+        var unchangedGap = string.Join('\n', Enumerable.Range(0, 20).Select(i => $"gap-{i}"));
+        var original = $"OLD1\n{unchangedGap}\nOLD2";
+        var proposed = $"NEW1\n{unchangedGap}\nNEW2";
+        var diffLines = DiffBuilder.BuildLineDiff(original, proposed);
+        var collapsed = DiffBuilder.BuildCollapsibleRows(diffLines, new HashSet<int>(), contextLines: 3);
+        var placeholderIndex = collapsed.Single(r => r.IsCollapsedPlaceholder).LineIndex;
+
+        var rows = DiffBuilder.BuildCollapsibleRows(diffLines, new HashSet<int> { placeholderIndex }, contextLines: 3);
+
+        Assert.DoesNotContain(rows, r => r.IsCollapsedPlaceholder);
+        Assert.Equal(diffLines.Count, rows.Count);
+        Assert.Equal(diffLines, rows.Select(r => r.Line));
+    }
+
+    [Fact]
+    public void BuildCollapsibleRows_ChangesCloseEnoughTogether_DoesNotCollapseTheGapBetweenThem()
+    {
+        // Exactly 2 * contextLines unchanged lines between two single-line changes, same as
+        // GroupIntoHunks_ChangesWithinTwiceContext_MergeIntoOneHunk - close enough that the gap
+        // needs to stay visible, not be collapsed.
+        var unchangedGap = string.Join('\n', Enumerable.Range(0, 6).Select(i => $"gap-{i}"));
+        var original = $"OLD1\n{unchangedGap}\nOLD2";
+        var proposed = $"NEW1\n{unchangedGap}\nNEW2";
+        var diffLines = DiffBuilder.BuildLineDiff(original, proposed);
+
+        var rows = DiffBuilder.BuildCollapsibleRows(diffLines, new HashSet<int>(), contextLines: 3);
+
+        Assert.DoesNotContain(rows, r => r.IsCollapsedPlaceholder);
+        Assert.Equal(diffLines.Count, rows.Count);
+    }
+
+    [Fact]
+    public void BuildCollapsibleRows_Empty_ReturnsNoRows()
+    {
+        var rows = DiffBuilder.BuildCollapsibleRows(Array.Empty<DiffLine>(), new HashSet<int>());
+
+        Assert.Empty(rows);
+    }
+
+    [Fact]
+    public void BuildCollapsibleRows_ScrollTargetsFromGroupIntoHunks_AlwaysLandOnAVisibleRow()
+    {
+        // Pins the invariant DiffsDetailControl.ApplyPendingScrollTarget relies on: every DiffHunk's
+        // SourceRangeStart, using the same default contextLines as here, is always a real row - never
+        // folded into a placeholder.
+        var unchangedGap = string.Join('\n', Enumerable.Range(0, 20).Select(i => $"gap-{i}"));
+        var original = $"OLD1\n{unchangedGap}\nOLD2";
+        var proposed = $"NEW1\n{unchangedGap}\nNEW2";
+        var diffLines = DiffBuilder.BuildLineDiff(original, proposed);
+        var hunks = DiffBuilder.GroupIntoHunks(diffLines);
+
+        var rows = DiffBuilder.BuildCollapsibleRows(diffLines, new HashSet<int>());
+
+        foreach (var hunk in hunks)
+        {
+            Assert.Contains(rows, r => r.LineIndex == hunk.SourceRangeStart && !r.IsCollapsedPlaceholder);
+        }
+    }
+
+    [Fact]
+    public void BuildCollapsibleSideBySideRows_LongUnchangedRunBetweenChanges_CollapsesTheMiddle()
+    {
+        var unchangedGap = string.Join('\n', Enumerable.Range(0, 20).Select(i => $"gap-{i}"));
+        var original = $"OLD1\n{unchangedGap}\nOLD2";
+        var proposed = $"NEW1\n{unchangedGap}\nNEW2";
+        var diffLines = DiffBuilder.BuildLineDiff(original, proposed);
+
+        var rows = DiffBuilder.BuildCollapsibleSideBySideRows(diffLines, new HashSet<int>(), contextLines: 3);
+
+        var placeholder = Assert.Single(rows, r => r.IsCollapsedPlaceholder);
+        Assert.Equal(20 - 3 - 3, placeholder.CollapsedLineCount);
+        Assert.Contains(rows, r => r.Row?.OriginalText == "OLD1" && r.Row.ProposedText == "NEW1");
+        Assert.Contains(rows, r => r.Row?.OriginalText == "OLD2" && r.Row.ProposedText == "NEW2");
+    }
+
+    [Fact]
+    public void BuildCollapsibleSideBySideRows_ExpandedSegment_PairsItsRealLinesInstead()
+    {
+        var unchangedGap = string.Join('\n', Enumerable.Range(0, 20).Select(i => $"gap-{i}"));
+        var original = $"OLD1\n{unchangedGap}\nOLD2";
+        var proposed = $"NEW1\n{unchangedGap}\nNEW2";
+        var diffLines = DiffBuilder.BuildLineDiff(original, proposed);
+        var collapsed = DiffBuilder.BuildCollapsibleSideBySideRows(diffLines, new HashSet<int>(), contextLines: 3);
+        var placeholderIndex = collapsed.Single(r => r.IsCollapsedPlaceholder).LineIndex;
+
+        var rows = DiffBuilder.BuildCollapsibleSideBySideRows(diffLines, new HashSet<int> { placeholderIndex }, contextLines: 3);
+
+        Assert.DoesNotContain(rows, r => r.IsCollapsedPlaceholder);
+        Assert.Contains(rows, r => r.Row?.OriginalText == "gap-6" && r.Row.ProposedText == "gap-6");
+    }
+
+    [Fact]
+    public void BuildCollapsibleSideBySideRows_Empty_ReturnsNoRows()
+    {
+        var rows = DiffBuilder.BuildCollapsibleSideBySideRows(Array.Empty<DiffLine>(), new HashSet<int>());
+
+        Assert.Empty(rows);
+    }
 }

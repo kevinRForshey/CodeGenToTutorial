@@ -1294,7 +1294,7 @@ committed yet — review `git status`/`git diff` before committing.
   warnings/errors, 527/527 tests pass (355 Core + 172 Avalonia).
 
 **F8.2 — Shell & workspace**
-- T8.2.1 Replace the empty `MainView` with a real dashboard/landing page (recent projects, recent
+- [x] T8.2.1 Replace the empty `MainView` with a real dashboard/landing page (recent projects, recent
   runs, quick prompt). — partial progress 2026-10-18: `MainView` is no longer an empty `Grid` - it
   now shows a logo/wordmark header (a plain vector monogram badge; no image-generation tooling was
   available to produce real artwork) and a static numbered "Getting started" walkthrough of the
@@ -1303,13 +1303,176 @@ committed yet — review `git status`/`git diff` before committing.
   `.axaml` rather than `Strings/Resources.cs`. Recent projects, recent runs, and a quick-prompt
   entry point are still outstanding - this task isn't done, just no longer blocked on there being
   nothing on the page at all.
-- T8.2.2 Tabbed editing of multiple files.
-- T8.2.3 Resizable/collapsible panes; persist layout.
-- T8.2.4 Recent-projects list and fast project switching.
+  Done 2026-10-19: `MainViewModel` gained `IRunSessionStore`/`ILocalSettingsService`/
+  `INavigationService` dependencies (all already-registered singletons) and now implements
+  `INavigationAware`. `OnNavigatedTo` reads `IRunSessionStore.ListSessions()` (the same source the
+  History page uses) and populates `RecentRuns` (newest 5, reusing `HistorySessionRow.From` for
+  identical display formatting) and `RecentProjects` (newest 5 *distinct* `WorkingDirectoryPath`
+  values - `Distinct()` over an already-newest-first list keeps each path's most recent occurrence
+  without a second sort). Both lists are selection-driven (`SelectedRecentRun`/
+  `SelectedRecentProject` + an `Open`/`Switch to this project` button) rather than a command bound
+  per row reaching back out to `MainViewModel` from inside an `ItemsControl`'s `DataTemplate` -
+  mirrors `HistoryViewModel.Selected`/`ForkCommand` exactly, and sidesteps any ancestor-binding
+  fragility under compiled bindings. `OpenRecentRunCommand` reopens a run on the Prompt page via a
+  `PromptLaunchRequest` with `AutoRun: false` (same as `HistoryViewModel.Fork` - this is the app's
+  first screen, so sending straight to the CLI without a chance to review first would be
+  surprising). `OpenRecentProjectCommand` is deliberately *not* a `PromptLaunchRequest` - it only
+  saves the chosen path under `WorkingDirectorySettingsKeys.WorkingDirectory` (the same setting
+  `PromptViewModel`/`ExplorerViewModel` already read) and navigates with no parameter, so it
+  doesn't clobber whatever draft prompt text is already saved there the way overriding
+  `PromptText` would. The quick-prompt box (`QuickPromptText` + `SendQuickPromptCommand`, gated on
+  non-blank text) also hands off via `PromptLaunchRequest` with `AutoRun: false`, reading the
+  last-saved working directory first so the Prompt page doesn't lose it the way passing `""` would.
+  Covered by new `MainViewModelTests` (empty state, population/cap/distinct-projects from
+  `ListSessions`, both commands' `CanExecute` gating and navigation parameters, quick-prompt gating
+  and navigation). Full solution builds with 0 warnings/errors, 536/536 tests pass (355 Core + 181
+  Avalonia). Not visually verified - this sandbox has no X server and no committed
+  `Avalonia.Headless` test host (prior attempts at this, e.g. T8.1.1/T8.4.5, were one-off scratch
+  probes, not infrastructure left in the repo) - reviewed by hand and via the new tests instead.
+- [x] T8.2.2 Tabbed editing of multiple files. — done 2026-10-19: the Tutorial page's detail pane
+  previously showed only `Selected` via a single `ContentControl`, throwing away and rebuilding
+  `TutorialDetailControl` on every selection change - so switching back to a file you'd already
+  edited lost nothing (the edit lives on the `ProposedFileChangeViewModel` itself), but there was
+  no way to see more than one file's editor at a time or jump directly back to one without
+  re-picking it from the master list. `TutorialViewModel` gained an `OpenTabs`
+  `ObservableCollection<ProposedFileChangeViewModel>` - a subset of `Files`, populated lazily as the
+  user selects files rather than all of `Files` up front, so the page opens with just the one file
+  `EnsureItemSelected` already auto-selects as its single tab. `OnSelectedChanged` now adds `value`
+  to `OpenTabs` if it isn't already there (a no-op once a file's tab is already open, including the
+  jump-from-Diffs and refine-this-file paths, which both just set `Selected`); `ReplaceFile` swaps a
+  refined file into its old tab's position in `OpenTabs` the same way it already does for `Files`
+  and `_promptResultStore.Files`, so refining a file never leaves a stale duplicate tab behind.
+  Closing a tab is a new `CloseSelectedTabCommand` (gated on `Selected is not null`) acting on
+  `Selected` rather than a per-tab close button bound back to the view model - mirrors the
+  `Selected`+action-button pattern this codebase already uses throughout (e.g.
+  `HistoryViewModel.Selected`/`ForkCommand`, and T8.2.1's `MainViewModel`) instead of introducing
+  this repo's first per-row/per-tab `DataTemplate` command binding back to a parent `DataContext`.
+  Closing a tab selects a neighboring one (`OpenTabs[Math.Min(index, OpenTabs.Count - 1)]`) so the
+  detail pane stays populated while other tabs remain open, or `null` if that was the last tab -
+  deliberately doesn't auto-reopen anything from `Files` afterward, respecting the explicit close.
+  `OpenTabs` resets on every `OnNavigatedTo` alongside `Files`/`Selected`, which is safe rather than
+  a regression: `TutorialViewModel` is `AddTransient`, so a fresh instance (and therefore empty
+  `OpenTabs`) is already resolved on every navigation to this page today, independent of this
+  change. `TutorialView.axaml` replaces the old `ContentControl` with a `Grid` (shown only when
+  `HasOpenTabs`) containing a "Close Tab" button bound to `CloseSelectedTabCommand` and a
+  `TabControl` (`ItemsSource="{Binding OpenTabs}"`, `SelectedItem="{Binding Selected, Mode=TwoWay}"`)
+  whose tab headers show each file's trimmed path plus a `*` when `IsDirty`, and whose content
+  template still hosts `TutorialDetailControl` per tab - built with Avalonia's own `TabControl`, no
+  new xmlns import needed. Covered by new `TutorialViewModelTests`: auto-selected file opens as the
+  lone initial tab, selecting another file adds an additional tab without closing others,
+  reselecting an already-open tab doesn't duplicate it, `CloseSelectedTabCommand` `CanExecute`
+  gating and closing a non-last tab selects its neighbor, closing the last tab clears `Selected`,
+  and refining a file swaps it into the same tab position rather than appending a new one. Full
+  solution builds with 0 warnings/errors, 543/543 tests pass (355 Core + 188 Avalonia). Not visually
+  verified - same sandbox limitation as T8.2.1 and every other UI-only task (no X server, no
+  committed `Avalonia.Headless` test host) - reviewed by hand and via the new tests instead.
+- [x] T8.2.3 Resizable/collapsible panes; persist layout. — done 2026-10-19: every master-detail
+  page's browse-list pane (Explorer's tree, Diffs' and Tutorial's file list, History's sessions
+  and files lists) was a fixed-pixel-width `Grid` column with no way to resize it (Explorer alone
+  already had a `GridSplitter`, but it didn't remember a drag between visits). A new
+  `ResizablePaneHelper` (`Paarde.Avalonia/Helpers`) wraps one `ColumnDefinition` + `ILocalSettingsService`:
+  `RestoreAsync` (called from each View's `Loaded` handler) reads a persisted width back in, falling
+  back to that page's original fixed width if nothing's been saved yet; `OnSplitterDragCompleted`
+  (wired to the matching `GridSplitter.DragCompleted` - inherited from `Thumb`, fired once per drag
+  rather than on every `DragDelta`) saves the column's current width back out. "Collapsible" is
+  deliberately *not* a separate collapsed flag/toggle button - dragging a splitter all the way to one
+  side already produces (and persists) a width of 0, and dragging it back out restores the pane,
+  which is simpler than keeping a second piece of state in sync with the dragged width and avoids
+  this being the app's first per-page custom chrome bolted outside the resizable area just to
+  reopen it. Explorer, Diffs, and Tutorial each needed their `ColumnDefinitions="280,*"`\-style
+  shorthand expanded to an explicit `<Grid.ColumnDefinitions>` block (needed to reach a specific
+  `ColumnDefinition` by index from code-behind) plus a new `GridSplitter` column between the master
+  and detail panes (Diffs and Tutorial didn't have one at all before this). History got two -
+  sessions|files and files|detail - since it has two list panes in a row. Settings keys live in a
+  new `WorkspaceLayoutSettingsKeys` (mirrors `ClaudeCliSettingsKeys`/`WorkingDirectorySettingsKeys`),
+  one per page+pane so they can't collide. `ResizablePaneHelper` itself only touches a
+  `ColumnDefinition` and `ILocalSettingsService`, so (unlike the View/XAML wiring around it) it's
+  unit-testable without an Avalonia application/window - covered by new `ResizablePaneHelperTests`:
+  default width with nothing persisted, restoring a previously-saved width, clamping a corrupt
+  negative persisted width to 0, and persisting on drag-completed including the all-the-way-shut
+  (0-width) case. Full solution builds with 0 warnings/errors, 548/548 tests pass (355 Core + 193
+  Avalonia). Not visually verified - same sandbox limitation as every other UI-only task (no X
+  server, no committed `Avalonia.Headless` test host) - reviewed by hand and via the new tests
+  instead.
+- [x] T8.2.4 **Recent-projects list and fast project switching.** — done 2026-10-20: T8.2.1 already
+  put a Recent Projects list on the Main page, but that only helps when landing on that page - it
+  doesn't help while already working on the Prompt page. This adds a `RecentWorkingDirectories`
+  collection + `HasRecentWorkingDirectories`/`SelectedRecentWorkingDirectory` to `PromptViewModel`,
+  populated on `OnNavigatedTo` the same way (`IRunSessionStore.ListSessions()` -> distinct
+  `WorkingDirectoryPath`, newest-first, capped at 5) as `MainViewModel.RecentProjects`, and a
+  `Recent...` `ComboBox` next to the existing **Browse...** button in `PromptView.axaml` (only
+  visible once there's at least one entry). Picking an item immediately sets `WorkingDirectoryPath`,
+  persists it via the same `WorkingDirectorySettingsKeys.WorkingDirectory` setting
+  `BrowseWorkingDirectoryAsync` already writes, and resets the selection back to null so the
+  dropdown returns to its placeholder rather than looking permanently stuck on one entry - the
+  working directory text box above it already shows the current value, so the combo doesn't need
+  to keep "holding" it. No new service or command was needed; this is deliberately the same
+  shape as `MainViewModel`'s existing recent-projects handling rather than a new abstraction.
+  Covered by 4 new `PromptViewModelTests`: no sessions leaves the list empty, recent working
+  directories come back distinct and capped at 5, and selecting an entry switches/persists the
+  working directory and clears the selection. Full solution builds with 0 warnings/errors,
+  551/551 tests pass (355 Core + 196 Avalonia). Not visually verified - same sandbox limitation as
+  every other UI-only task (no X server, no committed `Avalonia.Headless` test host).
 
 **F8.3 — Better diff viewer**
-- T8.3.1 Side-by-side mode in addition to inline.
-- T8.3.2 Collapse unchanged regions with expand-context controls.
+- [x] T8.3.1 **Side-by-side mode in addition to inline.** — done 2026-10-20: a new
+  `DiffBuilder.BuildSideBySideRows(IReadOnlyList<DiffLine>)` (Core, alongside `BuildLineDiff`/
+  `GroupIntoHunks`) turns the existing flat line-level diff into `SideBySideDiffRow`s - pairing up
+  each maximal run of consecutive Removed/Added lines index-by-index (preserving each side's own
+  order) so an old/new line pair lands on the same row, padding the shorter side with a blank cell
+  when a run has more lines on one side than the other; an Unchanged line gets its own row with
+  identical text on both sides. `DiffsDetailControl` (shared by the Diffs page, History page's file
+  view, and the Diffs jump-to-hunk flow) gained a `Side-by-side` `ToggleButton` next to its existing
+  `Copy file contents` button and a second `ItemsControl`, hidden by default, templated over
+  `SideBySideDiffRow` as two columns with a thin divider. This is deliberately local view state,
+  not persisted and not added to the shared `ProposedFileChangeViewModel` (which both the Tutorial
+  and Diffs pages bind to the same instance of) - the view mode is a property of this one control,
+  not of the file being shown. `SideBySideItemsControl.ItemsSource` is set from code-behind
+  (recomputed on `DataContextChanged`, i.e. switching files, and on the bound file's own
+  `DiffLines` changing, i.e. an edit) rather than bound in XAML, since `BuildSideBySideRows`'s
+  output isn't something `ProposedFileChangeViewModel` itself exposes. T8.4.5's scroll-to-hunk jump
+  (`ApplyPendingScrollTarget`) always switches back to inline first and resets the toggle - the
+  side-by-side rows have no equivalent index-based scroll target, and landing in the wrong mode
+  after a deliberate jump would be confusing. Covered by 8 new `DiffBuilderTests` (no changes pairs
+  every unchanged line with itself, equal-count removed/added pairs one-to-one, more-added and
+  more-removed cases pad the shorter side with blank rows, a change sandwiched between unchanged
+  lines keeps those on their own rows, an empty diff returns no rows, and prefix text is blank only
+  for a padded cell). Full solution builds with 0 warnings/errors, 558/558 tests pass (362 Core +
+  196 Avalonia). Not visually verified - same sandbox limitation as every other UI-only task (no X
+  server, no committed `Avalonia.Headless` test host).
+- [x] T8.3.2 Collapse unchanged regions with expand-context controls. — done 2026-10-20: new
+  `DiffBuilder.FindCollapsibleSegments` (private) splits a file's flat `DiffLines` into segments that
+  must stay visible (a changed region, or unchanged context within `contextLines` of one) and
+  segments far enough from any change to collapse - reusing the existing `FindChangeRanges` helper
+  `GroupIntoHunks` already had, so a segment's visible-context boundary always lines up with a
+  `DiffHunk`'s own `SourceRangeStart`/`End` as long as both use the same default `contextLines`
+  (3). Two new public builders consume it: `BuildCollapsibleRows` (inline view - one
+  `CollapsibleDiffRow` per visible line, or one collapsed-count placeholder row per collapsible
+  segment) and `BuildCollapsibleSideBySideRows` (side-by-side view - same segmenting, but each
+  visible segment's lines are paired via the existing `BuildSideBySideRows` rather than listed one
+  row per line, since a segment boundary never splits a Removed/Added run). Both take an
+  `expandedSegmentStarts` set (keyed by a placeholder's own `LineIndex`) so a segment the user has
+  already expanded renders its real lines instead; `CollapsibleDiffRow`/`CollapsibleSideBySideDiffRow`
+  (`Paarde.Core/Models`) both implement a new `ICollapsedDiffRegion` so `DiffsDetailControl`'s
+  "expand" click handler works against either row type without caring which view produced it.
+  `DiffsDetailControl` now owns the `HashSet<int>` of expanded segments (cleared whenever the shown
+  file or its `DiffLines` changes, same reset points as T8.3.1's side-by-side recompute) and recomputes
+  both views' `ItemsSource` together via a single `RefreshDisplayRows`; each `DataTemplate` shows
+  either the normal row grid or a `Button` placeholder ("Show N unchanged lines") toggled by
+  `IsVisible="{Binding !IsCollapsedPlaceholder}"`/`{Binding IsCollapsedPlaceholder}`. T8.4.5's
+  scroll-to-hunk jump (`ApplyPendingScrollTarget`) no longer assumes a `DiffLines` index equals a
+  display-row index (collapsing breaks that 1:1 mapping) - it now looks the target row up by
+  `LineIndex` in the freshly cached inline rows, relying on the contextLines-alignment invariant above
+  to guarantee that row is never itself folded into a placeholder. Covered by 13 new `DiffBuilderTests`
+  cases (short runs stay fully visible, a long run between two changes collapses its middle while
+  keeping context on both sides, leading/trailing runs with no change on one side collapse all the way
+  to that edge, a run with no changes at all collapses entirely, expanding a segment restores its real
+  lines for both view builders, changes close enough together still don't collapse their gap, empty
+  input, and a dedicated invariant test asserting every `DiffHunk.SourceRangeStart` from
+  `GroupIntoHunks` always lands on a non-placeholder row). Full solution builds with 0 warnings/errors,
+  570/570 tests pass (374 Core + 196 Avalonia, up from 558). Not visually verified - same sandbox
+  limitation as every other UI-only task (no X server, no committed `Avalonia.Headless` test host);
+  confirmed only that the app still launches without throwing (`timeout`; exit code 124).
 - T8.3.3 Intra-line (word-level) highlighting.
 - T8.3.4 Syntax highlighting inside the diff; next/previous-change navigation.
 

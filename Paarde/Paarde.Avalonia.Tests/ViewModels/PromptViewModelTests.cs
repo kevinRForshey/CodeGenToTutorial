@@ -1,4 +1,5 @@
 using Paarde.Avalonia.Models;
+using Paarde.Avalonia.Services;
 using Paarde.Avalonia.Tests.Fakes;
 using Paarde.Avalonia.ViewModels;
 using Paarde.Core.Helpers;
@@ -1002,6 +1003,58 @@ public class PromptViewModelTests
 
         Assert.Equal("Saved prompt text", sut.PromptText);
         Assert.Equal("/saved/dir", sut.WorkingDirectoryPath);
+    }
+
+    private static RunSession CreateSession(string workingDirectoryPath, DateTimeOffset startedAt) => new(
+        Guid.NewGuid().ToString("N"),
+        startedAt,
+        workingDirectoryPath,
+        "composed prompt",
+        "raw output",
+        "tutorial text",
+        Array.Empty<RunSessionFile>(),
+        Array.Empty<ApplyHistoryEntry>(),
+        "user prompt");
+
+    [Fact]
+    public void OnNavigatedTo_NoSessions_HasNoRecentWorkingDirectories()
+    {
+        var sut = CreateSut();
+
+        sut.OnNavigatedTo(null!);
+
+        Assert.False(sut.HasRecentWorkingDirectories);
+        Assert.Empty(sut.RecentWorkingDirectories);
+    }
+
+    [Fact]
+    public void OnNavigatedTo_RecentWorkingDirectoriesAreDistinctAndCapped()
+    {
+        _runSessionStore.SessionsToList = Enumerable.Range(0, 8)
+            .Select(i => CreateSession($"/working/dir-{i % 6}", DateTimeOffset.UtcNow.AddMinutes(-i)))
+            .ToList();
+        var sut = CreateSut();
+
+        sut.OnNavigatedTo(null!);
+
+        Assert.True(sut.HasRecentWorkingDirectories);
+        Assert.Equal(5, sut.RecentWorkingDirectories.Count);
+        Assert.Equal(sut.RecentWorkingDirectories.Distinct().Count(), sut.RecentWorkingDirectories.Count);
+    }
+
+    [Fact]
+    public async Task SelectedRecentWorkingDirectory_Set_SwitchesWorkingDirectoryAndPersistsIt()
+    {
+        _runSessionStore.SessionsToList = new[] { CreateSession("/recent/dir", DateTimeOffset.UtcNow) };
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+
+        sut.SelectedRecentWorkingDirectory = sut.RecentWorkingDirectories[0];
+        await Task.Yield();
+
+        Assert.Equal("/recent/dir", sut.WorkingDirectoryPath);
+        Assert.Null(sut.SelectedRecentWorkingDirectory);
+        Assert.Equal("/recent/dir", await _localSettingsService.ReadSettingAsync<string>(WorkingDirectorySettingsKeys.WorkingDirectory));
     }
 
     [Fact]

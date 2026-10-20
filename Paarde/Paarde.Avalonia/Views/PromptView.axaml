@@ -11,14 +11,24 @@
                    FontSize="20"
                    FontWeight="SemiBold" />
 
-        <Grid Grid.Row="1" Margin="0,8,0,0" ColumnDefinitions="*,Auto">
+        <Grid Grid.Row="1" Margin="0,8,0,0" ColumnDefinitions="*,Auto,Auto">
             <StackPanel Grid.Column="0" Spacing="4">
                 <TextBlock Text="Project location" FontSize="12" Opacity="0.7" />
                 <TextBox Text="{Binding WorkingDirectoryPath}"
                          Watermark="No folder selected"
                          IsReadOnly="True" />
             </StackPanel>
-            <Button Grid.Column="1"
+            <!-- T8.2.4: fast project switching without leaving the Prompt page - see
+                 PromptViewModel.RecentWorkingDirectories/OnSelectedRecentWorkingDirectoryChanged. -->
+            <ComboBox Grid.Column="1"
+                      Margin="8,20,0,0"
+                      VerticalAlignment="Top"
+                      MinWidth="160"
+                      PlaceholderText="Recent..."
+                      ItemsSource="{Binding RecentWorkingDirectories}"
+                      SelectedItem="{Binding SelectedRecentWorkingDirectory}"
+                      IsVisible="{Binding HasRecentWorkingDirectories}" />
+            <Button Grid.Column="2"
                     Content="Browse..."
                     Margin="8,20,0,0"
                     VerticalAlignment="Top"
