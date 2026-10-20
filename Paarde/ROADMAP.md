@@ -1440,7 +1440,39 @@ committed yet — review `git status`/`git diff` before committing.
   for a padded cell). Full solution builds with 0 warnings/errors, 558/558 tests pass (362 Core +
   196 Avalonia). Not visually verified - same sandbox limitation as every other UI-only task (no X
   server, no committed `Avalonia.Headless` test host).
-- T8.3.2 Collapse unchanged regions with expand-context controls.
+- [x] T8.3.2 Collapse unchanged regions with expand-context controls. — done 2026-10-20: new
+  `DiffBuilder.FindCollapsibleSegments` (private) splits a file's flat `DiffLines` into segments that
+  must stay visible (a changed region, or unchanged context within `contextLines` of one) and
+  segments far enough from any change to collapse - reusing the existing `FindChangeRanges` helper
+  `GroupIntoHunks` already had, so a segment's visible-context boundary always lines up with a
+  `DiffHunk`'s own `SourceRangeStart`/`End` as long as both use the same default `contextLines`
+  (3). Two new public builders consume it: `BuildCollapsibleRows` (inline view - one
+  `CollapsibleDiffRow` per visible line, or one collapsed-count placeholder row per collapsible
+  segment) and `BuildCollapsibleSideBySideRows` (side-by-side view - same segmenting, but each
+  visible segment's lines are paired via the existing `BuildSideBySideRows` rather than listed one
+  row per line, since a segment boundary never splits a Removed/Added run). Both take an
+  `expandedSegmentStarts` set (keyed by a placeholder's own `LineIndex`) so a segment the user has
+  already expanded renders its real lines instead; `CollapsibleDiffRow`/`CollapsibleSideBySideDiffRow`
+  (`Paarde.Core/Models`) both implement a new `ICollapsedDiffRegion` so `DiffsDetailControl`'s
+  "expand" click handler works against either row type without caring which view produced it.
+  `DiffsDetailControl` now owns the `HashSet<int>` of expanded segments (cleared whenever the shown
+  file or its `DiffLines` changes, same reset points as T8.3.1's side-by-side recompute) and recomputes
+  both views' `ItemsSource` together via a single `RefreshDisplayRows`; each `DataTemplate` shows
+  either the normal row grid or a `Button` placeholder ("Show N unchanged lines") toggled by
+  `IsVisible="{Binding !IsCollapsedPlaceholder}"`/`{Binding IsCollapsedPlaceholder}`. T8.4.5's
+  scroll-to-hunk jump (`ApplyPendingScrollTarget`) no longer assumes a `DiffLines` index equals a
+  display-row index (collapsing breaks that 1:1 mapping) - it now looks the target row up by
+  `LineIndex` in the freshly cached inline rows, relying on the contextLines-alignment invariant above
+  to guarantee that row is never itself folded into a placeholder. Covered by 13 new `DiffBuilderTests`
+  cases (short runs stay fully visible, a long run between two changes collapses its middle while
+  keeping context on both sides, leading/trailing runs with no change on one side collapse all the way
+  to that edge, a run with no changes at all collapses entirely, expanding a segment restores its real
+  lines for both view builders, changes close enough together still don't collapse their gap, empty
+  input, and a dedicated invariant test asserting every `DiffHunk.SourceRangeStart` from
+  `GroupIntoHunks` always lands on a non-placeholder row). Full solution builds with 0 warnings/errors,
+  570/570 tests pass (374 Core + 196 Avalonia, up from 558). Not visually verified - same sandbox
+  limitation as every other UI-only task (no X server, no committed `Avalonia.Headless` test host);
+  confirmed only that the app still launches without throwing (`timeout`; exit code 124).
 - T8.3.3 Intra-line (word-level) highlighting.
 - T8.3.4 Syntax highlighting inside the diff; next/previous-change navigation.
 

@@ -21,26 +21,41 @@
             <ToggleButton Name="SideBySideToggle" Content="Side-by-side" Click="OnViewModeToggled" />
         </StackPanel>
 
+        <!-- T8.3.2: ItemsSource is set from code-behind (RefreshDisplayRows), not bound -
+             CollapsibleDiffRow comes from DiffBuilder.BuildCollapsibleRows(DiffLines), which folds
+             long runs of unchanged lines into a single clickable placeholder row rather than
+             rendering every one. -->
         <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
-            <ItemsControl Name="DiffLinesItemsControl" ItemsSource="{Binding DiffLines}">
+            <ItemsControl Name="DiffLinesItemsControl">
                 <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="models:DiffLine">
-                        <Grid Margin="4,0" ColumnDefinitions="Auto,*" Background="{Binding Kind, Converter={StaticResource DiffLineKindToBackgroundConverter}}">
-                            <TextBlock Grid.Column="0" FontFamily="Cascadia Mono,Consolas,monospace" Text="{Binding Prefix}" />
-                            <TextBlock Grid.Column="1"
-                                       Margin="4,0,0,0"
-                                       FontFamily="Cascadia Mono,Consolas,monospace"
-                                       Text="{Binding Text}"
-                                       TextWrapping="NoWrap" />
+                    <DataTemplate x:DataType="models:CollapsibleDiffRow">
+                        <Grid>
+                            <Grid Margin="4,0"
+                                  ColumnDefinitions="Auto,*"
+                                  IsVisible="{Binding !IsCollapsedPlaceholder}"
+                                  Background="{Binding Line.Kind, Converter={StaticResource DiffLineKindToBackgroundConverter}}">
+                                <TextBlock Grid.Column="0" FontFamily="Cascadia Mono,Consolas,monospace" Text="{Binding Line.Prefix}" />
+                                <TextBlock Grid.Column="1"
+                                           Margin="4,0,0,0"
+                                           FontFamily="Cascadia Mono,Consolas,monospace"
+                                           Text="{Binding Line.Text}"
+                                           TextWrapping="NoWrap" />
+                            </Grid>
+                            <Button IsVisible="{Binding IsCollapsedPlaceholder}"
+                                    Content="{Binding CollapsedSummary}"
+                                    HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Center"
+                                    Click="OnExpandCollapsedRegionClick" />
                         </Grid>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
         </ScrollViewer>
 
-        <!-- T8.3.1: ItemsSource is set from code-behind, not bound - SideBySideDiffRow comes from
-             DiffBuilder.BuildSideBySideRows(DiffLines), computed on demand rather than kept on the
-             shared ProposedFileChangeViewModel, since the view mode is local to this control. -->
+        <!-- T8.3.1/T8.3.2: ItemsSource is set from code-behind, not bound - CollapsibleSideBySideDiffRow
+             comes from DiffBuilder.BuildCollapsibleSideBySideRows(DiffLines), computed on demand
+             rather than kept on the shared ProposedFileChangeViewModel, since the view mode is
+             local to this control. -->
         <ScrollViewer Grid.Row="1"
                       Name="SideBySideScrollViewer"
                       IsVisible="False"
@@ -48,25 +63,32 @@
                       VerticalScrollBarVisibility="Auto">
             <ItemsControl Name="SideBySideItemsControl">
                 <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="models:SideBySideDiffRow">
-                        <Grid Margin="4,0" ColumnDefinitions="*,Auto,*">
-                            <Grid Grid.Column="0" ColumnDefinitions="Auto,*" Background="{Binding OriginalKind, Converter={StaticResource DiffLineKindToBackgroundConverter}}">
-                                <TextBlock Grid.Column="0" FontFamily="Cascadia Mono,Consolas,monospace" Text="{Binding OriginalPrefix}" />
-                                <TextBlock Grid.Column="1"
-                                           Margin="4,0,0,0"
-                                           FontFamily="Cascadia Mono,Consolas,monospace"
-                                           Text="{Binding OriginalText}"
-                                           TextWrapping="NoWrap" />
+                    <DataTemplate x:DataType="models:CollapsibleSideBySideDiffRow">
+                        <Grid>
+                            <Grid ColumnDefinitions="*,Auto,*" IsVisible="{Binding !IsCollapsedPlaceholder}">
+                                <Grid Grid.Column="0" Margin="4,0" ColumnDefinitions="Auto,*" Background="{Binding Row.OriginalKind, Converter={StaticResource DiffLineKindToBackgroundConverter}}">
+                                    <TextBlock Grid.Column="0" FontFamily="Cascadia Mono,Consolas,monospace" Text="{Binding Row.OriginalPrefix}" />
+                                    <TextBlock Grid.Column="1"
+                                               Margin="4,0,0,0"
+                                               FontFamily="Cascadia Mono,Consolas,monospace"
+                                               Text="{Binding Row.OriginalText}"
+                                               TextWrapping="NoWrap" />
+                                </Grid>
+                                <Border Grid.Column="1" Width="1" Margin="8,0" Background="Gray" Opacity="0.3" />
+                                <Grid Grid.Column="2" Margin="4,0" ColumnDefinitions="Auto,*" Background="{Binding Row.ProposedKind, Converter={StaticResource DiffLineKindToBackgroundConverter}}">
+                                    <TextBlock Grid.Column="0" FontFamily="Cascadia Mono,Consolas,monospace" Text="{Binding Row.ProposedPrefix}" />
+                                    <TextBlock Grid.Column="1"
+                                               Margin="4,0,0,0"
+                                               FontFamily="Cascadia Mono,Consolas,monospace"
+                                               Text="{Binding Row.ProposedText}"
+                                               TextWrapping="NoWrap" />
+                                </Grid>
                             </Grid>
-                            <Border Grid.Column="1" Width="1" Margin="8,0" Background="Gray" Opacity="0.3" />
-                            <Grid Grid.Column="2" ColumnDefinitions="Auto,*" Background="{Binding ProposedKind, Converter={StaticResource DiffLineKindToBackgroundConverter}}">
-                                <TextBlock Grid.Column="0" FontFamily="Cascadia Mono,Consolas,monospace" Text="{Binding ProposedPrefix}" />
-                                <TextBlock Grid.Column="1"
-                                           Margin="4,0,0,0"
-                                           FontFamily="Cascadia Mono,Consolas,monospace"
-                                           Text="{Binding ProposedText}"
-                                           TextWrapping="NoWrap" />
-                            </Grid>
+                            <Button IsVisible="{Binding IsCollapsedPlaceholder}"
+                                    Content="{Binding CollapsedSummary}"
+                                    HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Center"
+                                    Click="OnExpandCollapsedRegionClick" />
                         </Grid>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>

@@ -79,6 +79,148 @@ public static class DiffBuilder
         return rows;
     }
 
+    // T8.3.2: splits a flat line-level diff into display rows for the Diffs page's inline view, where
+    // a long run of Unchanged lines far from any change is folded into a single clickable
+    // placeholder instead of rendering every line - expandedSegmentStarts (keyed by the placeholder's
+    // own LineIndex, i.e. the segment's start index within diffLines) names the ones the user has
+    // already expanded back to their real lines. Uses the same default contextLines as
+    // GroupIntoHunks so a DiffHunk's own leading/trailing context is always part of a kept-visible
+    // segment here too, never folded away - callers that scroll to a DiffHunk's SourceRangeStart can
+    // rely on that row always being present.
+    public static IReadOnlyList<CollapsibleDiffRow> BuildCollapsibleRows(
+        IReadOnlyList<DiffLine> diffLines,
+        IReadOnlySet<int> expandedSegmentStarts,
+        int contextLines = 3)
+    {
+        var rows = new List<CollapsibleDiffRow>();
+
+        foreach (var segment in FindCollapsibleSegments(diffLines, contextLines))
+        {
+            if (segment.IsCollapsible && !expandedSegmentStarts.Contains(segment.Start))
+            {
+                rows.Add(new CollapsibleDiffRow(null, segment.Start, segment.End - segment.Start));
+                continue;
+            }
+
+            for (var i = segment.Start; i < segment.End; i++)
+            {
+                rows.Add(new CollapsibleDiffRow(diffLines[i], i, 0));
+            }
+        }
+
+        return rows;
+    }
+
+    // T8.3.2: the side-by-side equivalent of BuildCollapsibleRows - same segmenting, but each
+    // visible segment's lines are paired up via the existing BuildSideBySideRows rather than listed
+    // one row per line. A segment boundary never splits a Removed/Added run (FindCollapsibleSegments
+    // only ever cuts through Unchanged lines), so pairing each visible segment independently gives
+    // the same result as pairing the whole file would, just with collapsed segments cut out. A
+    // paired row's LineIndex is left at -1 - once BuildSideBySideRows has padded a run, a row's
+    // position here no longer corresponds 1:1 with a single diffLines index, and nothing needs it
+    // (unlike a placeholder's LineIndex, which is this row type's expand-click identity too).
+    public static IReadOnlyList<CollapsibleSideBySideDiffRow> BuildCollapsibleSideBySideRows(
+        IReadOnlyList<DiffLine> diffLines,
+        IReadOnlySet<int> expandedSegmentStarts,
+        int contextLines = 3)
+    {
+        var rows = new List<CollapsibleSideBySideDiffRow>();
+
+        foreach (var segment in FindCollapsibleSegments(diffLines, contextLines))
+        {
+            if (segment.IsCollapsible && !expandedSegmentStarts.Contains(segment.Start))
+            {
+                rows.Add(new CollapsibleSideBySideDiffRow(null, segment.Start, segment.End - segment.Start));
+                continue;
+            }
+
+            var segmentLines = diffLines.Skip(segment.Start).Take(segment.End - segment.Start).ToList();
+
+            foreach (var row in BuildSideBySideRows(segmentLines))
+            {
+                rows.Add(new CollapsibleSideBySideDiffRow(row, -1, 0));
+            }
+        }
+
+        return rows;
+    }
+
+    // One contiguous [Start, End) range of diffLines that either must stay visible (a changed
+    // region, or unchanged context close enough to one to matter) or is eligible to collapse (an
+    // unchanged run far enough from any change that hiding it loses nothing a reader would miss).
+    private readonly record struct DiffSegment(int Start, int End, bool IsCollapsible);
+
+    private static List<DiffSegment> FindCollapsibleSegments(IReadOnlyList<DiffLine> diffLines, int contextLines)
+    {
+        var segments = new List<DiffSegment>();
+
+        if (diffLines.Count == 0)
+        {
+            return segments;
+        }
+
+        var changeRanges = FindChangeRanges(diffLines);
+
+        if (changeRanges.Count == 0)
+        {
+            // No change anywhere in the file, so there's no adjacent change needing context on
+            // either side - the whole thing is collapsible (unless it's too short to bother, which
+            // AddUnchangedRun's own length check below handles).
+            AddUnchangedRun(segments, 0, diffLines.Count, leftNeed: 0, rightNeed: 0);
+            return segments;
+        }
+
+        var cursor = 0;
+
+        for (var i = 0; i < changeRanges.Count; i++)
+        {
+            var (changeStart, changeEnd) = changeRanges[i];
+
+            if (changeStart > cursor)
+            {
+                // The run before the first change has no earlier change to keep context for; every
+                // later run sits between two changes and needs contextLines of context on both sides.
+                var leftNeed = i == 0 ? 0 : contextLines;
+                AddUnchangedRun(segments, cursor, changeStart, leftNeed, contextLines);
+            }
+
+            segments.Add(new DiffSegment(changeStart, changeEnd, IsCollapsible: false));
+            cursor = changeEnd;
+        }
+
+        if (cursor < diffLines.Count)
+        {
+            // The run after the last change has no later change to keep context for.
+            AddUnchangedRun(segments, cursor, diffLines.Count, contextLines, rightNeed: 0);
+        }
+
+        return segments;
+    }
+
+    // Splits one run of Unchanged lines into up to three segments: up to leftNeed lines of visible
+    // context, a collapsible middle, and up to rightNeed lines of visible context - or, if the run
+    // isn't even long enough to need collapsing, a single visible segment covering all of it.
+    private static void AddUnchangedRun(List<DiffSegment> segments, int start, int end, int leftNeed, int rightNeed)
+    {
+        if (end - start <= leftNeed + rightNeed)
+        {
+            segments.Add(new DiffSegment(start, end, IsCollapsible: false));
+            return;
+        }
+
+        if (leftNeed > 0)
+        {
+            segments.Add(new DiffSegment(start, start + leftNeed, IsCollapsible: false));
+        }
+
+        segments.Add(new DiffSegment(start + leftNeed, end - rightNeed, IsCollapsible: true));
+
+        if (rightNeed > 0)
+        {
+            segments.Add(new DiffSegment(end - rightNeed, end, IsCollapsible: false));
+        }
+    }
+
     // Groups a flat line-level diff into unified-diff-style hunks: each changed region plus up to
     // contextLines of surrounding unchanged lines. Changed regions separated by no more than
     // 2 * contextLines of unchanged lines are merged into one hunk (their shared context would
