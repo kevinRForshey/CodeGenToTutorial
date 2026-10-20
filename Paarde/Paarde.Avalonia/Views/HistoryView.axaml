@@ -18,7 +18,17 @@
                     ToolTip.Tip="Load this run's prompt and working directory onto the Prompt page and send it immediately." />
         </StackPanel>
 
-        <Grid Grid.Row="1" ColumnDefinitions="300,260,*">
+        <!-- T8.2.3: resizable/persisted pane widths - see ResizablePaneHelper, wired up in
+             HistoryView.axaml.cs. Dragging either splitter all the way shut collapses that pane. -->
+        <Grid Grid.Row="1" Name="WorkspaceGrid">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="300" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="260" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
             <ListBox Grid.Column="0"
                      Name="SessionList"
                      ItemsSource="{Binding Sessions}"
@@ -30,7 +40,9 @@
                 </ListBox.ItemTemplate>
             </ListBox>
 
-            <Border Grid.Column="1" Padding="8">
+            <GridSplitter Grid.Column="1" Name="SessionListSplitter" Width="4" ResizeDirection="Columns" />
+
+            <Border Grid.Column="2" Padding="8">
                 <Grid>
                     <TextBlock Text="No past runs yet. Run a prompt first, then come back here to review or re-run it."
                                HorizontalAlignment="Center"
@@ -59,7 +71,9 @@
                 </Grid>
             </Border>
 
-            <Border Grid.Column="2" Padding="16">
+            <GridSplitter Grid.Column="3" Name="HistoryFileListSplitter" Width="4" ResizeDirection="Columns" />
+
+            <Border Grid.Column="4" Padding="16">
                 <Grid>
                     <TextBlock Text="Select a file from the list to view it as it was in this run."
                                HorizontalAlignment="Center"

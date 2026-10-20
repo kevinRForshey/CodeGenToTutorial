@@ -1366,7 +1366,34 @@ committed yet — review `git status`/`git diff` before committing.
   solution builds with 0 warnings/errors, 543/543 tests pass (355 Core + 188 Avalonia). Not visually
   verified - same sandbox limitation as T8.2.1 and every other UI-only task (no X server, no
   committed `Avalonia.Headless` test host) - reviewed by hand and via the new tests instead.
-- T8.2.3 Resizable/collapsible panes; persist layout.
+- [x] T8.2.3 Resizable/collapsible panes; persist layout. — done 2026-10-19: every master-detail
+  page's browse-list pane (Explorer's tree, Diffs' and Tutorial's file list, History's sessions
+  and files lists) was a fixed-pixel-width `Grid` column with no way to resize it (Explorer alone
+  already had a `GridSplitter`, but it didn't remember a drag between visits). A new
+  `ResizablePaneHelper` (`Paarde.Avalonia/Helpers`) wraps one `ColumnDefinition` + `ILocalSettingsService`:
+  `RestoreAsync` (called from each View's `Loaded` handler) reads a persisted width back in, falling
+  back to that page's original fixed width if nothing's been saved yet; `OnSplitterDragCompleted`
+  (wired to the matching `GridSplitter.DragCompleted` - inherited from `Thumb`, fired once per drag
+  rather than on every `DragDelta`) saves the column's current width back out. "Collapsible" is
+  deliberately *not* a separate collapsed flag/toggle button - dragging a splitter all the way to one
+  side already produces (and persists) a width of 0, and dragging it back out restores the pane,
+  which is simpler than keeping a second piece of state in sync with the dragged width and avoids
+  this being the app's first per-page custom chrome bolted outside the resizable area just to
+  reopen it. Explorer, Diffs, and Tutorial each needed their `ColumnDefinitions="280,*"`\-style
+  shorthand expanded to an explicit `<Grid.ColumnDefinitions>` block (needed to reach a specific
+  `ColumnDefinition` by index from code-behind) plus a new `GridSplitter` column between the master
+  and detail panes (Diffs and Tutorial didn't have one at all before this). History got two -
+  sessions|files and files|detail - since it has two list panes in a row. Settings keys live in a
+  new `WorkspaceLayoutSettingsKeys` (mirrors `ClaudeCliSettingsKeys`/`WorkingDirectorySettingsKeys`),
+  one per page+pane so they can't collide. `ResizablePaneHelper` itself only touches a
+  `ColumnDefinition` and `ILocalSettingsService`, so (unlike the View/XAML wiring around it) it's
+  unit-testable without an Avalonia application/window - covered by new `ResizablePaneHelperTests`:
+  default width with nothing persisted, restoring a previously-saved width, clamping a corrupt
+  negative persisted width to 0, and persisting on drag-completed including the all-the-way-shut
+  (0-width) case. Full solution builds with 0 warnings/errors, 548/548 tests pass (355 Core + 193
+  Avalonia). Not visually verified - same sandbox limitation as every other UI-only task (no X
+  server, no committed `Avalonia.Headless` test host) - reviewed by hand and via the new tests
+  instead.
 - T8.2.4 Recent-projects list and fast project switching.
 
 **F8.3 — Better diff viewer**

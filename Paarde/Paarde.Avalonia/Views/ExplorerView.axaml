@@ -27,7 +27,15 @@
              selected on the right. The preview reuses CodeEditor (same control Tutorial uses for
              editing proposed changes) but never binds to ProposedFileChangeViewModel.EditedContent
              - Explorer stays a browse/view surface, editing a proposal stays the Tutorial page's job. -->
-        <Grid Grid.Row="2" Margin="8" ColumnDefinitions="300,Auto,*">
+        <!-- T8.2.3: resizable/persisted pane widths - see ResizablePaneHelper, wired up in
+             ExplorerView.axaml.cs. Dragging TreeSplitter all the way shut collapses the tree. -->
+        <Grid Grid.Row="2" Margin="8" Name="WorkspaceGrid">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="300" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
             <TreeView Grid.Column="0"
                       ItemsSource="{Binding Root.Children}"
                       SelectedItem="{Binding SelectedNode, Mode=TwoWay}">
@@ -44,7 +52,7 @@
                 </TreeView.ItemTemplate>
             </TreeView>
 
-            <GridSplitter Grid.Column="1" Width="4" ResizeDirection="Columns" />
+            <GridSplitter Grid.Column="1" Name="TreeSplitter" Width="4" ResizeDirection="Columns" />
 
             <Grid Grid.Column="2" RowDefinitions="Auto,*">
                 <TextBlock Grid.Row="0"

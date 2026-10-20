@@ -89,6 +89,10 @@ Paarde runs the same way on Windows, Linux, and macOS — there's no platform-sp
 
 ## Usage
 
+On the Explorer, Diffs, Tutorial, and History pages, drag the divider between a browse-list pane
+(file tree, file list, or run list) and the pane next to it to resize it; dragging it all the way
+to one side collapses that pane. Each page remembers its own pane widths between visits.
+
 ### 1. Main page
 
 The landing page when Paarde opens: a quick "Getting started" walkthrough of the Prompt → Tutorial/
