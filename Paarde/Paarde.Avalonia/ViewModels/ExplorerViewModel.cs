@@ -8,6 +8,9 @@ using Paarde.Core.Helpers;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+
 namespace Paarde.Avalonia.ViewModels;
 
 // T8.1.1: project explorer - a gitignore-aware file-tree view of the working directory last
@@ -18,6 +21,7 @@ public partial class ExplorerViewModel : ObservableObject, INavigationAware
 {
     private readonly ILocalSettingsService _localSettingsService;
     private readonly IPromptResultStore _promptResultStore;
+    private readonly ILogger<ExplorerViewModel> _logger;
 
     [ObservableProperty]
     private string workingDirectoryPath = string.Empty;
@@ -37,10 +41,11 @@ public partial class ExplorerViewModel : ObservableObject, INavigationAware
     [ObservableProperty]
     private string selectedFileContent = string.Empty;
 
-    public ExplorerViewModel(ILocalSettingsService localSettingsService, IPromptResultStore promptResultStore)
+    public ExplorerViewModel(ILocalSettingsService localSettingsService, IPromptResultStore promptResultStore, ILogger<ExplorerViewModel>? logger = null)
     {
         _promptResultStore = promptResultStore;
         _localSettingsService = localSettingsService;
+        _logger = logger ?? NullLogger<ExplorerViewModel>.Instance;
     }
 
     // T8.1.3: open any file in the editor, proposed or not - a read-only preview, deliberately not
@@ -59,10 +64,22 @@ public partial class ExplorerViewModel : ObservableObject, INavigationAware
         SelectedFileContent = FileContentReader.ReadOrEmpty(value.FullPath);
     }
 
+    // T9.2.3: async void because INavigationAware.OnNavigatedTo returns void - wrapped so a
+    // corrupt settings file (the one thing ReadSettingAsync can actually throw on) is logged
+    // rather than unwound unobserved out of NavigationService.OnNavigated; RefreshTree's own
+    // try/catch below already covers everything that can go wrong once WorkingDirectoryPath is in
+    // hand.
     public async void OnNavigatedTo(object parameter)
     {
-        WorkingDirectoryPath = await _localSettingsService.ReadSettingAsync<string>(WorkingDirectorySettingsKeys.WorkingDirectory) ?? string.Empty;
-        RefreshTree();
+        try
+        {
+            WorkingDirectoryPath = await _localSettingsService.ReadSettingAsync<string>(WorkingDirectorySettingsKeys.WorkingDirectory) ?? string.Empty;
+            RefreshTree();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load the saved working directory while navigating to the Explorer page.");
+        }
     }
 
     public void OnNavigatedFrom()
@@ -101,11 +118,13 @@ public partial class ExplorerViewModel : ObservableObject, INavigationAware
         }
         catch (IOException ex)
         {
+            _logger.LogWarning(ex, "Failed to read the working directory {WorkingDirectory} while building the Explorer tree.", WorkingDirectoryPath);
             Root = null;
             StatusMessage = string.Format("Explorer_LoadFailed".GetLocalized(), ex.Message);
         }
         catch (UnauthorizedAccessException ex)
         {
+            _logger.LogWarning(ex, "Failed to read the working directory {WorkingDirectory} while building the Explorer tree.", WorkingDirectoryPath);
             Root = null;
             StatusMessage = string.Format("Explorer_LoadFailed".GetLocalized(), ex.Message);
         }

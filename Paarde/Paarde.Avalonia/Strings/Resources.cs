@@ -16,6 +16,7 @@ public static class Resources
         ["Prompt_RunCompletedWithFiles"] = "Claude Code finished. {0} file(s) ready to review on the Diffs page.",
         ["Prompt_RunFailed"] = "Claude Code exited with code {0}.",
         ["Prompt_RunError"] = "Failed to run Claude Code: {0}",
+        ["Prompt_LoadSettingsFailed"] = "Failed to load saved settings: {0}",
         ["Prompt_RunCancelled"] = "Cancelled.",
         ["Prompt_RunTimedOut"] = "Timed out after {0} second(s). You can increase the timeout on the Settings page.",
         ["Prompt_ClaudeCliNotFound"] = "Claude Code CLI not found on PATH. Install it with: npm install -g @anthropic-ai/claude-code",

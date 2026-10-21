@@ -8,6 +8,9 @@ using Paarde.Core.ViewModels;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+
 namespace Paarde.Avalonia.ViewModels;
 
 // Wraps a single ProposedHunk with the ability to apply its file's proposed change and report the
@@ -25,6 +28,7 @@ public partial class TutorialStepViewModel : ObservableObject
     private readonly IFileChangeApplyService _fileChangeApplyService;
     private readonly ILlmRunner _llmRunner;
     private readonly INavigationService _navigationService;
+    private readonly ILogger<TutorialStepViewModel> _logger;
 
     public string Title { get; }
 
@@ -53,7 +57,7 @@ public partial class TutorialStepViewModel : ObservableObject
     [ObservableProperty]
     private bool isExplaining;
 
-    public TutorialStepViewModel(ProposedHunk hunk, ProposedFileChangeViewModel file, string workingDirectoryPath, string? resumeSessionId, IFileChangeApplyService fileChangeApplyService, ILlmRunner llmRunner, INavigationService navigationService, int stepNumber, int totalSteps)
+    public TutorialStepViewModel(ProposedHunk hunk, ProposedFileChangeViewModel file, string workingDirectoryPath, string? resumeSessionId, IFileChangeApplyService fileChangeApplyService, ILlmRunner llmRunner, INavigationService navigationService, int stepNumber, int totalSteps, ILogger<TutorialStepViewModel>? logger = null)
     {
         Title = hunk.Title;
         Explanation = hunk.Explanation;
@@ -66,6 +70,7 @@ public partial class TutorialStepViewModel : ObservableObject
         _fileChangeApplyService = fileChangeApplyService;
         _llmRunner = llmRunner;
         _navigationService = navigationService;
+        _logger = logger ?? NullLogger<TutorialStepViewModel>.Instance;
 
         // Hunk.IsApplied/MatchedDiffHunks live on a different ObservableObject than this view
         // model's own [ObservableProperty]s, so CanApply/CanViewInDiff need an explicit nudge
@@ -95,6 +100,7 @@ public partial class TutorialStepViewModel : ObservableObject
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
+            _logger.LogWarning(ex, "Failed to apply {FilePath} in {WorkingDirectory}.", _file.FilePath, _workingDirectoryPath);
             StatusMessage = string.Format("Tutorial_ApplyFailed".GetLocalized(), ex.Message);
         }
     }

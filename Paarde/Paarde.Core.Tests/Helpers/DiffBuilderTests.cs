@@ -585,4 +585,144 @@ public class DiffBuilderTests
 
         Assert.Empty(rows);
     }
+
+    [Fact]
+    public void BuildWordDiff_IdenticalLines_ReturnsAllUnchanged()
+    {
+        var tokens = DiffBuilder.BuildWordDiff("the quick fox", "the quick fox");
+
+        Assert.All(tokens, t => Assert.Equal(DiffLineKind.Unchanged, t.Kind));
+        Assert.Equal("the quick fox", string.Concat(tokens.Select(t => t.Text)));
+    }
+
+    [Fact]
+    public void BuildWordDiff_OneWordChanged_MarksOnlyThatWord()
+    {
+        var tokens = DiffBuilder.BuildWordDiff("the quick fox", "the slow fox");
+
+        Assert.Equal(
+            [
+                ("the", DiffLineKind.Unchanged),
+                (" ", DiffLineKind.Unchanged),
+                ("quick", DiffLineKind.Removed),
+                ("slow", DiffLineKind.Added),
+                (" ", DiffLineKind.Unchanged),
+                ("fox", DiffLineKind.Unchanged),
+            ],
+            tokens.Select(t => (t.Text, t.Kind)));
+    }
+
+    [Fact]
+    public void BuildWordDiff_BothTokenListsReconstructTheirOwnLineExactly()
+    {
+        // Lossless tokenizing (word runs, non-word runs, and whitespace all captured) means every
+        // token concatenated back together must reproduce the original line - true of the whole
+        // diff's tokens regardless of which side they came from.
+        var tokens = DiffBuilder.BuildWordDiff("foo-bar(baz)", "foo-qux(baz)");
+
+        var original = string.Concat(tokens.Where(t => t.Kind != DiffLineKind.Added).Select(t => t.Text));
+        var proposed = string.Concat(tokens.Where(t => t.Kind != DiffLineKind.Removed).Select(t => t.Text));
+
+        Assert.Equal("foo-bar(baz)", original);
+        Assert.Equal("foo-qux(baz)", proposed);
+    }
+
+    [Fact]
+    public void BuildWordDiff_CompletelyDifferentLines_MarksEverythingChanged()
+    {
+        var tokens = DiffBuilder.BuildWordDiff("abc", "xyz");
+
+        Assert.Equal(
+            [("abc", DiffLineKind.Removed), ("xyz", DiffLineKind.Added)],
+            tokens.Select(t => (t.Text, t.Kind)));
+    }
+
+    [Fact]
+    public void BuildSideBySideRows_PairedChangedLine_PopulatesWordSpansOnBothSides()
+    {
+        var diffLines = DiffBuilder.BuildLineDiff("the quick fox", "the slow fox");
+
+        var rows = DiffBuilder.BuildSideBySideRows(diffLines);
+
+        var row = Assert.Single(rows);
+        Assert.NotNull(row.OriginalWordSpans);
+        Assert.NotNull(row.ProposedWordSpans);
+        Assert.Equal("the quick fox", string.Concat(row.OriginalWordSpans!.Select(s => s.Text)));
+        Assert.Equal("the slow fox", string.Concat(row.ProposedWordSpans!.Select(s => s.Text)));
+        Assert.Contains(row.OriginalWordSpans!, s => s is { Text: "quick", Kind: DiffLineKind.Removed });
+        Assert.Contains(row.ProposedWordSpans!, s => s is { Text: "slow", Kind: DiffLineKind.Added });
+    }
+
+    [Fact]
+    public void BuildSideBySideRows_UnchangedLine_HasNoWordSpans()
+    {
+        var diffLines = DiffBuilder.BuildLineDiff("line1", "line1");
+
+        var rows = DiffBuilder.BuildSideBySideRows(diffLines);
+
+        var row = Assert.Single(rows);
+        Assert.Null(row.OriginalWordSpans);
+        Assert.Null(row.ProposedWordSpans);
+    }
+
+    [Fact]
+    public void BuildSideBySideRows_PaddedUnpairedRow_HasNoWordSpans()
+    {
+        var diffLines = DiffBuilder.BuildLineDiff("a", "x\ny");
+
+        var rows = DiffBuilder.BuildSideBySideRows(diffLines);
+
+        // rows[1] is "y" padded against a blank original cell - nothing to diff it against.
+        Assert.Null(rows[1].OriginalWordSpans);
+        Assert.Null(rows[1].ProposedWordSpans);
+    }
+
+    [Fact]
+    public void BuildCollapsibleRows_PairedChangedLine_PopulatesWordSpansOnBothLines()
+    {
+        var diffLines = DiffBuilder.BuildLineDiff("the quick fox", "the slow fox");
+
+        var rows = DiffBuilder.BuildCollapsibleRows(diffLines, new HashSet<int>());
+
+        var removedRow = rows.Single(r => r.Line?.Kind == DiffLineKind.Removed);
+        var addedRow = rows.Single(r => r.Line?.Kind == DiffLineKind.Added);
+        Assert.NotNull(removedRow.WordSpans);
+        Assert.NotNull(addedRow.WordSpans);
+        Assert.Contains(removedRow.WordSpans!, s => s is { Text: "quick", Kind: DiffLineKind.Removed });
+        Assert.Contains(addedRow.WordSpans!, s => s is { Text: "slow", Kind: DiffLineKind.Added });
+    }
+
+    [Fact]
+    public void BuildCollapsibleRows_UnchangedLine_HasNoWordSpans()
+    {
+        var diffLines = DiffBuilder.BuildLineDiff("line1", "line1");
+
+        var rows = DiffBuilder.BuildCollapsibleRows(diffLines, new HashSet<int>());
+
+        Assert.Null(Assert.Single(rows).WordSpans);
+    }
+
+    [Fact]
+    public void BuildCollapsibleRows_UnpairedChange_HasNoWordSpans()
+    {
+        var diffLines = DiffBuilder.BuildLineDiff("a", "x\ny");
+
+        var rows = DiffBuilder.BuildCollapsibleRows(diffLines, new HashSet<int>());
+
+        // "a" pairs against "x", leaving "y" with no partner to diff against.
+        var unpairedAdded = rows.Single(r => r.Line is { Text: "y" });
+        Assert.Null(unpairedAdded.WordSpans);
+    }
+
+    [Fact]
+    public void BuildCollapsibleSideBySideRows_PairedChangedLine_PopulatesWordSpansViaRow()
+    {
+        var diffLines = DiffBuilder.BuildLineDiff("the quick fox", "the slow fox");
+
+        var rows = DiffBuilder.BuildCollapsibleSideBySideRows(diffLines, new HashSet<int>());
+
+        var row = Assert.Single(rows).Row;
+        Assert.NotNull(row!.OriginalWordSpans);
+        Assert.NotNull(row.ProposedWordSpans);
+    }
 }

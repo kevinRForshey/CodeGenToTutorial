@@ -10,6 +10,9 @@ using Paarde.Avalonia.Strings;
 using Paarde.Core.Contracts.Services;
 using Paarde.Core.Models;
 
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
@@ -19,6 +22,7 @@ public partial class SettingsViewModel : ObservableRecipient, INavigationAware
 {
     private readonly IThemeSelectorService _themeSelectorService;
     private readonly ILocalSettingsService _localSettingsService;
+    private readonly ILogger<SettingsViewModel> _logger;
 
     [ObservableProperty]
     private ThemeVariant _themeVariant;
@@ -50,10 +54,11 @@ public partial class SettingsViewModel : ObservableRecipient, INavigationAware
         get;
     }
 
-    public SettingsViewModel(IThemeSelectorService themeSelectorService, ILocalSettingsService localSettingsService, IPromptTemplateProvider promptTemplateProvider)
+    public SettingsViewModel(IThemeSelectorService themeSelectorService, ILocalSettingsService localSettingsService, IPromptTemplateProvider promptTemplateProvider, ILogger<SettingsViewModel>? logger = null)
     {
         _themeSelectorService = themeSelectorService;
         _localSettingsService = localSettingsService;
+        _logger = logger ?? NullLogger<SettingsViewModel>.Instance;
         _themeVariant = _themeSelectorService.Theme;
         _versionDescription = GetVersionDescription();
         DefaultPromptTemplate = promptTemplateProvider.GetTutorialInstructionPrompt();
@@ -69,15 +74,26 @@ public partial class SettingsViewModel : ObservableRecipient, INavigationAware
             });
     }
 
+    // T9.2.3: async void because INavigationAware.OnNavigatedTo returns void - wrapped so a
+    // corrupt LocalSettings.json (ReadSettingAsync's JSON deserialization is the one thing here
+    // that can actually throw) is logged and leaves the already-initialized defaults in place,
+    // rather than unwinding unobserved out of NavigationService.OnNavigated.
     public async void OnNavigatedTo(object parameter)
     {
-        var savedExecutablePath = await _localSettingsService.ReadSettingAsync<string>(ClaudeCliSettingsKeys.ExecutablePath);
-        ClaudeCliExecutablePath = string.IsNullOrWhiteSpace(savedExecutablePath) ? ClaudeCliOptions.Default.ExecutablePath : savedExecutablePath;
+        try
+        {
+            var savedExecutablePath = await _localSettingsService.ReadSettingAsync<string>(ClaudeCliSettingsKeys.ExecutablePath);
+            ClaudeCliExecutablePath = string.IsNullOrWhiteSpace(savedExecutablePath) ? ClaudeCliOptions.Default.ExecutablePath : savedExecutablePath;
 
-        var savedArguments = await _localSettingsService.ReadSettingAsync<string>(ClaudeCliSettingsKeys.Arguments);
-        ClaudeCliArguments = string.IsNullOrWhiteSpace(savedArguments) ? ClaudeCliOptions.Default.Arguments : savedArguments;
+            var savedArguments = await _localSettingsService.ReadSettingAsync<string>(ClaudeCliSettingsKeys.Arguments);
+            ClaudeCliArguments = string.IsNullOrWhiteSpace(savedArguments) ? ClaudeCliOptions.Default.Arguments : savedArguments;
 
-        PromptTemplateOverride = await _localSettingsService.ReadSettingAsync<string>(PromptTemplateSettingsKeys.Override) ?? string.Empty;
+            PromptTemplateOverride = await _localSettingsService.ReadSettingAsync<string>(PromptTemplateSettingsKeys.Override) ?? string.Empty;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load saved settings while navigating to the Settings page.");
+        }
     }
 
     public void OnNavigatedFrom()

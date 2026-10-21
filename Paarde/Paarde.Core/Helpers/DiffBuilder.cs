@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 using Paarde.Core.Models;
 
 namespace Paarde.Core.Helpers;
@@ -6,26 +8,49 @@ namespace Paarde.Core.Helpers;
 // file's contents, using a standard LCS dynamic-programming table.
 public static class DiffBuilder
 {
-    // Above this many original*proposed line pairs the O(n*m) LCS table gets too large; fall back to
-    // treating the whole file as replaced rather than risk excessive memory use on huge files.
+    // Above this many original*proposed line (or, for BuildWordDiff, token) pairs the O(n*m) LCS
+    // table gets too large; fall back to treating the whole thing as replaced rather than risk
+    // excessive memory use on huge files/lines.
     private const int MaxLcsCells = 4_000_000;
 
-    public static IReadOnlyList<DiffLine> BuildLineDiff(string originalText, string proposedText)
-    {
-        var originalLines = SplitLines(originalText);
-        var proposedLines = SplitLines(proposedText);
+    // T8.3.3: splits a line into word/non-word/whitespace runs without losing any characters -
+    // joining every token back together reproduces the original line exactly - so BuildWordDiff can
+    // diff at word granularity while still being able to reconstruct the full line from its tokens.
+    private static readonly Regex WordBoundaryRegex = new(@"(?<=\w)(?=\W)|(?<=\W)(?=\w)", RegexOptions.Compiled);
 
-        if ((long)originalLines.Length * proposedLines.Length > MaxLcsCells)
+    public static IReadOnlyList<DiffLine> BuildLineDiff(string originalText, string proposedText) =>
+        ComputeDiff(SplitLines(originalText), SplitLines(proposedText));
+
+    // T8.3.3: the same LCS diff as BuildLineDiff, just tokenized at the word level instead of split
+    // into lines - used to find which part of a single changed line actually differs, for intra-line
+    // highlighting. Only meaningful for an actual Removed/Added pair (see
+    // BuildSideBySideRows/ComputeInlineWordSpans, which are the only callers).
+    public static IReadOnlyList<DiffLine> BuildWordDiff(string originalLine, string proposedLine) =>
+        ComputeDiff(Tokenize(originalLine), Tokenize(proposedLine));
+
+    private static string[] Tokenize(string text) =>
+        string.IsNullOrEmpty(text) ? Array.Empty<string>() : WordBoundaryRegex.Split(text);
+
+    // Returns every token in wordDiff except those with the given Kind - used to reconstruct one
+    // side of a paired Removed/Added line from its word-level diff: excluding Added tokens
+    // reconstructs the original line (with its changed words marked Removed), excluding Removed
+    // tokens reconstructs the proposed line (with its changed words marked Added).
+    private static IReadOnlyList<DiffLine> ExtractSide(IReadOnlyList<DiffLine> wordDiff, DiffLineKind excludedKind) =>
+        wordDiff.Where(token => token.Kind != excludedKind).ToList();
+
+    private static IReadOnlyList<DiffLine> ComputeDiff(string[] original, string[] proposed)
+    {
+        if ((long)original.Length * proposed.Length > MaxLcsCells)
         {
-            return originalLines.Select(line => new DiffLine(DiffLineKind.Removed, line))
-                .Concat(proposedLines.Select(line => new DiffLine(DiffLineKind.Added, line)))
+            return original.Select(token => new DiffLine(DiffLineKind.Removed, token))
+                .Concat(proposed.Select(token => new DiffLine(DiffLineKind.Added, token)))
                 .ToList();
         }
 
-        var lcsLengths = ComputeLcsLengths(originalLines, proposedLines);
+        var lcsLengths = ComputeLcsLengths(original, proposed);
 
         var result = new List<DiffLine>();
-        Backtrack(lcsLengths, originalLines, proposedLines, result);
+        Backtrack(lcsLengths, original, proposed, result);
         return result;
     }
 
@@ -50,7 +75,20 @@ public static class DiffBuilder
             {
                 var left = i < removedRun.Count ? removedRun[i] : null;
                 var right = i < addedRun.Count ? addedRun[i] : null;
-                rows.Add(new SideBySideDiffRow(left?.Text, left?.Kind, right?.Text, right?.Kind));
+
+                // T8.3.3: only a genuine pair (not one side padded out) has anything on the other
+                // side to diff against at word level.
+                IReadOnlyList<DiffLine>? originalWordSpans = null;
+                IReadOnlyList<DiffLine>? proposedWordSpans = null;
+
+                if (left is not null && right is not null)
+                {
+                    var wordDiff = BuildWordDiff(left.Text, right.Text);
+                    originalWordSpans = ExtractSide(wordDiff, excludedKind: DiffLineKind.Added);
+                    proposedWordSpans = ExtractSide(wordDiff, excludedKind: DiffLineKind.Removed);
+                }
+
+                rows.Add(new SideBySideDiffRow(left?.Text, left?.Kind, right?.Text, right?.Kind, originalWordSpans, proposedWordSpans));
             }
 
             removedRun.Clear();
@@ -93,6 +131,7 @@ public static class DiffBuilder
         int contextLines = 3)
     {
         var rows = new List<CollapsibleDiffRow>();
+        var wordSpansByIndex = ComputeInlineWordSpans(diffLines);
 
         foreach (var segment in FindCollapsibleSegments(diffLines, contextLines))
         {
@@ -104,11 +143,59 @@ public static class DiffBuilder
 
             for (var i = segment.Start; i < segment.End; i++)
             {
-                rows.Add(new CollapsibleDiffRow(diffLines[i], i, 0));
+                rows.Add(new CollapsibleDiffRow(diffLines[i], i, 0, wordSpansByIndex.GetValueOrDefault(i)));
             }
         }
 
         return rows;
+    }
+
+    // T8.3.3: the inline view's equivalent of what BuildSideBySideRows's FlushRun computes inline -
+    // pairs up each run's Removed/Added lines index-by-index and, for each actual pair, works out
+    // that pair's word-level diff - but keyed by the line's own index within diffLines (rather than
+    // built into rows), since the inline view keeps one row per diffLines index regardless of
+    // pairing. An unpaired line past the shorter side's count has nothing to diff against, so it's
+    // left out of the map entirely (falls back to a plain, whole-line highlight).
+    private static Dictionary<int, IReadOnlyList<DiffLine>> ComputeInlineWordSpans(IReadOnlyList<DiffLine> diffLines)
+    {
+        var spansByIndex = new Dictionary<int, IReadOnlyList<DiffLine>>();
+        var removedRun = new List<(int Index, DiffLine Line)>();
+        var addedRun = new List<(int Index, DiffLine Line)>();
+
+        void FlushRun()
+        {
+            var pairCount = Math.Min(removedRun.Count, addedRun.Count);
+
+            for (var i = 0; i < pairCount; i++)
+            {
+                var wordDiff = BuildWordDiff(removedRun[i].Line.Text, addedRun[i].Line.Text);
+                spansByIndex[removedRun[i].Index] = ExtractSide(wordDiff, excludedKind: DiffLineKind.Added);
+                spansByIndex[addedRun[i].Index] = ExtractSide(wordDiff, excludedKind: DiffLineKind.Removed);
+            }
+
+            removedRun.Clear();
+            addedRun.Clear();
+        }
+
+        for (var i = 0; i < diffLines.Count; i++)
+        {
+            switch (diffLines[i].Kind)
+            {
+                case DiffLineKind.Removed:
+                    removedRun.Add((i, diffLines[i]));
+                    break;
+                case DiffLineKind.Added:
+                    addedRun.Add((i, diffLines[i]));
+                    break;
+                default:
+                    FlushRun();
+                    break;
+            }
+        }
+
+        FlushRun();
+
+        return spansByIndex;
     }
 
     // T8.3.2: the side-by-side equivalent of BuildCollapsibleRows - same segmenting, but each

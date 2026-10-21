@@ -1473,8 +1473,81 @@ committed yet — review `git status`/`git diff` before committing.
   570/570 tests pass (374 Core + 196 Avalonia, up from 558). Not visually verified - same sandbox
   limitation as every other UI-only task (no X server, no committed `Avalonia.Headless` test host);
   confirmed only that the app still launches without throwing (`timeout`; exit code 124).
-- T8.3.3 Intra-line (word-level) highlighting.
-- T8.3.4 Syntax highlighting inside the diff; next/previous-change navigation.
+- [x] T8.3.3 **Intra-line (word-level) highlighting.** — done 2026-10-20: `DiffBuilder`'s line-level
+  LCS diff was refactored behind a shared private `ComputeDiff(string[], string[])` so the same
+  algorithm (and the same `MaxLcsCells` fallback) could be reused at word granularity; a new public
+  `BuildWordDiff(originalLine, proposedLine)` tokenizes each line with a word-boundary regex (word
+  runs vs. non-word/whitespace runs, split losslessly so the tokens always reconstruct the original
+  line exactly) and returns the token-level diff as the same `DiffLine` record type line diffs
+  already use, rather than inventing a parallel model. `SideBySideDiffRow` gained two new optional
+  trailing properties, `OriginalWordSpans`/`ProposedWordSpans` (`IReadOnlyList<DiffLine>?`, default
+  null), populated inside `BuildSideBySideRows`'s existing run-pairing (`FlushRun`) only for a
+  genuine Removed/Added pair - not a padded cell, and not an Unchanged line, neither of which has
+  anything meaningful to diff against - via a small `ExtractSide` helper that filters the word diff
+  down to one side by excluding the other side's token kind. The inline view has no equivalent
+  row-level pairing to hang this off of (an inline Removed line and its Added partner are two
+  separate rows), so a dedicated `ComputeInlineWordSpans` walks `diffLines` the same way
+  `BuildSideBySideRows` does but just to build a `LineIndex -> word spans` map, consumed by
+  `BuildCollapsibleRows` (which also gained a matching optional `WordSpans` property on
+  `CollapsibleDiffRow`); `CollapsibleSideBySideDiffRow` needed no change since its wrapped `Row`
+  already carries the new properties. Rendering required a new custom control,
+  `DiffWordSpanTextBlock` (a `TextBlock` subclass modeled on the existing `MarkdownTextBlock`
+  precedent, since `TextBlock.Inlines` can't be populated via a plain per-item XAML binding), which
+  rebuilds its `Inlines` as plain `Run`s when `WordSpans` is null (falling back to one run of
+  `LineText`, identical to a normal `TextBlock`) or as per-token `Run`s with a stronger-alpha
+  version of `DiffLineKindToBackgroundConverter`'s own Added/Removed hue behind only the tokens
+  whose own `Kind` is Added/Removed - wired into both `DiffsDetailControl.axaml` templates in place
+  of the plain `TextBlock` that used to render `Line.Text`/`Row.OriginalText`/`Row.ProposedText`.
+  Covered by 11 new `DiffBuilderTests` cases (identical lines tokenize to all-Unchanged, a single
+  changed word is isolated from its unchanged neighbors, both sides' token lists losslessly
+  reconstruct their own original line, completely different lines mark everything changed, a paired
+  side-by-side row gets word spans on both sides while an Unchanged line or a padded/unpaired row
+  gets none, and the same pairing-or-not behavior for the inline view's `WordSpans` and for
+  `BuildCollapsibleSideBySideRows`'s wrapped `Row`). Full solution builds with 0 warnings/errors,
+  581/581 tests pass (385 Core + 196 Avalonia, up from 570). Not visually verified - same sandbox
+  limitation as every other UI-only task (no X server, no committed `Avalonia.Headless` test host);
+  confirmed only that the app still launches without throwing (`timeout`; exit code 124).
+- [x] T8.3.4 **Syntax highlighting inside the diff; next/previous-change navigation.** — done
+  2026-10-20: added a new `Paarde.Avalonia.Helpers.SyntaxTokenizer`, wrapping the same
+  TextMateSharp registry/theme `CodeEditor` already uses for the full-file editor (DarkPlus), but
+  tokenizing one line at a time (`IGrammar.TokenizeLine`) rather than through
+  `AvaloniaEdit.TextMate`'s document-wide installation, since a diff row has no backing
+  AvaloniaEdit document; the grammar lookup is cached per file extension. Each token's foreground
+  color comes from `Theme.Match(token.Scopes)`'s best-ranked rule, falling back to no color
+  override (inheriting the ambient foreground) for an extension with no known grammar or a token
+  the theme has nothing specific to say about. Rendering a diff row now needs two independent,
+  differently-bounded tokenizations of the same line layered together - T8.3.3's word-level diff
+  (background highlight) and this syntax tokenization (foreground) - so the merge itself was
+  pulled out of `DiffWordSpanTextBlock` into a new pure, unit-testable
+  `Paarde.Avalonia.Helpers.DiffLineRenderer.Build`, which normalizes both tokenizations into
+  length-based spans covering the full line and walks them in lockstep, splitting at whichever
+  boundary (diff or syntax) comes first, so every resulting run has one unambiguous Kind/Color
+  pair; `DiffWordSpanTextBlock` itself just calls it and turns the result into `Run`s.
+  `DiffWordSpanTextBlock` gained a `FilePath` property, wired in `DiffsDetailControl.axaml` via an
+  ancestor binding (`$parent[UserControl].((coreVm:ProposedFileChangeViewModel)DataContext).FilePath`,
+  compiling fine despite reaching outside the row's own `x:DataType` scope) rather than threading
+  `FilePath` through every row model, since it's the same for every row in a given file. Next/
+  previous-change navigation reuses `DiffBuilder.GroupIntoHunks` (the same hunks T8.4.5's
+  jump-from-tutorial-step feature targets) - two new toolbar buttons plus a status label
+  ("Change X of N") drive a `_currentHunkIndex` kept in `DiffsDetailControl`'s code-behind,
+  resetting to "haven't navigated to one yet" whenever `DiffLines` is recomputed (file switch or
+  edit, same invalidation trigger T8.3.2's expanded-region tracking already uses) and clamped
+  rather than wrapping at either end; scrolling always switches to the inline view first, same
+  reasoning `ApplyPendingScrollTarget` already established (the side-by-side view has no
+  index-based scroll target), and both now share a `FindDisplayIndex(lineIndex)` helper pulled out
+  of `ApplyPendingScrollTarget` rather than duplicating its row lookup. A T8.4.5 jump now also sets
+  `_currentHunkIndex` to the hunk it landed on, so a following Next/Previous click continues from
+  there instead of restarting. Covered by 11 new tests: 5 `SyntaxTokenizerTests` (a known
+  extension colors a recognized keyword token, its tokens losslessly reconstruct the original
+  line, an unknown extension/null file path/empty line all fall back to no tokens) and 6
+  `DiffLineRendererTests` on the pure merge (no word spans and no syntax tokens yields one
+  colorless span, word spans alone carry Kind through with no Color, syntax tokens alone carry
+  Color through with no Kind, misaligned boundaries between the two split at every boundary, and
+  the merged spans always reconstruct the original line exactly). Full solution builds with 0
+  warnings/errors, 592/592 tests pass (385 Core + 207 Avalonia, up from 581). Not visually verified
+  - same sandbox limitation as every other UI-only task (no X server, no committed
+  `Avalonia.Headless` test host); confirmed only that the app still launches without throwing
+  (`timeout`; exit code 124).
 
 **F8.4 — Tutorial presentation**
 - [x] T8.4.1 **Display the `## Tutorial` overview that is currently parsed and thrown away.** — done
@@ -1588,14 +1661,83 @@ committed yet — review `git status`/`git diff` before committing.
   directly, which is the only LLM-runner dependency that exists today.
 
 **F9.2 — Reliability**
-- T9.2.1 Structured logging (`ILogger`) across services; user-accessible log file.
-- T9.2.2 Replace broad `catch (Exception)` with specific handling and a global crash handler.
-- T9.2.3 Settle `async void` navigation handlers (`OnNavigatedTo`, `InitializeThemeAndNavigate`).
+- [x] T9.2.1 **Structured logging (`ILogger`) across services; user-accessible log file.** — done
+  2026-10-20: `Paarde.Core` now depends only on `Microsoft.Extensions.Logging.Abstractions` (no DI/
+  hosting pulled into Core) so `GitStatusService` and `ApplyOrchestrationService` can accept a
+  trailing optional `ILogger<T>? logger = null` (defaulting to `NullLogger<T>.Instance`) without any
+  existing direct-construction call site - DI registrations and every `new XyzService(...)` in
+  tests - needing to change. Same pattern added to `NavigationService`, `SettingsViewModel`,
+  `ExplorerViewModel`, `PromptViewModel`, `TutorialViewModel`, `TutorialStepViewModel`. `App.axaml.cs`
+  wires logging via Serilog (`Serilog.Extensions.Hosting`'s `UseSerilog()`, replacing
+  `CreateDefaultBuilder`'s default `ILoggerFactory`) rather than a hand-rolled provider: considered
+  writing a small custom `ILoggerProvider` first (consistent with this project's general preference
+  for avoiding new dependencies - see the `IMessenger`/LibGit2Sharp/mocking-library rejections
+  elsewhere in this doc), but file rotation/retention is a real gap a hand-rolled version would have
+  to reimplement, and Serilog bridges straight onto the same `Microsoft.Extensions.Logging.ILogger<T>`
+  abstraction via `Serilog.Extensions.Logging`, so none of the `ILogger<T>` injection above had to
+  change either way. Console/Debug sinks keep terminal/debugger output working as before;
+  `Serilog.Sinks.File` writes a daily-rolling, 14-day-retained log to
+  `<ApplicationDataFolder>/Logs/log-*.txt` (same `LocalSettingsOptions.ApplicationDataFolder` base
+  used by `IRunSessionStore`, now resolved by one shared `ResolveApplicationDataFolder` helper instead
+  of duplicating that logic). Verified end-to-end by adding a startup `LogInformation` call, running
+  the app, and confirming the line appeared both on the console and in the on-disk log file.
+- [x] T9.2.2 **Replace broad `catch (Exception)` with specific handling and a global crash handler.**
+  — done 2026-10-20: audited every existing `catch (Exception ...)` - nearly all already used a
+  `when` exception-type filter. The one deliberate exception left broad is `PromptViewModel
+  .RunPromptAsync`'s catch, which wraps an entire external CLI invocation plus JSON response parsing
+  with no enumerable closed set of failure types; left broad with an explanatory comment and added
+  logging rather than narrowing it. Added two process-wide last-resort handlers in `App.axaml.cs`:
+  `AppDomain.CurrentDomain.UnhandledException` (logs critical, fires just before the process
+  terminates) and `TaskScheduler.UnobservedTaskException` (logs error, calls `e.SetObserved()`) -
+  neither can prevent termination, but both guarantee a crash still leaves a record in the same log
+  file a user could be asked to send.
+- [x] T9.2.3 **Settle `async void` navigation handlers (`OnNavigatedTo`, `InitializeThemeAndNavigate`).**
+  — done 2026-10-20: wrapped the body of every genuinely `async void` navigation handler in try/catch
+  + log - `App.axaml.cs: InitializeThemeAndNavigate`, `NavigationService.ConfirmThenRetryNavigation`,
+  `SettingsViewModel.OnNavigatedTo`, `PromptViewModel.OnNavigatedTo` (also sets a user-facing
+  `StatusMessage` on failure), `ExplorerViewModel.OnNavigatedTo` - so a failure is logged/observed
+  instead of unwinding unobserved onto whatever `SynchronizationContext` resumed it. Confirmed
+  `DiffsViewModel`, `MainViewModel`, `HistoryViewModel`, `TutorialViewModel`'s `OnNavigatedTo` are
+  already plain synchronous `void`, so out of scope. Deliberately left out other `async void`/`async
+  Task` methods that aren't navigation handlers (`DiffsDetailControl.OnCopyButtonClick`,
+  `ResizablePaneHelper.OnSplitterDragCompleted`, `TutorialStepViewModel.ExplainFurtherAsync`'s
+  missing catch) as a broader reliability gap not named by this item.
 
 **F9.3 — Delivery**
-- T9.3.1 CI: build + test + coverage gate on push.
-- T9.3.2 Replace the Template Studio READMEs with real docs (what it is, prerequisites, how to run).
-- T9.3.3 Packaging/publish per platform.
+- [x] T9.3.1 **CI: build + test + coverage gate on push.** — done 2026-10-20: new
+  `.github/workflows/ci.yml` (GitHub Actions, triggers on push/PR to `main`/`Development`) restores,
+  builds in `Release`, runs `dotnet test --collect:"XPlat Code Coverage"` (the same Cobertura
+  collection already wired up for T9.1.1 via the existing `coverlet.collector` package - no new test
+  dependency needed), then a plain bash step parses each project's `coverage.cobertura.xml` for its
+  `line-rate` and fails the job if either is below a floor. T9.1.1 named a 90% *aspirational* target,
+  but actual coverage today is ~88-91% for `Paarde.Core` and ~38-39% for `Paarde.Avalonia` (expected -
+  Avalonia's view/code-behind/converter glue isn't unit-testable the way pure logic is, consistent
+  with this project's established testing convention of thoroughly covering Core and only targeted
+  logic in view models). Set the gate's floors a few points below each project's current baseline
+  (Core 85%, Avalonia 30%) so it catches real regressions without failing on day one; raise them as
+  coverage improves rather than loosening either one. Verified by running the exact
+  restore/build/test/parse commands locally against this repo before committing the workflow.
+- [x] T9.3.2 **Replace the Template Studio READMEs with real docs (what it is, prerequisites, how to
+  run).** — done 2026-10-20: the root `README.md` was already overhauled separately (commit
+  `7269f3c`, predates this item); `Paarde.Core/README.md` was the one remaining Template Studio stub
+  (the giveaway "Recommended Markdown Viewer"/"reused across multiple application projects"
+  boilerplate text) - replaced with real docs scoped to that project specifically: what it is (the
+  UI-framework-agnostic domain layer `Paarde.Avalonia` calls into), its one real dependency
+  (`Microsoft.Extensions.Logging.Abstractions`, for T9.2.1's optional `ILogger<T>` params), and the
+  `dotnet build`/`dotnet test` commands to build and test it standalone, cross-linking the root
+  README and ROADMAP for everything else. Verified both documented commands actually succeed.
+- [x] T9.3.3 **Packaging/publish per platform.** — done 2026-10-21: new
+  `.github/workflows/release.yml`, triggered by pushing a `v*` tag, publishes self-contained,
+  single-file builds for `win-x64`, `linux-x64`, `osx-x64`, and `osx-arm64` (`dotnet publish
+  -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true`, versioned from the tag via
+  `-p:Version=`), archives each (`.zip` for Windows, `.tar.gz` for Linux/macOS), and creates a GitHub
+  Release with all four attached (`gh release create ... --generate-notes`). All four RIDs cross-
+  publish cleanly from a single `ubuntu-latest` runner - no macOS/Windows runners needed, since .NET
+  resolves each RID's runtime pack from NuGet regardless of build host - verified by running the
+  exact publish commands locally for all four targets (linux-x64's output was also launched directly
+  and confirmed to come up cleanly). These binaries are unsigned, so macOS Gatekeeper/Windows
+  SmartScreen will warn on first launch; accepted for now rather than adding code-signing
+  infrastructure this project doesn't have a certificate for yet.
 - T9.3.4 Finish or remove the half-stubbed localization layer.
 
 ---
