@@ -1661,9 +1661,47 @@ committed yet — review `git status`/`git diff` before committing.
   directly, which is the only LLM-runner dependency that exists today.
 
 **F9.2 — Reliability**
-- T9.2.1 Structured logging (`ILogger`) across services; user-accessible log file.
-- T9.2.2 Replace broad `catch (Exception)` with specific handling and a global crash handler.
-- T9.2.3 Settle `async void` navigation handlers (`OnNavigatedTo`, `InitializeThemeAndNavigate`).
+- [x] T9.2.1 **Structured logging (`ILogger`) across services; user-accessible log file.** — done
+  2026-10-20: `Paarde.Core` now depends only on `Microsoft.Extensions.Logging.Abstractions` (no DI/
+  hosting pulled into Core) so `GitStatusService` and `ApplyOrchestrationService` can accept a
+  trailing optional `ILogger<T>? logger = null` (defaulting to `NullLogger<T>.Instance`) without any
+  existing direct-construction call site - DI registrations and every `new XyzService(...)` in
+  tests - needing to change. Same pattern added to `NavigationService`, `SettingsViewModel`,
+  `ExplorerViewModel`, `PromptViewModel`, `TutorialViewModel`, `TutorialStepViewModel`. `App.axaml.cs`
+  wires logging via Serilog (`Serilog.Extensions.Hosting`'s `UseSerilog()`, replacing
+  `CreateDefaultBuilder`'s default `ILoggerFactory`) rather than a hand-rolled provider: considered
+  writing a small custom `ILoggerProvider` first (consistent with this project's general preference
+  for avoiding new dependencies - see the `IMessenger`/LibGit2Sharp/mocking-library rejections
+  elsewhere in this doc), but file rotation/retention is a real gap a hand-rolled version would have
+  to reimplement, and Serilog bridges straight onto the same `Microsoft.Extensions.Logging.ILogger<T>`
+  abstraction via `Serilog.Extensions.Logging`, so none of the `ILogger<T>` injection above had to
+  change either way. Console/Debug sinks keep terminal/debugger output working as before;
+  `Serilog.Sinks.File` writes a daily-rolling, 14-day-retained log to
+  `<ApplicationDataFolder>/Logs/log-*.txt` (same `LocalSettingsOptions.ApplicationDataFolder` base
+  used by `IRunSessionStore`, now resolved by one shared `ResolveApplicationDataFolder` helper instead
+  of duplicating that logic). Verified end-to-end by adding a startup `LogInformation` call, running
+  the app, and confirming the line appeared both on the console and in the on-disk log file.
+- [x] T9.2.2 **Replace broad `catch (Exception)` with specific handling and a global crash handler.**
+  — done 2026-10-20: audited every existing `catch (Exception ...)` - nearly all already used a
+  `when` exception-type filter. The one deliberate exception left broad is `PromptViewModel
+  .RunPromptAsync`'s catch, which wraps an entire external CLI invocation plus JSON response parsing
+  with no enumerable closed set of failure types; left broad with an explanatory comment and added
+  logging rather than narrowing it. Added two process-wide last-resort handlers in `App.axaml.cs`:
+  `AppDomain.CurrentDomain.UnhandledException` (logs critical, fires just before the process
+  terminates) and `TaskScheduler.UnobservedTaskException` (logs error, calls `e.SetObserved()`) -
+  neither can prevent termination, but both guarantee a crash still leaves a record in the same log
+  file a user could be asked to send.
+- [x] T9.2.3 **Settle `async void` navigation handlers (`OnNavigatedTo`, `InitializeThemeAndNavigate`).**
+  — done 2026-10-20: wrapped the body of every genuinely `async void` navigation handler in try/catch
+  + log - `App.axaml.cs: InitializeThemeAndNavigate`, `NavigationService.ConfirmThenRetryNavigation`,
+  `SettingsViewModel.OnNavigatedTo`, `PromptViewModel.OnNavigatedTo` (also sets a user-facing
+  `StatusMessage` on failure), `ExplorerViewModel.OnNavigatedTo` - so a failure is logged/observed
+  instead of unwinding unobserved onto whatever `SynchronizationContext` resumed it. Confirmed
+  `DiffsViewModel`, `MainViewModel`, `HistoryViewModel`, `TutorialViewModel`'s `OnNavigatedTo` are
+  already plain synchronous `void`, so out of scope. Deliberately left out other `async void`/`async
+  Task` methods that aren't navigation handlers (`DiffsDetailControl.OnCopyButtonClick`,
+  `ResizablePaneHelper.OnSplitterDragCompleted`, `TutorialStepViewModel.ExplainFurtherAsync`'s
+  missing catch) as a broader reliability gap not named by this item.
 
 **F9.3 — Delivery**
 - T9.3.1 CI: build + test + coverage gate on push.

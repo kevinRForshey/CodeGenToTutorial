@@ -26,6 +26,13 @@
     <PackageReference Include="TextMateSharp.Grammars" Version="2.0.4" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.12" />
+    <!-- T9.2.1: structured, rolling file logging. UseSerilog() (Serilog.Extensions.Hosting) replaces
+         the host's default ILoggerFactory wiring, bridging Microsoft.Extensions.Logging.ILogger<T> -
+         already injected throughout Core/Avalonia services - onto Serilog's Console/Debug/File sinks. -->
+    <PackageReference Include="Serilog.Extensions.Hosting" Version="9.0.0" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
+    <PackageReference Include="Serilog.Sinks.Debug" Version="3.0.0" />
+    <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
   </ItemGroup>
 
   <ItemGroup>

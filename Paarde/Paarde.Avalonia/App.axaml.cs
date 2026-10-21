@@ -17,6 +17,9 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
+using Serilog;
+using Serilog.Events;
+
 namespace Paarde.Avalonia;
 
 public partial class App : Application
@@ -49,17 +52,25 @@ public partial class App : Application
         Host = Microsoft.Extensions.Hosting.Host.
         CreateDefaultBuilder().
         UseContentRoot(AppContext.BaseDirectory).
-        // T9.2.1: adds a plain-text log file under <ApplicationDataFolder>/Logs alongside
-        // CreateDefaultBuilder's own Console/Debug providers (both still useful when run from a
-        // terminal/under a debugger) - this is the one a user without either of those can actually
-        // find and attach to a bug report. Configured here, ahead of ConfigureServices below,
-        // since logging has to exist before any registered service can receive an ILogger<T>.
-        ConfigureLogging((context, logging) =>
+        // T9.2.1: replaces CreateDefaultBuilder's default ILoggerFactory wiring with Serilog, writing
+        // a daily-rolling log file under <ApplicationDataFolder>/Logs - this is the one a user without
+        // a terminal/debugger attached can actually find and include in a bug report. Serilog's File
+        // sink also handles rotation/retention (14 days) for free, which a hand-rolled provider would
+        // have had to reimplement. Every ILogger<T> injected elsewhere is unaffected: Serilog.Extensions
+        // .Hosting bridges straight onto the same Microsoft.Extensions.Logging.ILogger<T> abstraction.
+        // Configured here, ahead of ConfigureServices below, since logging has to exist before any
+        // registered service can receive an ILogger<T>.
+        UseSerilog((context, loggerConfiguration) =>
         {
             var applicationDataFolder = ResolveApplicationDataFolder(context.Configuration);
-            var logFilePath = Path.Combine(applicationDataFolder, "Logs", $"log-{DateTime.Now:yyyyMMdd}.txt");
+            var logFilePath = Path.Combine(applicationDataFolder, "Logs", "log-.txt");
 
-            logging.AddProvider(new FileLoggerProvider(logFilePath));
+            loggerConfiguration.
+            MinimumLevel.Information().
+            MinimumLevel.Override("Microsoft", LogEventLevel.Warning).
+            WriteTo.Console().
+            WriteTo.Debug().
+            WriteTo.File(logFilePath, rollingInterval: RollingInterval.Day, retainedFileCountLimit: 14);
         }).
         ConfigureServices((context, services) =>
         {
@@ -171,6 +182,7 @@ public partial class App : Application
     public override void OnFrameworkInitializationCompleted()
     {
         RegisterGlobalCrashHandlers();
+        GetService<ILogger<App>>().LogInformation("Application starting.");
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
