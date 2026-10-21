@@ -57,6 +57,17 @@ public partial class TutorialStepViewModel : ObservableObject
     [ObservableProperty]
     private bool isExplaining;
 
+    // T7.3.3: a free-form question the user types about this step, as opposed to ExplainFurther's
+    // fixed "go deeper" prompt.
+    [ObservableProperty]
+    private string questionText = string.Empty;
+
+    [ObservableProperty]
+    private string questionAnswer = string.Empty;
+
+    [ObservableProperty]
+    private bool isAskingQuestion;
+
     public TutorialStepViewModel(ProposedHunk hunk, ProposedFileChangeViewModel file, string workingDirectoryPath, string? resumeSessionId, IFileChangeApplyService fileChangeApplyService, ILlmRunner llmRunner, INavigationService navigationService, int stepNumber, int totalSteps, ILogger<TutorialStepViewModel>? logger = null)
     {
         Title = hunk.Title;
@@ -89,6 +100,10 @@ public partial class TutorialStepViewModel : ObservableObject
     }
 
     partial void OnIsExplainingChanged(bool value) => ExplainFurtherCommand.NotifyCanExecuteChanged();
+
+    partial void OnIsAskingQuestionChanged(bool value) => AskQuestionCommand.NotifyCanExecuteChanged();
+
+    partial void OnQuestionTextChanged(string value) => AskQuestionCommand.NotifyCanExecuteChanged();
 
     [RelayCommand(CanExecute = nameof(CanApply))]
     private void Apply()
@@ -144,6 +159,35 @@ public partial class TutorialStepViewModel : ObservableObject
     }
 
     private bool CanExplainFurther() => !IsExplaining;
+
+    // T7.3.3: lets the user ask anything about this step - not just "go deeper" - while still
+    // resuming the same session so Claude already has the whole file/tutorial as context.
+    [RelayCommand(CanExecute = nameof(CanAskQuestion))]
+    private async Task AskQuestionAsync()
+    {
+        IsAskingQuestion = true;
+
+        try
+        {
+            var prompt =
+                $"Answer this question about the tutorial step below. " +
+                $"Respond in plain prose only - no JSON, no markdown fences.\n\n" +
+                $"Step: {Title}\n\nExplanation so far: {Explanation}\n\nRelevant code:\n{Hunk.Snippet}\n\n" +
+                $"Question: {QuestionText}";
+
+            var result = await _llmRunner.RunPromptAsync(prompt, _workingDirectoryPath, resumeSessionId: _resumeSessionId);
+
+            QuestionAnswer = result.Success
+                ? ExtractProseAnswer(result.Output)
+                : string.Format("Tutorial_AskQuestionFailed".Resolve(), result.ErrorMessage);
+        }
+        finally
+        {
+            IsAskingQuestion = false;
+        }
+    }
+
+    private bool CanAskQuestion() => !IsAskingQuestion && !string.IsNullOrWhiteSpace(QuestionText);
 
     // Asked explicitly for plain prose above, but the resumed session's first turn insisted on the
     // JSON contract, so a model that answers in JSON anyway is handled rather than shown raw - .Tutorial

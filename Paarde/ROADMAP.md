@@ -1270,7 +1270,23 @@ committed yet — review `git status`/`git diff` before committing.
   `TutorialStepViewModelTests`, new `TutorialViewModel` refine cases, and `PromptResultStoreTests`/
   `PromptViewModelTests` cases for the new `SessionId` field. Full solution builds with 0
   warnings/errors, 471/471 tests pass (326 Core + 145 Avalonia, up from 456).
-- T7.3.3 Ask-a-question-about-this-change affordance inside the tutorial.
+- [x] T7.3.3 Ask-a-question-about-this-change affordance inside the tutorial. — done 2026-10-21:
+  follows T7.3.2's pattern but with a free-form question instead of a fixed "go deeper" prompt.
+  `TutorialStepViewModel` gained `QuestionText`/`QuestionAnswer`/`IsAskingQuestion`
+  (`[ObservableProperty]`) and an `AskQuestionCommand` (`CanExecute`-gated on a non-blank
+  `QuestionText` and not already asking) that resumes the same tracked session id as
+  `ExplainFurtherCommand`, sending the step's title/explanation/snippet plus the user's question and
+  asking for plain prose; a model that answers in JSON anyway is unwrapped the same way via
+  `ExtractProseAnswer`. `TutorialDetailControl.axaml` gained a question `TextBox` + "Ask" button per
+  step, with the answer shown via `MarkdownTextBlock` underneath (same visibility pattern as
+  `FurtherExplanation`). No new ViewModel constructor parameters or code-behind changes were needed -
+  `TutorialStepViewModel` already had everything required (`_llmRunner`, `_resumeSessionId`). Covered
+  by new `TutorialStepViewModelTests` cases (success, session-id resumption, JSON-wrapped answer
+  unwrapping, failure message, `CanExecute` gating on blank text and while asking). Full solution
+  builds with 0 warnings/errors, 626/626 tests pass (397 Core + 229 Avalonia). Not visually verified
+  (no X server in this sandbox, same limitation noted on earlier UI-touching tasks) beyond confirming
+  the app still launches without throwing (ran under `timeout`; exit code 124 confirms it was still
+  running, not crashed, when killed).
 
 ---
 

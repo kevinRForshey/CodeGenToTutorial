@@ -68,6 +68,7 @@ public static class Resources
         ["History_SessionRow"] = "{0} — {1} ({2} file(s))",
         ["History_NoSessions"] = "No past runs yet. Run a prompt first, then come back here to review or re-run it.",
         ["Tutorial_ExplainFurtherFailed"] = "Failed to get a further explanation: {0}",
+        ["Tutorial_AskQuestionFailed"] = "Failed to get an answer: {0}",
         ["Tutorial_RefineNoInstruction"] = "Enter a refinement instruction first.",
         ["Tutorial_RefineRunning"] = "Refining {0}...",
         ["Tutorial_RefineFailed"] = "Failed to refine {0}: {1}",
