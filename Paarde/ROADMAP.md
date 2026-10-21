@@ -1704,8 +1704,28 @@ committed yet — review `git status`/`git diff` before committing.
   missing catch) as a broader reliability gap not named by this item.
 
 **F9.3 — Delivery**
-- T9.3.1 CI: build + test + coverage gate on push.
-- T9.3.2 Replace the Template Studio READMEs with real docs (what it is, prerequisites, how to run).
+- [x] T9.3.1 **CI: build + test + coverage gate on push.** — done 2026-10-20: new
+  `.github/workflows/ci.yml` (GitHub Actions, triggers on push/PR to `main`/`Development`) restores,
+  builds in `Release`, runs `dotnet test --collect:"XPlat Code Coverage"` (the same Cobertura
+  collection already wired up for T9.1.1 via the existing `coverlet.collector` package - no new test
+  dependency needed), then a plain bash step parses each project's `coverage.cobertura.xml` for its
+  `line-rate` and fails the job if either is below a floor. T9.1.1 named a 90% *aspirational* target,
+  but actual coverage today is ~88-91% for `Paarde.Core` and ~38-39% for `Paarde.Avalonia` (expected -
+  Avalonia's view/code-behind/converter glue isn't unit-testable the way pure logic is, consistent
+  with this project's established testing convention of thoroughly covering Core and only targeted
+  logic in view models). Set the gate's floors a few points below each project's current baseline
+  (Core 85%, Avalonia 30%) so it catches real regressions without failing on day one; raise them as
+  coverage improves rather than loosening either one. Verified by running the exact
+  restore/build/test/parse commands locally against this repo before committing the workflow.
+- [x] T9.3.2 **Replace the Template Studio READMEs with real docs (what it is, prerequisites, how to
+  run).** — done 2026-10-20: the root `README.md` was already overhauled separately (commit
+  `7269f3c`, predates this item); `Paarde.Core/README.md` was the one remaining Template Studio stub
+  (the giveaway "Recommended Markdown Viewer"/"reused across multiple application projects"
+  boilerplate text) - replaced with real docs scoped to that project specifically: what it is (the
+  UI-framework-agnostic domain layer `Paarde.Avalonia` calls into), its one real dependency
+  (`Microsoft.Extensions.Logging.Abstractions`, for T9.2.1's optional `ILogger<T>` params), and the
+  `dotnet build`/`dotnet test` commands to build and test it standalone, cross-linking the root
+  README and ROADMAP for everything else. Verified both documented commands actually succeed.
 - T9.3.3 Packaging/publish per platform.
 - T9.3.4 Finish or remove the half-stubbed localization layer.
 
