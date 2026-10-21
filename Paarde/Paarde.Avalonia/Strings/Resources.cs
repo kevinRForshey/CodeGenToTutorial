@@ -42,6 +42,7 @@ public static class Resources
         ["Tutorial_ApplyProtectedPathsConfirmButton"] = "Write anyway",
         ["Tutorial_ApplyProtectedPathsConfirmCancelButton"] = "Skip those files",
         ["Tutorial_ApplySelectedResultProtectedBlocked"] = "{0} file(s) were skipped because they're protected paths: {1}.",
+        ["Tutorial_ApplySelectedResultStaged"] = "Staged the applied file(s) in git.",
         ["Tutorial_ApplyGitDirtyConfirmTitle"] = "Apply over uncommitted changes?",
         ["Tutorial_ApplyGitDirtyConfirmMessage"] = "{0} file(s) you're about to apply already have uncommitted changes in git: {1}. Applying will overwrite that work with no commit to fall back on - continue?",
         ["Tutorial_ApplyGitDirtyConfirmButton"] = "Apply anyway",

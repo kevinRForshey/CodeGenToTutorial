@@ -86,7 +86,7 @@ public class ApplyOrchestrationService : IApplyOrchestrationService
 
     private static string Normalize(string relativeFilePath) => relativeFilePath.Replace('\\', '/').TrimStart('/');
 
-    public ApplyBatchResult ApplySelected(IReadOnlyList<ProposedFileChangeViewModel> files, string workingDirectoryPath, bool allowProtectedPaths = false)
+    public ApplyBatchResult ApplySelected(IReadOnlyList<ProposedFileChangeViewModel> files, string workingDirectoryPath, bool allowProtectedPaths = false, bool stageAppliedFiles = true)
     {
         var results = new List<FileApplyResult>();
         var appliedChanges = new List<AppliedFileChange>();
@@ -108,12 +108,25 @@ public class ApplyOrchestrationService : IApplyOrchestrationService
         _applyHistoryStore.RecordBatch(appliedChanges);
         _applyHistoryLog.Record(ApplyHistoryEntryKind.Applied, appliedChanges.Select(c => c.FilePath).ToList());
 
+        var filesStagedInGit = false;
+
         if (appliedChanges.Count > 0)
         {
             _runSessionStore.Resave();
+
+            // T4.3.3: stage exactly the files this batch actually wrote - never the whole working
+            // tree - so the user's next `git status` already reflects what Paarde just applied.
+            // Fails open (same posture as GitStatusService.GetStatus): not a repository, or git
+            // isn't installed, just means nothing gets staged, it never blocks or undoes the apply
+            // that already succeeded. stageAppliedFiles lets the caller opt out entirely (surfaced
+            // as a checkbox in the UI) without touching that fail-open behavior.
+            if (stageAppliedFiles)
+            {
+                filesStagedInGit = _gitStatusService.StageFiles(workingDirectoryPath, appliedChanges.Select(c => c.FilePath).ToList());
+            }
         }
 
-        return new ApplyBatchResult(results);
+        return new ApplyBatchResult(results) { FilesStagedInGit = filesStagedInGit };
     }
 
     // Undoes the most recently applied batch by writing each of its files' pre-apply content back

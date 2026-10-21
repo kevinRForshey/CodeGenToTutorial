@@ -19,6 +19,8 @@ namespace Paarde.Avalonia.ViewModels;
 
 public partial class TutorialViewModel : ObservableRecipient, INavigationAware, IConfirmNavigationAway
 {
+    private const string StageAppliedFilesInGitSettingsKey = "Tutorial_StageAppliedFilesInGit";
+
     private readonly IPromptResultStore _promptResultStore;
     private readonly IApplyOrchestrationService _applyOrchestrationService;
     private readonly IApplyHistoryLog _applyHistoryLog;
@@ -26,6 +28,7 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
     private readonly ILlmRunner _llmRunner;
     private readonly IPromptTemplateProvider _promptTemplateProvider;
     private readonly IFileSavePickerService _fileSavePickerService;
+    private readonly ILocalSettingsService _localSettingsService;
     private readonly ILogger<TutorialViewModel> _logger;
 
     // T8.4.5: the step TutorialDetailControl should scroll to once it's materialized for the file a
@@ -45,6 +48,13 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
 
     [ObservableProperty]
     private string applyStatusMessage = string.Empty;
+
+    // T4.3.3 follow-up: whether ApplySelectedAsync should `git add` the files it just wrote,
+    // persisted (like PromptViewModel.TimeoutSeconds) rather than session-scoped, since the user's
+    // preference here is unlikely to change run-to-run. Defaults to true to match T4.3.3's original
+    // unconditional behavior for anyone who hasn't touched the checkbox yet.
+    [ObservableProperty]
+    private bool stageAppliedFilesInGit = true;
 
     // T7.3.2: the scoped "refine this file" follow-up - a resumed-session request to change only
     // Selected, reusing the same instruction template/parsing pipeline as the main run rather than
@@ -83,7 +93,7 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
     // show before the first apply of the session.
     public bool HasApplyHistory => ApplyHistoryEntries.Count > 0;
 
-    public TutorialViewModel(IPromptResultStore promptResultStore, IApplyOrchestrationService applyOrchestrationService, IApplyHistoryLog applyHistoryLog, IDialogService dialogService, ILlmRunner llmRunner, IPromptTemplateProvider promptTemplateProvider, IFileSavePickerService fileSavePickerService, ILogger<TutorialViewModel>? logger = null)
+    public TutorialViewModel(IPromptResultStore promptResultStore, IApplyOrchestrationService applyOrchestrationService, IApplyHistoryLog applyHistoryLog, IDialogService dialogService, ILlmRunner llmRunner, IPromptTemplateProvider promptTemplateProvider, IFileSavePickerService fileSavePickerService, ILocalSettingsService localSettingsService, ILogger<TutorialViewModel>? logger = null)
     {
         _promptResultStore = promptResultStore;
         _applyOrchestrationService = applyOrchestrationService;
@@ -92,6 +102,7 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
         _llmRunner = llmRunner;
         _promptTemplateProvider = promptTemplateProvider;
         _fileSavePickerService = fileSavePickerService;
+        _localSettingsService = localSettingsService;
         _logger = logger ?? NullLogger<TutorialViewModel>.Instance;
 
         // ObservableCollection<T> raises PropertyChanged("Count") on its own, but HasNoFiles/
@@ -109,9 +120,22 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
         OpenTabs.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasOpenTabs));
     }
 
-    public void OnNavigatedTo(object parameter)
+    // Async void because INavigationAware.OnNavigatedTo returns void - wrapped (same as
+    // PromptViewModel.OnNavigatedTo) so a corrupt settings file is logged rather than unwound
+    // unobserved out of NavigationService.OnNavigated.
+    public async void OnNavigatedTo(object parameter)
     {
         Tutorial = _promptResultStore.Tutorial;
+
+        try
+        {
+            var savedStageAppliedFilesInGit = await _localSettingsService.ReadSettingAsync<bool?>(StageAppliedFilesInGitSettingsKey);
+            StageAppliedFilesInGit = savedStageAppliedFilesInGit ?? true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load saved settings while navigating to the Tutorial page.");
+        }
 
         Files.Clear();
         OpenTabs.Clear();
@@ -184,6 +208,8 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
         RefineSelectedFileCommand.NotifyCanExecuteChanged();
         CloseSelectedTabCommand.NotifyCanExecuteChanged();
     }
+
+    partial void OnStageAppliedFilesInGitChanged(bool value) => _localSettingsService.SaveSettingAsync(StageAppliedFilesInGitSettingsKey, value);
 
     partial void OnRefineInstructionChanged(string value) => RefineSelectedFileCommand.NotifyCanExecuteChanged();
 
@@ -264,7 +290,7 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
                 "Tutorial_ApplyProtectedPathsConfirmCancelButton".Resolve());
         }
 
-        var result = _applyOrchestrationService.ApplySelected(Files, _promptResultStore.WorkingDirectoryPath, allowProtectedPaths);
+        var result = _applyOrchestrationService.ApplySelected(Files, _promptResultStore.WorkingDirectoryPath, allowProtectedPaths, StageAppliedFilesInGit);
 
         var messageParts = new List<string> { string.Format("Tutorial_ApplySelectedResultApplied".Resolve(), result.AppliedCount) };
 
@@ -284,6 +310,11 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
         {
             var blockedPaths = string.Join(", ", result.ProtectedPathBlockedFiles.Select(r => r.FilePath));
             messageParts.Add(string.Format("Tutorial_ApplySelectedResultProtectedBlocked".Resolve(), result.ProtectedPathBlockedCount, blockedPaths));
+        }
+
+        if (result.FilesStagedInGit)
+        {
+            messageParts.Add("Tutorial_ApplySelectedResultStaged".Resolve());
         }
 
         ApplyStatusMessage = string.Join(" ", messageParts);

@@ -16,8 +16,9 @@ public class TutorialViewModelTests
     private readonly FakeLlmRunner _llmRunner = new();
     private readonly PromptTemplateProvider _promptTemplateProvider = new();
     private readonly FakeFileSavePickerService _fileSavePickerService = new();
+    private readonly FakeLocalSettingsService _localSettingsService = new();
 
-    private TutorialViewModel CreateSut() => new(_promptResultStore, _applyOrchestrationService, _applyHistoryLog, _dialogService, _llmRunner, _promptTemplateProvider, _fileSavePickerService);
+    private TutorialViewModel CreateSut() => new(_promptResultStore, _applyOrchestrationService, _applyHistoryLog, _dialogService, _llmRunner, _promptTemplateProvider, _fileSavePickerService, _localSettingsService);
 
     [Fact]
     public void OnNavigatedTo_TutorialOverviewPresent_PopulatesTutorialAndHasTutorialOverview()
@@ -165,6 +166,81 @@ public class TutorialViewModelTests
         Assert.Equal(1, _applyOrchestrationService.ApplySelectedCallCount);
         Assert.Equal(1, _dialogService.InfoCallCount);
         Assert.Contains("1", sut.ApplyStatusMessage);
+    }
+
+    [Fact]
+    public async Task ApplySelectedAsync_FilesStagedInGit_MessageMentionsStaging()
+    {
+        _applyOrchestrationService.PreviewToReturn = new ApplyPreview(1, 1);
+        _dialogService.ConfirmResultToReturn = true;
+        _applyOrchestrationService.ApplySelectedResultToReturn = new ApplyBatchResult(
+            [new FileApplyResult("a.txt", FileApplyOutcome.Applied)]) { FilesStagedInGit = true };
+        var sut = CreateSut();
+
+        await sut.ApplySelectedCommand.ExecuteAsync(null);
+
+        Assert.Contains("staged".ToLowerInvariant(), sut.ApplyStatusMessage.ToLowerInvariant());
+    }
+
+    [Fact]
+    public async Task ApplySelectedAsync_FilesNotStagedInGit_MessageDoesNotMentionStaging()
+    {
+        _applyOrchestrationService.PreviewToReturn = new ApplyPreview(1, 1);
+        _dialogService.ConfirmResultToReturn = true;
+        _applyOrchestrationService.ApplySelectedResultToReturn = new ApplyBatchResult(
+            [new FileApplyResult("a.txt", FileApplyOutcome.Applied)]) { FilesStagedInGit = false };
+        var sut = CreateSut();
+
+        await sut.ApplySelectedCommand.ExecuteAsync(null);
+
+        Assert.DoesNotContain("staged".ToLowerInvariant(), sut.ApplyStatusMessage.ToLowerInvariant());
+    }
+
+    [Fact]
+    public async Task ApplySelectedAsync_StageAppliedFilesInGitDefaultsToTrue_PassesTrueThrough()
+    {
+        _applyOrchestrationService.PreviewToReturn = new ApplyPreview(1, 1);
+        _dialogService.ConfirmResultToReturn = true;
+        var sut = CreateSut();
+
+        await sut.ApplySelectedCommand.ExecuteAsync(null);
+
+        Assert.True(_applyOrchestrationService.LastStageAppliedFiles);
+    }
+
+    [Fact]
+    public async Task ApplySelectedAsync_StageAppliedFilesInGitUnchecked_PassesFalseThrough()
+    {
+        _applyOrchestrationService.PreviewToReturn = new ApplyPreview(1, 1);
+        _dialogService.ConfirmResultToReturn = true;
+        var sut = CreateSut();
+        sut.StageAppliedFilesInGit = false;
+
+        await sut.ApplySelectedCommand.ExecuteAsync(null);
+
+        Assert.False(_applyOrchestrationService.LastStageAppliedFiles);
+    }
+
+    [Fact]
+    public async Task OnNavigatedTo_SavedStageAppliedFilesInGitPreferenceIsFalse_RestoresIt()
+    {
+        await _localSettingsService.SaveSettingAsync("Tutorial_StageAppliedFilesInGit", false);
+        var sut = CreateSut();
+
+        sut.OnNavigatedTo(null!);
+        await Task.Yield();
+
+        Assert.False(sut.StageAppliedFilesInGit);
+    }
+
+    [Fact]
+    public async Task OnStageAppliedFilesInGitChanged_SavesThePreference()
+    {
+        var sut = CreateSut();
+
+        sut.StageAppliedFilesInGit = false;
+
+        Assert.False(await _localSettingsService.ReadSettingAsync<bool?>("Tutorial_StageAppliedFilesInGit"));
     }
 
     [Fact]

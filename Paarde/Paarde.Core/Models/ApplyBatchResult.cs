@@ -21,4 +21,10 @@ public record ApplyBatchResult(IReadOnlyList<FileApplyResult> Results)
     public IEnumerable<FileApplyResult> FailedFiles => Results.Where(r => r.Outcome == FileApplyOutcome.Failed);
 
     public IEnumerable<FileApplyResult> ProtectedPathBlockedFiles => Results.Where(r => r.Outcome == FileApplyOutcome.ProtectedPathBlocked);
+
+    // T4.3.3: whether the applied files were also staged in git (git add) after writing - false
+    // whenever nothing was applied, the working directory isn't a git repository, or git failed to
+    // run. Purely informational; a failed/skipped stage never affects AppliedCount or the files on
+    // disk, since staging only touches the index.
+    public bool FilesStagedInGit { get; init; }
 }

@@ -601,7 +601,48 @@ committed yet — review `git status`/`git diff` before committing.
   skips the extra dialog, confirming both dialogs applies, declining the git-dirty dialog cancels
   without calling `ApplySelected`, declining the general confirm never even asks about dirty files).
   Full solution builds with 0 warnings/errors, 277/277 tests pass (221 Core + 56 Avalonia).
-- T4.3.3 Optional: stage applied files, or create a branch/commit per apply batch.
+- [x] T4.3.3 Optional: stage applied files, or create a branch/commit per apply batch. — done
+  2026-10-21: chose staging over a branch/commit-per-batch - staging only touches the git index
+  (trivially reversible via `git restore --staged`), where an automatic commit would create history
+  the user didn't ask for and have to clean up. `IGitStatusService` gained `StageFiles(
+  workingDirectoryPath, relativeFilePaths)`, shelling out to `git add -- <paths>` (`--` so a path
+  that happens to start with `-` is never misread as a flag) via the same `RunGit`
+  process-start helper `GetStatus` already used (extracted from `TryRunGit` so both share it); fails
+  open - returns `false` without throwing for an empty path list, a missing directory, a non-repository,
+  or a missing `git`, same posture as `GetStatus`. `ApplyOrchestrationService.ApplySelected` now
+  stages exactly the files it just wrote successfully (never a whole-tree `git add -A`, and never
+  conflicted/blocked/failed files) right after recording the batch for undo/history, and
+  `ApplyBatchResult` gained a `FilesStagedInGit` bool reported back to the caller. `TutorialViewModel.
+  ApplySelectedAsync` appends a new `Tutorial_ApplySelectedResultStaged` ("Staged the applied file(s)
+  in git.") to the existing apply-result message whenever that's true. Covered by new `GitStatusServiceTests` cases
+  (not-a-repository, no files, missing directory, an untracked file lands in the index, a modified
+  tracked file's edit moves from unstaged to staged - all via a real `git init`/`add`/`commit` in a
+  temp directory, this test project's existing no-mocking convention), new
+  `ApplyOrchestrationServiceTests` cases (a git repo stages the applied file, a non-repository reports
+  not-staged, a conflicted file is never staged, nothing-selected never attempts to stage), and new
+  `TutorialViewModelTests` cases (the result message does/doesn't mention staging). Full solution
+  builds with 0 warnings/errors, 637/637 tests pass (406 Core + 231 Avalonia, up from 626). Not
+  visually verified (no X server in this sandbox, same limitation noted on earlier UI-touching tasks)
+  beyond confirming the app still launches without throwing (ran under `timeout`; exit code 124
+  confirms it was still running, not crashed, when killed).
+
+  Follow-up same day: staging was unconditional at first, but the user asked for it to be a choice
+  instead. `IApplyOrchestrationService.ApplySelected` gained a `stageAppliedFiles = true` parameter
+  gating the existing `StageFiles` call (default `true` keeps prior behavior for anyone who hasn't
+  touched the new control). `TutorialViewModel` gained a persisted `StageAppliedFilesInGit` bool -
+  loaded in `OnNavigatedTo` via `ILocalSettingsService` (new constructor dependency, following
+  `PromptViewModel.TimeoutSeconds`'s save-on-change/restore-on-navigate precedent exactly, including
+  its try/catch-and-log around the settings read) and saved on every change - bound to a new
+  "Stage applied files in git" `CheckBox` in `TutorialView.axaml` right above the Apply Selected
+  button, and threaded into the `ApplySelected` call. `FakeApplyOrchestrationService` gained a
+  `LastStageAppliedFiles` tracking property (mirroring `LastAllowProtectedPaths`). Covered by a new
+  `ApplyOrchestrationServiceTests` case (`stageAppliedFiles: false` stages nothing even in a git
+  repo) and new `TutorialViewModelTests` cases (the flag's default/unchecked value reaches
+  `ApplySelected`, and the setting round-trips through `OnNavigatedTo`/`FakeLocalSettingsService`).
+  Full solution builds with 0 warnings/errors, 642/642 tests pass (407 Core + 235 Avalonia).
+
+This closes out every remaining roadmap item (Epics 1-9); see "Suggested execution order" below for
+how this document was originally sequenced.
 
 ---
 
