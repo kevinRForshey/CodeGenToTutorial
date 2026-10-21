@@ -1726,7 +1726,18 @@ committed yet — review `git status`/`git diff` before committing.
   (`Microsoft.Extensions.Logging.Abstractions`, for T9.2.1's optional `ILogger<T>` params), and the
   `dotnet build`/`dotnet test` commands to build and test it standalone, cross-linking the root
   README and ROADMAP for everything else. Verified both documented commands actually succeed.
-- T9.3.3 Packaging/publish per platform.
+- [x] T9.3.3 **Packaging/publish per platform.** — done 2026-10-21: new
+  `.github/workflows/release.yml`, triggered by pushing a `v*` tag, publishes self-contained,
+  single-file builds for `win-x64`, `linux-x64`, `osx-x64`, and `osx-arm64` (`dotnet publish
+  -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true`, versioned from the tag via
+  `-p:Version=`), archives each (`.zip` for Windows, `.tar.gz` for Linux/macOS), and creates a GitHub
+  Release with all four attached (`gh release create ... --generate-notes`). All four RIDs cross-
+  publish cleanly from a single `ubuntu-latest` runner - no macOS/Windows runners needed, since .NET
+  resolves each RID's runtime pack from NuGet regardless of build host - verified by running the
+  exact publish commands locally for all four targets (linux-x64's output was also launched directly
+  and confirmed to come up cleanly). These binaries are unsigned, so macOS Gatekeeper/Windows
+  SmartScreen will warn on first launch; accepted for now rather than adding code-signing
+  infrastructure this project doesn't have a certificate for yet.
 - T9.3.4 Finish or remove the half-stubbed localization layer.
 
 ---
