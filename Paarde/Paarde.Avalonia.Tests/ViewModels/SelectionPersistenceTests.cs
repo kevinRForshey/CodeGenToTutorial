@@ -21,7 +21,7 @@ public class SelectionPersistenceTests
             [new ProposedFileChangeViewModel("a.txt", "proposed", "original") { Hunks = new[] { hunk } }],
             "/tmp");
 
-        var tutorialViewModel = new TutorialViewModel(promptResultStore, new FakeApplyOrchestrationService(), new FakeApplyHistoryLog(), new FakeDialogService(), new FakeLlmRunner(), new PromptTemplateProvider(), new FakeFileSavePickerService());
+        var tutorialViewModel = new TutorialViewModel(promptResultStore, new FakeApplyOrchestrationService(), new FakeApplyHistoryLog(), new FakeDialogService(), new FakeLlmRunner(), new PromptTemplateProvider(), new FakeFileSavePickerService(), new FakeLocalSettingsService());
         var diffsViewModel = new DiffsViewModel(promptResultStore, new FakeNavigationService());
         tutorialViewModel.OnNavigatedTo(null!);
         diffsViewModel.OnNavigatedTo(null!);
@@ -41,7 +41,7 @@ public class SelectionPersistenceTests
             [new ProposedFileChangeViewModel("a.txt", "proposed", "original")],
             "/tmp");
 
-        var tutorialViewModel = new TutorialViewModel(promptResultStore, new FakeApplyOrchestrationService(), new FakeApplyHistoryLog(), new FakeDialogService(), new FakeLlmRunner(), new PromptTemplateProvider(), new FakeFileSavePickerService());
+        var tutorialViewModel = new TutorialViewModel(promptResultStore, new FakeApplyOrchestrationService(), new FakeApplyHistoryLog(), new FakeDialogService(), new FakeLlmRunner(), new PromptTemplateProvider(), new FakeFileSavePickerService(), new FakeLocalSettingsService());
         var diffsViewModel = new DiffsViewModel(promptResultStore, new FakeNavigationService());
         tutorialViewModel.OnNavigatedTo(null!);
         diffsViewModel.OnNavigatedTo(null!);
