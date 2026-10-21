@@ -124,4 +124,75 @@ public class TutorialStepViewModelTests
 
         Assert.False(sut.ExplainFurtherCommand.CanExecute(null));
     }
+
+    [Fact]
+    public async Task AskQuestionAsync_Success_SetsQuestionAnswerFromPlainProseOutput()
+    {
+        _llmRunner.ResultToReturn = new LlmRunResult { Success = true, Output = "Here's the answer." };
+        var sut = CreateSut();
+        sut.QuestionText = "Why does this work?";
+
+        await sut.AskQuestionCommand.ExecuteAsync(null);
+
+        Assert.Equal("Here's the answer.", sut.QuestionAnswer);
+    }
+
+    [Fact]
+    public async Task AskQuestionAsync_Success_ResumesTheTrackedSessionId()
+    {
+        _llmRunner.ResultToReturn = new LlmRunResult { Success = true, Output = "answer" };
+        var sut = CreateSut(resumeSessionId: "session-42");
+        sut.QuestionText = "Why?";
+
+        await sut.AskQuestionCommand.ExecuteAsync(null);
+
+        Assert.Equal("session-42", _llmRunner.LastResumeSessionId);
+    }
+
+    [Fact]
+    public async Task AskQuestionAsync_OutputIsJsonWrapped_UnwrapsTheProseAnswer()
+    {
+        _llmRunner.ResultToReturn = new LlmRunResult
+        {
+            Success = true,
+            Output = """{"responseType": "answer", "answer": "The unwrapped answer."}""",
+        };
+        var sut = CreateSut();
+        sut.QuestionText = "Why?";
+
+        await sut.AskQuestionCommand.ExecuteAsync(null);
+
+        Assert.Equal("The unwrapped answer.", sut.QuestionAnswer);
+    }
+
+    [Fact]
+    public async Task AskQuestionAsync_Failure_SetsQuestionAnswerToAnErrorMessage()
+    {
+        _llmRunner.ResultToReturn = new LlmRunResult { Success = false, ErrorMessage = "boom" };
+        var sut = CreateSut();
+        sut.QuestionText = "Why?";
+
+        await sut.AskQuestionCommand.ExecuteAsync(null);
+
+        Assert.Contains("boom", sut.QuestionAnswer);
+    }
+
+    [Fact]
+    public void CanAskQuestion_WithBlankQuestionText_CannotBeExecuted()
+    {
+        var sut = CreateSut();
+
+        Assert.False(sut.AskQuestionCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public void CanAskQuestion_WhileAsking_CannotBeExecuted()
+    {
+        var sut = CreateSut();
+        sut.QuestionText = "Why?";
+
+        sut.IsAskingQuestion = true;
+
+        Assert.False(sut.AskQuestionCommand.CanExecute(null));
+    }
 }

@@ -8,9 +8,10 @@ public class SettingsViewModelTests
 {
     private readonly FakeThemeSelectorService _themeSelectorService = new();
     private readonly FakeLocalSettingsService _localSettingsService = new();
+    private readonly FakeSecureStorageService _secureStorageService = new();
     private readonly PromptTemplateProvider _promptTemplateProvider = new();
 
-    private SettingsViewModel CreateSut() => new(_themeSelectorService, _localSettingsService, _promptTemplateProvider);
+    private SettingsViewModel CreateSut() => new(_themeSelectorService, _localSettingsService, _secureStorageService, _promptTemplateProvider);
 
     [Fact]
     public void ClaudeCliSettings_DefaultToClaudeAndDashP()

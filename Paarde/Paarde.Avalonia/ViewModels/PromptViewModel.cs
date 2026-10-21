@@ -241,7 +241,7 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to load saved settings while navigating to the Prompt page.");
-            StatusMessage = string.Format("Prompt_LoadSettingsFailed".GetLocalized(), ex.Message);
+            StatusMessage = string.Format("Prompt_LoadSettingsFailed".Resolve(), ex.Message);
         }
     }
 
@@ -254,7 +254,7 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
     {
         await _localSettingsService.SaveSettingAsync(PromptSettingsKey, PromptText);
 
-        StatusMessage = "Prompt_Saved".GetLocalized();
+        StatusMessage = "Prompt_Saved".Resolve();
     }
 
     [RelayCommand]
@@ -322,7 +322,10 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
     {
         if (!await _llmRunner.IsAvailableAsync())
         {
-            StatusMessage = "Prompt_ClaudeCliNotFound".GetLocalized();
+            // T6.3.2: ILlmRunner now has two implementations behind LlmRunnerSelector, so this can no
+            // longer assume it's specifically the CLI that's missing - could just as easily be a
+            // blank Anthropic API key.
+            StatusMessage = "Prompt_LlmRunnerNotAvailable".Resolve();
             return;
         }
 
@@ -330,7 +333,7 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
         CliOutput = string.Empty;
         StreamProgressDisplay = string.Empty;
         UsageSummary = string.Empty;
-        StatusMessage = "Prompt_Running".GetLocalized();
+        StatusMessage = "Prompt_Running".Resolve();
 
         _runCancellationTokenSource = new CancellationTokenSource();
         _timeoutCancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds(TimeoutSeconds));
@@ -361,7 +364,7 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
             void OnTextDelta(string text) => Dispatcher.UIThread.Post(() =>
             {
                 CliOutput += text;
-                StreamProgressDisplay = string.Format("Prompt_StreamProgress".GetLocalized(), CliOutput.Length);
+                StreamProgressDisplay = string.Format("Prompt_StreamProgress".Resolve(), CliOutput.Length);
             });
 
             // T7.3.1: both this attempt and its retry below are the same logical turn, so they
@@ -404,7 +407,7 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
             if (result.TotalCostUsd.HasValue)
             {
                 UsageSummary = string.Format(
-                    "Prompt_UsageSummary".GetLocalized(),
+                    "Prompt_UsageSummary".Resolve(),
                     result.TotalCostUsd.Value,
                     result.InputTokens ?? 0,
                     result.OutputTokens ?? 0,
@@ -417,16 +420,16 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
                 _promptResultStore.SetResult(parsed.Tutorial, parsed.Files, WorkingDirectoryPath, result.SessionId);
 
                 var completionMessage = parsed.Files.Count > 0
-                    ? string.Format("Prompt_RunCompletedWithFiles".GetLocalized(), parsed.Files.Count)
-                    : "Prompt_RunCompleted".GetLocalized();
+                    ? string.Format("Prompt_RunCompletedWithFiles".Resolve(), parsed.Files.Count)
+                    : "Prompt_RunCompleted".Resolve();
 
                 StatusMessage = parseResult.UsedFallback
-                    ? completionMessage + " " + "Prompt_FallbackParseNotice".GetLocalized()
+                    ? completionMessage + " " + "Prompt_FallbackParseNotice".Resolve()
                     : completionMessage;
             }
             else
             {
-                StatusMessage = string.Format("Prompt_RunFailed".GetLocalized(), result.ExitCode);
+                StatusMessage = string.Format("Prompt_RunFailed".Resolve(), result.ExitCode);
             }
 
             // T7.1.1: persist this run (the prompt actually sent, its raw output, the parsed
@@ -447,8 +450,8 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
             // apart from a user-initiated cancel (T6.1.2) is which underlying source actually
             // requested it.
             StatusMessage = _timeoutCancellationTokenSource.IsCancellationRequested
-                ? string.Format("Prompt_RunTimedOut".GetLocalized(), TimeoutSeconds)
-                : "Prompt_RunCancelled".GetLocalized();
+                ? string.Format("Prompt_RunTimedOut".Resolve(), TimeoutSeconds)
+                : "Prompt_RunCancelled".Resolve();
         }
         catch (Exception ex)
         {
@@ -458,7 +461,7 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
             // user-facing status message and a log entry matter more here than which exception type
             // it happened to be.
             _logger.LogError(ex, "Prompt run failed.");
-            StatusMessage = string.Format("Prompt_RunError".GetLocalized(), ex.Message);
+            StatusMessage = string.Format("Prompt_RunError".Resolve(), ex.Message);
         }
         finally
         {
@@ -637,6 +640,6 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
         }
 
         EstimatedTokenCountDisplay = string.Format(
-            "Prompt_EstimatedTokenCount".GetLocalized(), TokenEstimator.EstimateTokenCount(fullPrompt));
+            "Prompt_EstimatedTokenCount".Resolve(), TokenEstimator.EstimateTokenCount(fullPrompt));
     }
 }

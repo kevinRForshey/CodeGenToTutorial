@@ -1,9 +1,11 @@
 namespace Paarde.Avalonia.Strings;
 
-// Stand-in for the WinUI project's .resw + x:Uid localization pipeline, which relies on Visual Studio/UWP
-// designer tooling not available for a cross-platform Avalonia build. Keys mirror the original Resources.resw
-// entries that are looked up from code (ViewModels/code-behind); markup-only strings (button labels, headers)
-// are set directly in .axaml instead, since x:Uid has no Avalonia equivalent.
+// A central table for the English UI strings that ViewModels/code-behind need to format at runtime
+// (status messages, dialog text) - not a localization system. There's only ever been one locale here,
+// no resource file per culture, and no language switch; keeping this table is still worth it on its
+// own for having one place to find/edit that copy rather than scattering literals across ViewModels.
+// Markup-only strings (button labels, headers) stay directly in .axaml, where they're equally easy
+// to find and edit.
 public static class Resources
 {
     private static readonly Dictionary<string, string> Map = new()
@@ -19,7 +21,7 @@ public static class Resources
         ["Prompt_LoadSettingsFailed"] = "Failed to load saved settings: {0}",
         ["Prompt_RunCancelled"] = "Cancelled.",
         ["Prompt_RunTimedOut"] = "Timed out after {0} second(s). You can increase the timeout on the Settings page.",
-        ["Prompt_ClaudeCliNotFound"] = "Claude Code CLI not found on PATH. Install it with: npm install -g @anthropic-ai/claude-code",
+        ["Prompt_LlmRunnerNotAvailable"] = "The selected runner isn't available. Check its settings on the Settings page.",
         ["Prompt_UsageSummary"] = "Cost: ${0:F4} • {1:N0} in / {2:N0} out tokens • {3:F1}s",
         ["Prompt_EstimatedTokenCount"] = "~{0:N0} tokens (estimated)",
         ["Prompt_FallbackParseNotice"] = "(Response wasn't valid structured JSON; parsed with the legacy text parser.)",
@@ -40,6 +42,7 @@ public static class Resources
         ["Tutorial_ApplyProtectedPathsConfirmButton"] = "Write anyway",
         ["Tutorial_ApplyProtectedPathsConfirmCancelButton"] = "Skip those files",
         ["Tutorial_ApplySelectedResultProtectedBlocked"] = "{0} file(s) were skipped because they're protected paths: {1}.",
+        ["Tutorial_ApplySelectedResultStaged"] = "Staged the applied file(s) in git.",
         ["Tutorial_ApplyGitDirtyConfirmTitle"] = "Apply over uncommitted changes?",
         ["Tutorial_ApplyGitDirtyConfirmMessage"] = "{0} file(s) you're about to apply already have uncommitted changes in git: {1}. Applying will overwrite that work with no commit to fall back on - continue?",
         ["Tutorial_ApplyGitDirtyConfirmButton"] = "Apply anyway",
@@ -66,6 +69,7 @@ public static class Resources
         ["History_SessionRow"] = "{0} — {1} ({2} file(s))",
         ["History_NoSessions"] = "No past runs yet. Run a prompt first, then come back here to review or re-run it.",
         ["Tutorial_ExplainFurtherFailed"] = "Failed to get a further explanation: {0}",
+        ["Tutorial_AskQuestionFailed"] = "Failed to get an answer: {0}",
         ["Tutorial_RefineNoInstruction"] = "Enter a refinement instruction first.",
         ["Tutorial_RefineRunning"] = "Refining {0}...",
         ["Tutorial_RefineFailed"] = "Failed to refine {0}: {1}",
@@ -80,6 +84,6 @@ public static class Resources
         ["Explorer_LoadFailed"] = "Failed to read the working directory: {0}",
     };
 
-    public static string GetLocalized(this string resourceKey) =>
+    public static string Resolve(this string resourceKey) =>
         Map.TryGetValue(resourceKey, out var value) ? value : resourceKey;
 }

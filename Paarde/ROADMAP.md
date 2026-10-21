@@ -117,9 +117,6 @@ don't exist yet.
   `Win32Exception`, which the generic `catch (Exception)` renders as a raw message. No preflight
   check, no configurable binary path.
 - **`ShellView.axaml` emits `AVLN3001`** (no public constructor reachable for the runtime loader).
-- **Localization is a stub.** `Strings/Resources.cs` is a hard-coded `Dictionary<string,string>`
-  replacing the WinUI `.resw` pipeline; several user-facing strings are inline in `.axaml` anyway.
-
 ### Security / safety
 
 - **Path traversal.** `Path.Combine(workingDirectoryPath, file.FilePath)` with an LLM-supplied
@@ -604,7 +601,48 @@ committed yet — review `git status`/`git diff` before committing.
   skips the extra dialog, confirming both dialogs applies, declining the git-dirty dialog cancels
   without calling `ApplySelected`, declining the general confirm never even asks about dirty files).
   Full solution builds with 0 warnings/errors, 277/277 tests pass (221 Core + 56 Avalonia).
-- T4.3.3 Optional: stage applied files, or create a branch/commit per apply batch.
+- [x] T4.3.3 Optional: stage applied files, or create a branch/commit per apply batch. — done
+  2026-10-21: chose staging over a branch/commit-per-batch - staging only touches the git index
+  (trivially reversible via `git restore --staged`), where an automatic commit would create history
+  the user didn't ask for and have to clean up. `IGitStatusService` gained `StageFiles(
+  workingDirectoryPath, relativeFilePaths)`, shelling out to `git add -- <paths>` (`--` so a path
+  that happens to start with `-` is never misread as a flag) via the same `RunGit`
+  process-start helper `GetStatus` already used (extracted from `TryRunGit` so both share it); fails
+  open - returns `false` without throwing for an empty path list, a missing directory, a non-repository,
+  or a missing `git`, same posture as `GetStatus`. `ApplyOrchestrationService.ApplySelected` now
+  stages exactly the files it just wrote successfully (never a whole-tree `git add -A`, and never
+  conflicted/blocked/failed files) right after recording the batch for undo/history, and
+  `ApplyBatchResult` gained a `FilesStagedInGit` bool reported back to the caller. `TutorialViewModel.
+  ApplySelectedAsync` appends a new `Tutorial_ApplySelectedResultStaged` ("Staged the applied file(s)
+  in git.") to the existing apply-result message whenever that's true. Covered by new `GitStatusServiceTests` cases
+  (not-a-repository, no files, missing directory, an untracked file lands in the index, a modified
+  tracked file's edit moves from unstaged to staged - all via a real `git init`/`add`/`commit` in a
+  temp directory, this test project's existing no-mocking convention), new
+  `ApplyOrchestrationServiceTests` cases (a git repo stages the applied file, a non-repository reports
+  not-staged, a conflicted file is never staged, nothing-selected never attempts to stage), and new
+  `TutorialViewModelTests` cases (the result message does/doesn't mention staging). Full solution
+  builds with 0 warnings/errors, 637/637 tests pass (406 Core + 231 Avalonia, up from 626). Not
+  visually verified (no X server in this sandbox, same limitation noted on earlier UI-touching tasks)
+  beyond confirming the app still launches without throwing (ran under `timeout`; exit code 124
+  confirms it was still running, not crashed, when killed).
+
+  Follow-up same day: staging was unconditional at first, but the user asked for it to be a choice
+  instead. `IApplyOrchestrationService.ApplySelected` gained a `stageAppliedFiles = true` parameter
+  gating the existing `StageFiles` call (default `true` keeps prior behavior for anyone who hasn't
+  touched the new control). `TutorialViewModel` gained a persisted `StageAppliedFilesInGit` bool -
+  loaded in `OnNavigatedTo` via `ILocalSettingsService` (new constructor dependency, following
+  `PromptViewModel.TimeoutSeconds`'s save-on-change/restore-on-navigate precedent exactly, including
+  its try/catch-and-log around the settings read) and saved on every change - bound to a new
+  "Stage applied files in git" `CheckBox` in `TutorialView.axaml` right above the Apply Selected
+  button, and threaded into the `ApplySelected` call. `FakeApplyOrchestrationService` gained a
+  `LastStageAppliedFiles` tracking property (mirroring `LastAllowProtectedPaths`). Covered by a new
+  `ApplyOrchestrationServiceTests` case (`stageAppliedFiles: false` stages nothing even in a git
+  repo) and new `TutorialViewModelTests` cases (the flag's default/unchecked value reaches
+  `ApplySelected`, and the setting round-trips through `OnNavigatedTo`/`FakeLocalSettingsService`).
+  Full solution builds with 0 warnings/errors, 642/642 tests pass (407 Core + 235 Avalonia).
+
+This closes out every remaining roadmap item (Epics 1-9); see "Suggested execution order" below for
+how this document was originally sequenced.
 
 ---
 
@@ -1067,8 +1105,72 @@ committed yet — review `git status`/`git diff` before committing.
   `...PassesConfiguredExecutablePathAndArguments`) moved to a new `ClaudeCliOptionsProviderTests`,
   since that's `ClaudeCliOptionsProvider`'s responsibility now, not `PromptViewModel`'s. Full
   solution builds with 0 warnings/errors, 308/308 tests pass (232 Core + 76 Avalonia).
-- T6.3.2 Add a direct Anthropic API runner (API key in secure storage, model selection).
-- T6.3.3 Model picker in Settings.
+- [x] T6.3.2 Add a direct Anthropic API runner (API key in secure storage, model selection). — done
+  2026-10-21: added `AnthropicApiRunner` (Core) as a second `ILlmRunner` implementation alongside
+  `ClaudeCliRunner`, slotting into the T6.3.1 seam without any change to `PromptViewModel`. It POSTs
+  to `https://api.anthropic.com/v1/messages` with `stream: true` and parses the SSE `data: ` lines
+  itself (`message_start` for input tokens, `content_block_delta`/`text_delta` for streamed output,
+  `message_delta` for output tokens and `stop_reason`) - no SSE client package was added since the
+  format is a handful of JSON lines, not worth a dependency for. Unlike the CLI, the Messages API has
+  no server-side session to resume: `AnthropicApiRunner` keeps its own in-memory
+  `ConcurrentDictionary<string, List<JObject>>` of prior turns keyed by the `SessionId` it hands back,
+  and resends the whole transcript when `resumeSessionId` matches a known one - that history only
+  lives as long as the runner (app-lifetime, since it's a singleton), which doesn't persist across
+  restarts the way the CLI's own session storage does. `stop_reason == "max_tokens"` is treated as a
+  failure (with the truncated text still returned as `Output`) since the caller is about to find the
+  response unusable anyway; any other `stop_reason` is left alone, same as the CLI runner only ever
+  failing on a non-zero exit code rather than on response content. `TotalCostUsd` is always `null` -
+  the Messages API doesn't return pricing, and hand-maintaining a per-model price table would just go
+  stale whenever Anthropic's pricing changes.
+
+  The API key needed something better than the plaintext JSON `ILocalSettingsService` already uses
+  for everything else, so this added `ISecureStorageService`/`SecureStorageService` (Avalonia). On
+  Windows it's real DPAPI (`System.Security.Cryptography.ProtectedData`,
+  `DataProtectionScope.CurrentUser`) - genuine OS-level protection tied to the logged-in user, the
+  same mechanism Credential Manager itself builds on. Elsewhere there's no equivalent BCL API - true
+  Keychain/Secret Service integration would mean shelling out to `security`/`secret-tool` per
+  platform, each only verifiable on its own OS - so macOS/Linux fall back to AES-256 with a randomly
+  generated key kept in a sibling file restricted to the owning user via
+  `File.SetUnixFileMode(UserRead | UserWrite)`. That protects against casual disk browsing (or a
+  synced/backed-up AppData folder) but isn't a hardened secret store; worth revisiting if real
+  OS-keychain integration earns its per-platform testing cost. `AnthropicApiOptionsProvider` bridges
+  this (and the model setting, via `ILocalSettingsService`) into the
+  `Func<Task<AnthropicApiOptions>>` `AnthropicApiRunner`'s constructor takes, reading fresh on every
+  call - same pattern as `ClaudeCliOptionsProvider`.
+
+  To let both runners coexist behind the single `ILlmRunner` `PromptViewModel` depends on, added
+  `LlmRunnerSelector` (Avalonia), which reads the user's choice (`LlmRunnerKind.ClaudeCli` or
+  `AnthropicApi`, persisted via `ILocalSettingsService`, defaulting to `ClaudeCli` if unset or
+  unparseable) fresh on every call and delegates to whichever concrete runner is selected -
+  registered as the `ILlmRunner` singleton in `App.axaml.cs`, with `ClaudeCliRunner`/
+  `AnthropicApiRunner` themselves registered as concrete-type singletons rather than also behind
+  `ILlmRunner`, to sidestep needing keyed DI services for a two-implementation case. Switching runners
+  on the Settings page takes effect on the very next run, not after a restart.
+
+  Tested via `AnthropicApiRunnerTests` (Core), using a hand-written `HttpMessageHandler` fake injected
+  through `AnthropicApiRunner`'s `HttpClient?` constructor parameter - no mocking library, matching
+  how `ClaudeCliRunnerTests` fakes the CLI with a real shell script on disk rather than a mock. Covers
+  streamed text accumulation/ordering, usage parsing, the `max_tokens` failure path, resumed-session
+  history reconstruction, an unknown `resumeSessionId` starting fresh, missing-API-key short-circuiting
+  before any request is sent, and non-success responses surfacing the API's own error message.
+  `SecureStorageServiceTests` (Avalonia) exercises the AES fallback path's encrypt/decrypt round trip
+  (DPAPI is Windows-only and untestable on this Linux sandbox) via a fake `IFileService` plus a
+  uniquely-named, self-cleaning folder under the real `ApplicationData` directory, since
+  `SecureStorageService`'s key file is written with plain `File.*` calls rather than through
+  `IFileService` and would otherwise touch (and potentially collide with) a real installation's own
+  key. `AnthropicApiOptionsProviderTests` and `LlmRunnerSelectorTests` round out coverage with fakes
+  for every dependency, matching the rest of the Avalonia test suite's conventions.
+- [x] T6.3.3 Model picker in Settings. — done 2026-10-21, alongside T6.3.2 above since a model picker
+  only makes sense once there's a second runner to pick a model for: added an "LLM runner" radio
+  group (Claude Code CLI / Anthropic API) and, under a new "Anthropic API" section, a masked API-key
+  `TextBox` (`PasswordChar="•"`) and a `ComboBox` of `AnthropicModelCatalog.Models` (Opus 5, Sonnet 5 -
+  the default, Fable 5.1, Haiku 4.5) bound by model ID with display names shown. The runner radio
+  group reused `EnumToBooleanConverter`, which only ever handled `ThemeVariant` (an Avalonia class, not
+  a real CLR enum) despite its generic name - generalized via pattern matching so a real enum like
+  `LlmRunnerKind` is handled through `Enum.Parse`, without changing existing Theme-switching behavior.
+  `SettingsViewModel` gained `SelectedRunnerKind`/`AnthropicApiKey`/`AnthropicApiModel` observable
+  properties (persisting through `ILocalSettingsService`/`ISecureStorageService` as appropriate on
+  change) and now takes `ISecureStorageService` as a constructor dependency.
 
 ---
 
@@ -1209,7 +1311,23 @@ committed yet — review `git status`/`git diff` before committing.
   `TutorialStepViewModelTests`, new `TutorialViewModel` refine cases, and `PromptResultStoreTests`/
   `PromptViewModelTests` cases for the new `SessionId` field. Full solution builds with 0
   warnings/errors, 471/471 tests pass (326 Core + 145 Avalonia, up from 456).
-- T7.3.3 Ask-a-question-about-this-change affordance inside the tutorial.
+- [x] T7.3.3 Ask-a-question-about-this-change affordance inside the tutorial. — done 2026-10-21:
+  follows T7.3.2's pattern but with a free-form question instead of a fixed "go deeper" prompt.
+  `TutorialStepViewModel` gained `QuestionText`/`QuestionAnswer`/`IsAskingQuestion`
+  (`[ObservableProperty]`) and an `AskQuestionCommand` (`CanExecute`-gated on a non-blank
+  `QuestionText` and not already asking) that resumes the same tracked session id as
+  `ExplainFurtherCommand`, sending the step's title/explanation/snippet plus the user's question and
+  asking for plain prose; a model that answers in JSON anyway is unwrapped the same way via
+  `ExtractProseAnswer`. `TutorialDetailControl.axaml` gained a question `TextBox` + "Ask" button per
+  step, with the answer shown via `MarkdownTextBlock` underneath (same visibility pattern as
+  `FurtherExplanation`). No new ViewModel constructor parameters or code-behind changes were needed -
+  `TutorialStepViewModel` already had everything required (`_llmRunner`, `_resumeSessionId`). Covered
+  by new `TutorialStepViewModelTests` cases (success, session-id resumption, JSON-wrapped answer
+  unwrapping, failure message, `CanExecute` gating on blank text and while asking). Full solution
+  builds with 0 warnings/errors, 626/626 tests pass (397 Core + 229 Avalonia). Not visually verified
+  (no X server in this sandbox, same limitation noted on earlier UI-touching tasks) beyond confirming
+  the app still launches without throwing (ran under `timeout`; exit code 124 confirms it was still
+  running, not crashed, when killed).
 
 ---
 
@@ -1738,7 +1856,19 @@ committed yet — review `git status`/`git diff` before committing.
   and confirmed to come up cleanly). These binaries are unsigned, so macOS Gatekeeper/Windows
   SmartScreen will warn on first launch; accepted for now rather than adding code-signing
   infrastructure this project doesn't have a certificate for yet.
-- T9.3.4 Finish or remove the half-stubbed localization layer.
+- [x] T9.3.4 **Finish or remove the half-stubbed localization layer.** — done 2026-10-21: removed the
+  stub, not finished it - `Strings/Resources.cs` had a comment framing it as a stand-in for the WinUI
+  `.resw`/`x:Uid` pipeline, but there's only ever been one locale (English), no per-culture resource
+  file, and no language switch anywhere in the app; nothing points at this project actually needing
+  multiple languages. Building real localization (translated resource sets, a culture switcher, the
+  ongoing cost of keeping translations in sync) would be effort spent on a requirement that doesn't
+  exist yet. Kept the dictionary itself - it's genuinely useful as the one place that centralizes the
+  ~80 code-formatted strings ViewModels/code-behind use, rather than scattering literals across them -
+  but rewrote its comment to describe it honestly as a UI string table, and renamed the misleading
+  `GetLocalized()` extension (which implied culture-aware lookup that was never implemented) to
+  `Resolve()` across all call sites. Markup-only strings (button labels, headers) stay directly in
+  `.axaml`, as before. Full solution builds with 0 warnings/errors, 592/592 tests pass (385 Core + 207
+  Avalonia).
 
 ---
 

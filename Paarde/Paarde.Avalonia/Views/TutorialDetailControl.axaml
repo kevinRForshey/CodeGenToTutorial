@@ -88,6 +88,15 @@
                             </StackPanel>
                             <controls:MarkdownTextBlock Text="{Binding FurtherExplanation}" FontStyle="Italic" Opacity="0.85"
                                        IsVisible="{Binding FurtherExplanation, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}" />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBox Text="{Binding QuestionText, Mode=TwoWay}"
+                                         Watermark="Ask a question about this step..."
+                                         Width="320" />
+                                <Button Content="Ask" Command="{Binding AskQuestionCommand}"
+                                         ToolTip.Tip="Ask Claude Code about this step, continuing this tutorial's conversation." />
+                            </StackPanel>
+                            <controls:MarkdownTextBlock Text="{Binding QuestionAnswer}" FontStyle="Italic" Opacity="0.85"
+                                       IsVisible="{Binding QuestionAnswer, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}" />
                         </StackPanel>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>

@@ -10,6 +10,6 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
-        Title = "AppDisplayName".GetLocalized();
+        Title = "AppDisplayName".Resolve();
     }
 }

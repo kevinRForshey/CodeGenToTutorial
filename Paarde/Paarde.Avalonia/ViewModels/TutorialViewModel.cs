@@ -19,6 +19,8 @@ namespace Paarde.Avalonia.ViewModels;
 
 public partial class TutorialViewModel : ObservableRecipient, INavigationAware, IConfirmNavigationAway
 {
+    private const string StageAppliedFilesInGitSettingsKey = "Tutorial_StageAppliedFilesInGit";
+
     private readonly IPromptResultStore _promptResultStore;
     private readonly IApplyOrchestrationService _applyOrchestrationService;
     private readonly IApplyHistoryLog _applyHistoryLog;
@@ -26,6 +28,7 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
     private readonly ILlmRunner _llmRunner;
     private readonly IPromptTemplateProvider _promptTemplateProvider;
     private readonly IFileSavePickerService _fileSavePickerService;
+    private readonly ILocalSettingsService _localSettingsService;
     private readonly ILogger<TutorialViewModel> _logger;
 
     // T8.4.5: the step TutorialDetailControl should scroll to once it's materialized for the file a
@@ -45,6 +48,13 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
 
     [ObservableProperty]
     private string applyStatusMessage = string.Empty;
+
+    // T4.3.3 follow-up: whether ApplySelectedAsync should `git add` the files it just wrote,
+    // persisted (like PromptViewModel.TimeoutSeconds) rather than session-scoped, since the user's
+    // preference here is unlikely to change run-to-run. Defaults to true to match T4.3.3's original
+    // unconditional behavior for anyone who hasn't touched the checkbox yet.
+    [ObservableProperty]
+    private bool stageAppliedFilesInGit = true;
 
     // T7.3.2: the scoped "refine this file" follow-up - a resumed-session request to change only
     // Selected, reusing the same instruction template/parsing pipeline as the main run rather than
@@ -83,7 +93,7 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
     // show before the first apply of the session.
     public bool HasApplyHistory => ApplyHistoryEntries.Count > 0;
 
-    public TutorialViewModel(IPromptResultStore promptResultStore, IApplyOrchestrationService applyOrchestrationService, IApplyHistoryLog applyHistoryLog, IDialogService dialogService, ILlmRunner llmRunner, IPromptTemplateProvider promptTemplateProvider, IFileSavePickerService fileSavePickerService, ILogger<TutorialViewModel>? logger = null)
+    public TutorialViewModel(IPromptResultStore promptResultStore, IApplyOrchestrationService applyOrchestrationService, IApplyHistoryLog applyHistoryLog, IDialogService dialogService, ILlmRunner llmRunner, IPromptTemplateProvider promptTemplateProvider, IFileSavePickerService fileSavePickerService, ILocalSettingsService localSettingsService, ILogger<TutorialViewModel>? logger = null)
     {
         _promptResultStore = promptResultStore;
         _applyOrchestrationService = applyOrchestrationService;
@@ -92,6 +102,7 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
         _llmRunner = llmRunner;
         _promptTemplateProvider = promptTemplateProvider;
         _fileSavePickerService = fileSavePickerService;
+        _localSettingsService = localSettingsService;
         _logger = logger ?? NullLogger<TutorialViewModel>.Instance;
 
         // ObservableCollection<T> raises PropertyChanged("Count") on its own, but HasNoFiles/
@@ -109,9 +120,22 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
         OpenTabs.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasOpenTabs));
     }
 
-    public void OnNavigatedTo(object parameter)
+    // Async void because INavigationAware.OnNavigatedTo returns void - wrapped (same as
+    // PromptViewModel.OnNavigatedTo) so a corrupt settings file is logged rather than unwound
+    // unobserved out of NavigationService.OnNavigated.
+    public async void OnNavigatedTo(object parameter)
     {
         Tutorial = _promptResultStore.Tutorial;
+
+        try
+        {
+            var savedStageAppliedFilesInGit = await _localSettingsService.ReadSettingAsync<bool?>(StageAppliedFilesInGitSettingsKey);
+            StageAppliedFilesInGit = savedStageAppliedFilesInGit ?? true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load saved settings while navigating to the Tutorial page.");
+        }
 
         Files.Clear();
         OpenTabs.Clear();
@@ -185,6 +209,8 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
         CloseSelectedTabCommand.NotifyCanExecuteChanged();
     }
 
+    partial void OnStageAppliedFilesInGitChanged(bool value) => _localSettingsService.SaveSettingAsync(StageAppliedFilesInGitSettingsKey, value);
+
     partial void OnRefineInstructionChanged(string value) => RefineSelectedFileCommand.NotifyCanExecuteChanged();
 
     partial void OnIsRefiningChanged(bool value) => RefineSelectedFileCommand.NotifyCanExecuteChanged();
@@ -214,15 +240,15 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
 
         if (preview.FileCount == 0)
         {
-            ApplyStatusMessage = "Tutorial_ApplySelectedNoneSelected".GetLocalized();
+            ApplyStatusMessage = "Tutorial_ApplySelectedNoneSelected".Resolve();
             return;
         }
 
         var confirmed = await _dialogService.ConfirmAsync(
-            "Tutorial_ApplySelectedConfirmTitle".GetLocalized(),
-            string.Format("Tutorial_ApplySelectedConfirmMessage".GetLocalized(), preview.ChangeCount, preview.FileCount),
-            "Tutorial_ApplySelectedConfirmButton".GetLocalized(),
-            "Tutorial_ApplySelectedCancelButton".GetLocalized());
+            "Tutorial_ApplySelectedConfirmTitle".Resolve(),
+            string.Format("Tutorial_ApplySelectedConfirmMessage".Resolve(), preview.ChangeCount, preview.FileCount),
+            "Tutorial_ApplySelectedConfirmButton".Resolve(),
+            "Tutorial_ApplySelectedCancelButton".Resolve());
 
         if (!confirmed)
         {
@@ -237,10 +263,10 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
         {
             var dirtyPaths = string.Join(", ", preview.GitDirtyFiles);
             var proceedDespiteDirtyFiles = await _dialogService.ConfirmAsync(
-                "Tutorial_ApplyGitDirtyConfirmTitle".GetLocalized(),
-                string.Format("Tutorial_ApplyGitDirtyConfirmMessage".GetLocalized(), preview.GitDirtyFileCount, dirtyPaths),
-                "Tutorial_ApplyGitDirtyConfirmButton".GetLocalized(),
-                "Tutorial_ApplyGitDirtyConfirmCancelButton".GetLocalized());
+                "Tutorial_ApplyGitDirtyConfirmTitle".Resolve(),
+                string.Format("Tutorial_ApplyGitDirtyConfirmMessage".Resolve(), preview.GitDirtyFileCount, dirtyPaths),
+                "Tutorial_ApplyGitDirtyConfirmButton".Resolve(),
+                "Tutorial_ApplyGitDirtyConfirmCancelButton".Resolve());
 
             if (!proceedDespiteDirtyFiles)
             {
@@ -258,41 +284,46 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
         {
             var protectedPaths = string.Join(", ", preview.ProtectedPathFiles);
             allowProtectedPaths = await _dialogService.ConfirmAsync(
-                "Tutorial_ApplyProtectedPathsConfirmTitle".GetLocalized(),
-                string.Format("Tutorial_ApplyProtectedPathsConfirmMessage".GetLocalized(), preview.ProtectedPathCount, protectedPaths),
-                "Tutorial_ApplyProtectedPathsConfirmButton".GetLocalized(),
-                "Tutorial_ApplyProtectedPathsConfirmCancelButton".GetLocalized());
+                "Tutorial_ApplyProtectedPathsConfirmTitle".Resolve(),
+                string.Format("Tutorial_ApplyProtectedPathsConfirmMessage".Resolve(), preview.ProtectedPathCount, protectedPaths),
+                "Tutorial_ApplyProtectedPathsConfirmButton".Resolve(),
+                "Tutorial_ApplyProtectedPathsConfirmCancelButton".Resolve());
         }
 
-        var result = _applyOrchestrationService.ApplySelected(Files, _promptResultStore.WorkingDirectoryPath, allowProtectedPaths);
+        var result = _applyOrchestrationService.ApplySelected(Files, _promptResultStore.WorkingDirectoryPath, allowProtectedPaths, StageAppliedFilesInGit);
 
-        var messageParts = new List<string> { string.Format("Tutorial_ApplySelectedResultApplied".GetLocalized(), result.AppliedCount) };
+        var messageParts = new List<string> { string.Format("Tutorial_ApplySelectedResultApplied".Resolve(), result.AppliedCount) };
 
         if (result.ConflictCount > 0)
         {
             var conflictedPaths = string.Join(", ", result.ConflictedFiles.Select(r => r.FilePath));
-            messageParts.Add(string.Format("Tutorial_ApplySelectedResultConflicts".GetLocalized(), result.ConflictCount, conflictedPaths));
+            messageParts.Add(string.Format("Tutorial_ApplySelectedResultConflicts".Resolve(), result.ConflictCount, conflictedPaths));
         }
 
         if (result.FailedCount > 0)
         {
             var failedPaths = string.Join(", ", result.FailedFiles.Select(r => r.FilePath));
-            messageParts.Add(string.Format("Tutorial_ApplySelectedResultFailures".GetLocalized(), result.FailedCount, failedPaths));
+            messageParts.Add(string.Format("Tutorial_ApplySelectedResultFailures".Resolve(), result.FailedCount, failedPaths));
         }
 
         if (result.ProtectedPathBlockedCount > 0)
         {
             var blockedPaths = string.Join(", ", result.ProtectedPathBlockedFiles.Select(r => r.FilePath));
-            messageParts.Add(string.Format("Tutorial_ApplySelectedResultProtectedBlocked".GetLocalized(), result.ProtectedPathBlockedCount, blockedPaths));
+            messageParts.Add(string.Format("Tutorial_ApplySelectedResultProtectedBlocked".Resolve(), result.ProtectedPathBlockedCount, blockedPaths));
+        }
+
+        if (result.FilesStagedInGit)
+        {
+            messageParts.Add("Tutorial_ApplySelectedResultStaged".Resolve());
         }
 
         ApplyStatusMessage = string.Join(" ", messageParts);
         RefreshApplyHistoryEntries();
 
         await _dialogService.InfoAsync(
-            "Tutorial_ApplySelectedResultTitle".GetLocalized(),
+            "Tutorial_ApplySelectedResultTitle".Resolve(),
             ApplyStatusMessage,
-            "Tutorial_ApplySelectedResultClose".GetLocalized());
+            "Tutorial_ApplySelectedResultClose".Resolve());
     }
 
     // T4.2.2: reverts the files touched by the most recent ApplySelected batch to their content
@@ -304,10 +335,10 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
     private async Task UndoLastApplyAsync()
     {
         var confirmed = await _dialogService.ConfirmAsync(
-            "Tutorial_UndoLastApplyConfirmTitle".GetLocalized(),
-            "Tutorial_UndoLastApplyConfirmMessage".GetLocalized(),
-            "Tutorial_UndoLastApplyConfirmButton".GetLocalized(),
-            "Tutorial_UndoLastApplyCancelButton".GetLocalized());
+            "Tutorial_UndoLastApplyConfirmTitle".Resolve(),
+            "Tutorial_UndoLastApplyConfirmMessage".Resolve(),
+            "Tutorial_UndoLastApplyConfirmButton".Resolve(),
+            "Tutorial_UndoLastApplyCancelButton".Resolve());
 
         if (!confirmed)
         {
@@ -316,7 +347,7 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
 
         if (!_applyOrchestrationService.TryUndoLastApply(_promptResultStore.WorkingDirectoryPath, out var result))
         {
-            ApplyStatusMessage = "Tutorial_UndoLastApplyNothingToUndo".GetLocalized();
+            ApplyStatusMessage = "Tutorial_UndoLastApplyNothingToUndo".Resolve();
             return;
         }
 
@@ -325,9 +356,9 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
         RefreshApplyHistoryEntries();
 
         await _dialogService.InfoAsync(
-            "Tutorial_UndoLastApplyResultTitle".GetLocalized(),
+            "Tutorial_UndoLastApplyResultTitle".Resolve(),
             ApplyStatusMessage,
-            "Tutorial_UndoLastApplyResultClose".GetLocalized());
+            "Tutorial_UndoLastApplyResultClose".Resolve());
     }
 
     // T4.2.2: reverts every file this session has applied a change to, back to its content from
@@ -337,10 +368,10 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
     private async Task RevertAllAppliedAsync()
     {
         var confirmed = await _dialogService.ConfirmAsync(
-            "Tutorial_RevertAllAppliedConfirmTitle".GetLocalized(),
-            "Tutorial_RevertAllAppliedConfirmMessage".GetLocalized(),
-            "Tutorial_RevertAllAppliedConfirmButton".GetLocalized(),
-            "Tutorial_RevertAllAppliedCancelButton".GetLocalized());
+            "Tutorial_RevertAllAppliedConfirmTitle".Resolve(),
+            "Tutorial_RevertAllAppliedConfirmMessage".Resolve(),
+            "Tutorial_RevertAllAppliedConfirmButton".Resolve(),
+            "Tutorial_RevertAllAppliedCancelButton".Resolve());
 
         if (!confirmed)
         {
@@ -351,7 +382,7 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
 
         if (result.Results.Count == 0)
         {
-            ApplyStatusMessage = "Tutorial_RevertAllAppliedNothingToRevert".GetLocalized();
+            ApplyStatusMessage = "Tutorial_RevertAllAppliedNothingToRevert".Resolve();
             return;
         }
 
@@ -360,9 +391,9 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
         RefreshApplyHistoryEntries();
 
         await _dialogService.InfoAsync(
-            "Tutorial_RevertAllAppliedResultTitle".GetLocalized(),
+            "Tutorial_RevertAllAppliedResultTitle".Resolve(),
             ApplyStatusMessage,
-            "Tutorial_RevertAllAppliedResultClose".GetLocalized());
+            "Tutorial_RevertAllAppliedResultClose".Resolve());
     }
 
     // T7.3.2: a scoped follow-up that only asks Claude to change Selected, resuming the conversation
@@ -376,7 +407,7 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
     {
         var file = Selected!;
         IsRefining = true;
-        RefineStatusMessage = string.Format("Tutorial_RefineRunning".GetLocalized(), file.FilePath);
+        RefineStatusMessage = string.Format("Tutorial_RefineRunning".Resolve(), file.FilePath);
 
         try
         {
@@ -389,7 +420,7 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
 
             if (!result.Success)
             {
-                RefineStatusMessage = string.Format("Tutorial_RefineFailed".GetLocalized(), file.FilePath, result.ErrorMessage);
+                RefineStatusMessage = string.Format("Tutorial_RefineFailed".Resolve(), file.FilePath, result.ErrorMessage);
                 return;
             }
 
@@ -398,7 +429,7 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
 
             if (parseResult.UsedFallback || refinedFile is null)
             {
-                RefineStatusMessage = string.Format("Tutorial_RefineNoMatchingFile".GetLocalized(), file.FilePath);
+                RefineStatusMessage = string.Format("Tutorial_RefineNoMatchingFile".Resolve(), file.FilePath);
                 return;
             }
 
@@ -409,7 +440,7 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
             ReplaceFile(file, refinedFile);
 
             RefineInstruction = string.Empty;
-            RefineStatusMessage = string.Format("Tutorial_RefineSucceeded".GetLocalized(), refinedFile.FilePath);
+            RefineStatusMessage = string.Format("Tutorial_RefineSucceeded".Resolve(), refinedFile.FilePath);
         }
         finally
         {
@@ -446,11 +477,11 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
     // which exporter/file-type/extension they pass in.
     [RelayCommand(CanExecute = nameof(CanExportTutorial))]
     private Task ExportTutorialAsMarkdownAsync() =>
-        ExportTutorialAsync("Tutorial_ExportAsMarkdownTitle".GetLocalized(), "tutorial.md", "Markdown", "md", TutorialExporter.BuildMarkdown);
+        ExportTutorialAsync("Tutorial_ExportAsMarkdownTitle".Resolve(), "tutorial.md", "Markdown", "md", TutorialExporter.BuildMarkdown);
 
     [RelayCommand(CanExecute = nameof(CanExportTutorial))]
     private Task ExportTutorialAsHtmlAsync() =>
-        ExportTutorialAsync("Tutorial_ExportAsHtmlTitle".GetLocalized(), "tutorial.html", "HTML", "html", TutorialExporter.BuildHtml);
+        ExportTutorialAsync("Tutorial_ExportAsHtmlTitle".Resolve(), "tutorial.html", "HTML", "html", TutorialExporter.BuildHtml);
 
     private bool CanExportTutorial() => Files.Count > 0 || HasTutorialOverview;
 
@@ -466,12 +497,12 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
         try
         {
             File.WriteAllText(path, buildContent(Tutorial, Files));
-            ExportStatusMessage = string.Format("Tutorial_ExportSucceeded".GetLocalized(), path);
+            ExportStatusMessage = string.Format("Tutorial_ExportSucceeded".Resolve(), path);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             _logger.LogWarning(ex, "Failed to export the tutorial to {Path}.", path);
-            ExportStatusMessage = string.Format("Tutorial_ExportFailed".GetLocalized(), ex.Message);
+            ExportStatusMessage = string.Format("Tutorial_ExportFailed".Resolve(), ex.Message);
         }
     }
 
@@ -510,12 +541,12 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
 
     private string BuildRevertStatusMessage(RevertResult result)
     {
-        var messageParts = new List<string> { string.Format("Tutorial_RevertResultSucceeded".GetLocalized(), result.SucceededCount) };
+        var messageParts = new List<string> { string.Format("Tutorial_RevertResultSucceeded".Resolve(), result.SucceededCount) };
 
         if (result.FailedCount > 0)
         {
             var failedPaths = string.Join(", ", result.FailedFiles.Select(r => r.FilePath));
-            messageParts.Add(string.Format("Tutorial_RevertResultFailures".GetLocalized(), result.FailedCount, failedPaths));
+            messageParts.Add(string.Format("Tutorial_RevertResultFailures".Resolve(), result.FailedCount, failedPaths));
         }
 
         return string.Join(" ", messageParts);
@@ -558,6 +589,6 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
             _ => throw new ArgumentOutOfRangeException(nameof(entry), entry.Kind, "Unknown apply-history entry kind."),
         };
 
-        return string.Format(key.GetLocalized(), timestamp, entry.FileCount);
+        return string.Format(key.Resolve(), timestamp, entry.FileCount);
     }
 }

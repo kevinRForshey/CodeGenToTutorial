@@ -30,6 +30,17 @@
             </StackPanel>
         </StackPanel>
 
+        <TextBlock Margin="0,16,0,0" Text="LLM runner" FontSize="20" FontWeight="SemiBold" />
+
+        <StackPanel Margin="0,8,0,0" Spacing="4">
+            <RadioButton Content="Claude Code CLI"
+                         GroupName="LlmRunner"
+                         IsChecked="{Binding SelectedRunnerKind, Converter={StaticResource EnumToBooleanConverter}, ConverterParameter=ClaudeCli}" />
+            <RadioButton Content="Anthropic API (direct)"
+                         GroupName="LlmRunner"
+                         IsChecked="{Binding SelectedRunnerKind, Converter={StaticResource EnumToBooleanConverter}, ConverterParameter=AnthropicApi}" />
+        </StackPanel>
+
         <TextBlock Margin="0,16,0,0" Text="Claude Code CLI" FontSize="20" FontWeight="SemiBold" />
 
         <StackPanel Margin="0,8,0,0" Spacing="4">
@@ -40,6 +51,23 @@
         <StackPanel Margin="0,8,0,0" Spacing="4">
             <TextBlock Text="Arguments" FontSize="12" Opacity="0.7" />
             <TextBox Text="{Binding ClaudeCliArguments}" Watermark="-p" />
+        </StackPanel>
+
+        <TextBlock Margin="0,16,0,0" Text="Anthropic API" FontSize="20" FontWeight="SemiBold" />
+
+        <StackPanel Margin="0,8,0,0" Spacing="4">
+            <TextBlock Text="API key" FontSize="12" Opacity="0.7" />
+            <TextBox Text="{Binding AnthropicApiKey}" PasswordChar="•" Watermark="sk-ant-..." />
+        </StackPanel>
+
+        <StackPanel Margin="0,8,0,0" Spacing="4">
+            <TextBlock Text="Model" FontSize="12" Opacity="0.7" />
+            <ComboBox ItemsSource="{Binding AvailableModels}"
+                      SelectedValue="{Binding AnthropicApiModel}"
+                      SelectedValueBinding="{Binding Id}"
+                      DisplayMemberBinding="{Binding DisplayName}"
+                      HorizontalAlignment="Left"
+                      MinWidth="220" />
         </StackPanel>
 
         <TextBlock Margin="0,16,0,0" Text="Prompt template" FontSize="20" FontWeight="SemiBold" />

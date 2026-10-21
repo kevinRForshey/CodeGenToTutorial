@@ -22,6 +22,7 @@ public partial class SettingsViewModel : ObservableRecipient, INavigationAware
 {
     private readonly IThemeSelectorService _themeSelectorService;
     private readonly ILocalSettingsService _localSettingsService;
+    private readonly ISecureStorageService _secureStorageService;
     private readonly ILogger<SettingsViewModel> _logger;
 
     [ObservableProperty]
@@ -35,6 +36,22 @@ public partial class SettingsViewModel : ObservableRecipient, INavigationAware
 
     [ObservableProperty]
     private string claudeCliArguments = ClaudeCliOptions.Default.Arguments;
+
+    // T6.3.2/T6.3.3: which ILlmRunner implementation LlmRunnerSelector should delegate to.
+    [ObservableProperty]
+    private LlmRunnerKind selectedRunnerKind = LlmRunnerKind.ClaudeCli;
+
+    // Persisted through ISecureStorageService (encrypted at rest), not ILocalSettingsService -
+    // see that interface's own comment for why.
+    [ObservableProperty]
+    private string anthropicApiKey = string.Empty;
+
+    [ObservableProperty]
+    private string anthropicApiModel = AnthropicModelCatalog.DefaultModelId;
+
+    public IReadOnlyList<LlmRunnerKind> AvailableRunnerKinds { get; } = Enum.GetValues<LlmRunnerKind>();
+
+    public IReadOnlyList<AnthropicModelInfo> AvailableModels { get; } = AnthropicModelCatalog.Models;
 
     // T5.3.2: blank means "use DefaultPromptTemplate" - PromptViewModel applies that same fallback
     // when it reads this setting fresh on every run.
@@ -54,10 +71,11 @@ public partial class SettingsViewModel : ObservableRecipient, INavigationAware
         get;
     }
 
-    public SettingsViewModel(IThemeSelectorService themeSelectorService, ILocalSettingsService localSettingsService, IPromptTemplateProvider promptTemplateProvider, ILogger<SettingsViewModel>? logger = null)
+    public SettingsViewModel(IThemeSelectorService themeSelectorService, ILocalSettingsService localSettingsService, ISecureStorageService secureStorageService, IPromptTemplateProvider promptTemplateProvider, ILogger<SettingsViewModel>? logger = null)
     {
         _themeSelectorService = themeSelectorService;
         _localSettingsService = localSettingsService;
+        _secureStorageService = secureStorageService;
         _logger = logger ?? NullLogger<SettingsViewModel>.Instance;
         _themeVariant = _themeSelectorService.Theme;
         _versionDescription = GetVersionDescription();
@@ -89,6 +107,14 @@ public partial class SettingsViewModel : ObservableRecipient, INavigationAware
             ClaudeCliArguments = string.IsNullOrWhiteSpace(savedArguments) ? ClaudeCliOptions.Default.Arguments : savedArguments;
 
             PromptTemplateOverride = await _localSettingsService.ReadSettingAsync<string>(PromptTemplateSettingsKeys.Override) ?? string.Empty;
+
+            var savedRunnerKind = await _localSettingsService.ReadSettingAsync<string>(LlmRunnerSettingsKeys.SelectedRunner);
+            SelectedRunnerKind = Enum.TryParse<LlmRunnerKind>(savedRunnerKind, out var runnerKind) ? runnerKind : LlmRunnerKind.ClaudeCli;
+
+            AnthropicApiKey = await _secureStorageService.ReadAsync(AnthropicApiSettingsKeys.ApiKey) ?? string.Empty;
+
+            var savedModel = await _localSettingsService.ReadSettingAsync<string>(AnthropicApiSettingsKeys.Model);
+            AnthropicApiModel = string.IsNullOrWhiteSpace(savedModel) ? AnthropicModelCatalog.DefaultModelId : savedModel;
         }
         catch (Exception ex)
         {
@@ -109,6 +135,12 @@ public partial class SettingsViewModel : ObservableRecipient, INavigationAware
 
     partial void OnClaudeCliArgumentsChanged(string value) => _localSettingsService.SaveSettingAsync(ClaudeCliSettingsKeys.Arguments, value);
 
+    partial void OnSelectedRunnerKindChanged(LlmRunnerKind value) => _localSettingsService.SaveSettingAsync(LlmRunnerSettingsKeys.SelectedRunner, value.ToString());
+
+    partial void OnAnthropicApiKeyChanged(string value) => _secureStorageService.SaveAsync(AnthropicApiSettingsKeys.ApiKey, value);
+
+    partial void OnAnthropicApiModelChanged(string value) => _localSettingsService.SaveSettingAsync(AnthropicApiSettingsKeys.Model, value);
+
     partial void OnPromptTemplateOverrideChanged(string value)
     {
         _localSettingsService.SaveSettingAsync(PromptTemplateSettingsKeys.Override, value);
@@ -119,6 +151,6 @@ public partial class SettingsViewModel : ObservableRecipient, INavigationAware
     {
         var version = Assembly.GetExecutingAssembly().GetName().Version!;
 
-        return $"{"AppDisplayName".GetLocalized()} - {version.Major}.{version.Minor}.{version.Build}.{version.Revision}";
+        return $"{"AppDisplayName".Resolve()} - {version.Major}.{version.Minor}.{version.Build}.{version.Revision}";
     }
 }

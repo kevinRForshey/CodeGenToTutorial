@@ -14,7 +14,7 @@ public record HistorySessionRow(RunSession Session, string DisplayText)
     public static HistorySessionRow From(RunSession session)
     {
         var timestamp = session.StartedAt.ToLocalTime().ToString("g");
-        var displayText = string.Format("History_SessionRow".GetLocalized(), timestamp, Excerpt(session.UserPromptText), session.FileCount);
+        var displayText = string.Format("History_SessionRow".Resolve(), timestamp, Excerpt(session.UserPromptText), session.FileCount);
 
         return new HistorySessionRow(session, displayText);
     }

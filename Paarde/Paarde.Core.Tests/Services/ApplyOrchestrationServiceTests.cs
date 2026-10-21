@@ -658,4 +658,96 @@ public class ApplyOrchestrationServiceTests : IDisposable
 
         Assert.Empty(_historyLog.Entries);
     }
+
+    [Fact]
+    public void ApplySelected_GitRepository_StagesTheAppliedFile()
+    {
+        InitRepository();
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed content");
+
+        var result = _service.ApplySelected(new[] { file }, _workingDirectory);
+
+        Assert.True(result.FilesStagedInGit);
+        Assert.Equal("a.txt", Assert.Single(RunGitCapture("diff", "--cached", "--name-only")));
+    }
+
+    [Fact]
+    public void ApplySelected_StageAppliedFilesFalse_DoesNotStageTheAppliedFile()
+    {
+        InitRepository();
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed content");
+
+        var result = _service.ApplySelected(new[] { file }, _workingDirectory, stageAppliedFiles: false);
+
+        Assert.False(result.FilesStagedInGit);
+        Assert.Empty(RunGitCapture("diff", "--cached", "--name-only"));
+    }
+
+    [Fact]
+    public void ApplySelected_NotAGitRepository_ReportsFilesNotStaged()
+    {
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed content");
+
+        var result = _service.ApplySelected(new[] { file }, _workingDirectory);
+
+        Assert.False(result.FilesStagedInGit);
+    }
+
+    [Fact]
+    public void ApplySelected_GitRepository_DoesNotStageAConflictedFile()
+    {
+        InitRepository();
+        File.WriteAllText(Path.Combine(_workingDirectory, "conflicted.txt"), "changed on disk");
+        var conflicted = new ProposedFileChangeViewModel("conflicted.txt", "proposed", "original");
+
+        var result = _service.ApplySelected(new[] { conflicted }, _workingDirectory);
+
+        Assert.False(result.FilesStagedInGit);
+        Assert.Empty(RunGitCapture("diff", "--cached", "--name-only"));
+    }
+
+    [Fact]
+    public void ApplySelected_NothingSelected_DoesNotAttemptToStage()
+    {
+        InitRepository();
+        var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original") { IsSelected = false };
+
+        var result = _service.ApplySelected(new[] { file }, _workingDirectory);
+
+        Assert.False(result.FilesStagedInGit);
+    }
+
+    private string[] RunGitCapture(params string[] arguments)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = "git",
+            WorkingDirectory = _workingDirectory,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+
+        foreach (var argument in arguments)
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        using var process = Process.Start(startInfo)!;
+        var output = process.StandardOutput.ReadToEnd();
+        process.WaitForExit();
+
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"git {string.Join(' ', arguments)} failed: {process.StandardError.ReadToEnd()}");
+        }
+
+        return output
+            .Split('\n')
+            .Select(line => line.TrimEnd('\r'))
+            .Where(line => line.Length > 0)
+            .ToArray();
+    }
 }

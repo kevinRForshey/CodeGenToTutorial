@@ -10,4 +10,12 @@ public interface IGitStatusService
     // is an informational warning, not a security boundary, so a missing/failed git command should
     // never block an apply.
     GitStatus GetStatus(string workingDirectoryPath);
+
+    // T4.3.3: stages relativeFilePaths (git add) in workingDirectoryPath after a successful apply,
+    // so the user's next `git status`/`git diff --staged` already reflects what Paarde just wrote
+    // without an extra manual step. Only touches the index, never the working tree or history, so
+    // it's as reversible as any other `git add` (`git restore --staged`) - never throws; returns
+    // false (and stages nothing) if relativeFilePaths is empty, workingDirectoryPath isn't a git
+    // repository, or git isn't installed, the same fail-open posture as GetStatus.
+    bool StageFiles(string workingDirectoryPath, IReadOnlyList<string> relativeFilePaths);
 }

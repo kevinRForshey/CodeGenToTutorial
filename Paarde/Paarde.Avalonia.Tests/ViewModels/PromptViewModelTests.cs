@@ -649,7 +649,7 @@ public class PromptViewModelTests
         await sut.RunPromptCommand.ExecuteAsync(null);
 
         Assert.False(sut.IsRunning);
-        Assert.Equal("Claude Code CLI not found on PATH. Install it with: npm install -g @anthropic-ai/claude-code", sut.StatusMessage);
+        Assert.Equal("The selected runner isn't available. Check its settings on the Settings page.", sut.StatusMessage);
         Assert.Equal(0, _llmRunner.CallCount);
     }
 

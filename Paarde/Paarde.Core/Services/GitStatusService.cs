@@ -10,11 +10,12 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Paarde.Core.Services;
 
 // Detects whether workingDirectoryPath sits inside a git working tree and, if so, which files are
-// currently dirty there (T4.3.1), by shelling out to `git status --porcelain` rather than taking a
-// LibGit2Sharp-style native dependency - matching the ClaudeCliRunner convention of treating an
-// external CLI as the source of truth. Any failure to run git at all (not installed, directory
-// missing, not a repository) is treated the same as "not a repository": this is an informational
-// warning, not a security boundary, so it fails open rather than blocking an apply.
+// currently dirty there (T4.3.1), and stages files after a successful apply (T4.3.3) - both by
+// shelling out to the git CLI rather than taking a LibGit2Sharp-style native dependency, matching
+// the ClaudeCliRunner convention of treating an external CLI as the source of truth. Any failure to
+// run git at all (not installed, directory missing, not a repository) is treated the same as "not a
+// repository": this is an informational warning, not a security boundary, so it fails open rather
+// than blocking an apply.
 public class GitStatusService : IGitStatusService
 {
     // T9.2.1: optional and defaulted to a no-op so every existing `new GitStatusService()` call
@@ -61,7 +62,26 @@ public class GitStatusService : IGitStatusService
         return arrowIndex >= 0 ? path[(arrowIndex + 4)..] : path;
     }
 
-    private bool TryRunGit(string workingDirectoryPath, out string output)
+    public bool StageFiles(string workingDirectoryPath, IReadOnlyList<string> relativeFilePaths)
+    {
+        if (relativeFilePaths.Count == 0 || string.IsNullOrWhiteSpace(workingDirectoryPath) || !Directory.Exists(workingDirectoryPath))
+        {
+            return false;
+        }
+
+        // "--" stops option parsing, so a path that happens to start with "-" (unlikely, but an
+        // LLM-supplied relative path isn't trustworthy by construction elsewhere in this codebase)
+        // is never misread as a flag.
+        var arguments = new List<string> { "add", "--" };
+        arguments.AddRange(relativeFilePaths);
+
+        return RunGit(workingDirectoryPath, arguments, out _, "stage files");
+    }
+
+    private bool TryRunGit(string workingDirectoryPath, out string output) =>
+        RunGit(workingDirectoryPath, new List<string> { "status", "--porcelain" }, out output, "run `git status --porcelain`");
+
+    private bool RunGit(string workingDirectoryPath, IReadOnlyList<string> arguments, out string output, string actionDescription)
     {
         output = string.Empty;
 
@@ -69,7 +89,6 @@ public class GitStatusService : IGitStatusService
         {
             FileName = "git",
             WorkingDirectory = workingDirectoryPath,
-            ArgumentList = { "status", "--porcelain" },
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             StandardOutputEncoding = Encoding.UTF8,
@@ -77,6 +96,11 @@ public class GitStatusService : IGitStatusService
             UseShellExecute = false,
             CreateNoWindow = true,
         };
+
+        foreach (var argument in arguments)
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
 
         try
         {
@@ -97,7 +121,7 @@ public class GitStatusService : IGitStatusService
             // git isn't on PATH, or the OS refused to start it - treated the same as "not a
             // repository" (see class remarks), but still worth a line in the log file since it's
             // otherwise silent.
-            _logger.LogWarning(ex, "Failed to run `git status --porcelain` in {WorkingDirectory}; treating as not a git repository.", workingDirectoryPath);
+            _logger.LogWarning(ex, "Failed to {Action} in {WorkingDirectory}; treating as not a git repository.", actionDescription, workingDirectoryPath);
             return false;
         }
     }
