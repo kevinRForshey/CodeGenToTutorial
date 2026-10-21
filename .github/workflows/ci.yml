@@ -9,6 +9,10 @@ on:
 jobs:
   build-test-coverage:
     runs-on: ubuntu-latest
+    # The actual .slnx/.csproj files live under Paarde/ rather than the repo root.
+    defaults:
+      run:
+        working-directory: Paarde
 
     steps:
       - uses: actions/checkout@v4
