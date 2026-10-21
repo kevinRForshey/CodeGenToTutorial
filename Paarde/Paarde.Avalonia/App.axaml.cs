@@ -76,9 +76,22 @@ public partial class App : Application
         {
             // Services
             services.AddSingleton<ILocalSettingsService, LocalSettingsService>();
+            services.AddSingleton<ISecureStorageService, SecureStorageService>();
             services.AddSingleton<IThemeSelectorService, ThemeSelectorService>();
             services.AddSingleton<ClaudeCliOptionsProvider>();
-            services.AddSingleton<ILlmRunner>(sp => new ClaudeCliRunner(sp.GetRequiredService<ClaudeCliOptionsProvider>().GetOptionsAsync));
+            services.AddSingleton<AnthropicApiOptionsProvider>();
+
+            // T6.3.2/T6.3.3: ILlmRunner itself resolves to LlmRunnerSelector, which picks between
+            // these two concrete runners per-call based on the Settings page's runner choice - see
+            // LlmRunnerSelector's own comment. Each concrete runner is built directly (not also
+            // registered as ILlmRunner) so there's no ambiguity over which one DI would hand to a
+            // constructor that asked for "the" ILlmRunner.
+            services.AddSingleton(sp => new ClaudeCliRunner(sp.GetRequiredService<ClaudeCliOptionsProvider>().GetOptionsAsync));
+            services.AddSingleton(sp => new AnthropicApiRunner(sp.GetRequiredService<AnthropicApiOptionsProvider>().GetOptionsAsync));
+            services.AddSingleton<ILlmRunner>(sp => new LlmRunnerSelector(
+                sp.GetRequiredService<ILocalSettingsService>(),
+                sp.GetRequiredService<ClaudeCliRunner>(),
+                sp.GetRequiredService<AnthropicApiRunner>()));
             services.AddTransient<IFolderPickerService, FolderPickerService>();
             services.AddTransient<IFilePickerService, FilePickerService>();
             services.AddTransient<IFileSavePickerService, FileSavePickerService>();

@@ -322,7 +322,10 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
     {
         if (!await _llmRunner.IsAvailableAsync())
         {
-            StatusMessage = "Prompt_ClaudeCliNotFound".Resolve();
+            // T6.3.2: ILlmRunner now has two implementations behind LlmRunnerSelector, so this can no
+            // longer assume it's specifically the CLI that's missing - could just as easily be a
+            // blank Anthropic API key.
+            StatusMessage = "Prompt_LlmRunnerNotAvailable".Resolve();
             return;
         }
 

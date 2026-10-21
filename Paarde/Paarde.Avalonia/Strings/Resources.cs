@@ -21,7 +21,7 @@ public static class Resources
         ["Prompt_LoadSettingsFailed"] = "Failed to load saved settings: {0}",
         ["Prompt_RunCancelled"] = "Cancelled.",
         ["Prompt_RunTimedOut"] = "Timed out after {0} second(s). You can increase the timeout on the Settings page.",
-        ["Prompt_ClaudeCliNotFound"] = "Claude Code CLI not found on PATH. Install it with: npm install -g @anthropic-ai/claude-code",
+        ["Prompt_LlmRunnerNotAvailable"] = "The selected runner isn't available. Check its settings on the Settings page.",
         ["Prompt_UsageSummary"] = "Cost: ${0:F4} • {1:N0} in / {2:N0} out tokens • {3:F1}s",
         ["Prompt_EstimatedTokenCount"] = "~{0:N0} tokens (estimated)",
         ["Prompt_FallbackParseNotice"] = "(Response wasn't valid structured JSON; parsed with the legacy text parser.)",
