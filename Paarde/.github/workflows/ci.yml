@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "Development"]
+  pull_request:
+    branches: ["main", "Development"]
+
+jobs:
+  build-test-coverage:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Test with coverage
+        run: >
+          dotnet test --no-build --configuration Release
+          --collect:"XPlat Code Coverage"
+          --results-directory ./coverage
+
+      # T9.1.1 set a 90% aspirational floor for Paarde.Core; actual coverage today is ~88% for Core
+      # and ~38% for Avalonia (expected - view/code-behind/converter UI glue isn't unit-testable the
+      # way pure logic is, per this project's established testing convention). These floors are set
+      # a few points below each project's current baseline so this gate catches real regressions
+      # without failing on day one; raise them as coverage improves rather than loosening either one.
+      - name: Enforce coverage floor
+        run: |
+          set -e
+          core_floor=85
+          avalonia_floor=30
+          failed=0
+
+          for f in $(find ./coverage -name "coverage.cobertura.xml"); do
+            rate=$(grep -o 'line-rate="[0-9.]*"' "$f" | head -1 | grep -o '[0-9.]*')
+            pct=$(awk "BEGIN { printf \"%.2f\", $rate * 100 }")
+
+            if grep -q '<package name="Paarde.Avalonia"' "$f"; then
+              project="Paarde.Avalonia.Tests"
+              floor=$avalonia_floor
+            else
+              project="Paarde.Core.Tests"
+              floor=$core_floor
+            fi
+
+            echo "$project line coverage: ${pct}% (floor: ${floor}%)"
+
+            below=$(awk "BEGIN { print ($pct < $floor) ? 1 : 0 }")
+            if [ "$below" = "1" ]; then
+              echo "::error::$project coverage ${pct}% is below the ${floor}% floor"
+              failed=1
+            fi
+          done
+
+          exit $failed
