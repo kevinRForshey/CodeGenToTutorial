@@ -1,9 +1,11 @@
 namespace Paarde.Avalonia.Strings;
 
-// Stand-in for the WinUI project's .resw + x:Uid localization pipeline, which relies on Visual Studio/UWP
-// designer tooling not available for a cross-platform Avalonia build. Keys mirror the original Resources.resw
-// entries that are looked up from code (ViewModels/code-behind); markup-only strings (button labels, headers)
-// are set directly in .axaml instead, since x:Uid has no Avalonia equivalent.
+// A central table for the English UI strings that ViewModels/code-behind need to format at runtime
+// (status messages, dialog text) - not a localization system. There's only ever been one locale here,
+// no resource file per culture, and no language switch; keeping this table is still worth it on its
+// own for having one place to find/edit that copy rather than scattering literals across ViewModels.
+// Markup-only strings (button labels, headers) stay directly in .axaml, where they're equally easy
+// to find and edit.
 public static class Resources
 {
     private static readonly Dictionary<string, string> Map = new()
@@ -80,6 +82,6 @@ public static class Resources
         ["Explorer_LoadFailed"] = "Failed to read the working directory: {0}",
     };
 
-    public static string GetLocalized(this string resourceKey) =>
+    public static string Resolve(this string resourceKey) =>
         Map.TryGetValue(resourceKey, out var value) ? value : resourceKey;
 }

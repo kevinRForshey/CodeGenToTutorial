@@ -96,14 +96,14 @@ public partial class ExplorerViewModel : ObservableObject, INavigationAware
         if (string.IsNullOrWhiteSpace(WorkingDirectoryPath))
         {
             Root = null;
-            StatusMessage = "Explorer_NoWorkingDirectory".GetLocalized();
+            StatusMessage = "Explorer_NoWorkingDirectory".Resolve();
             return;
         }
 
         if (!Directory.Exists(WorkingDirectoryPath))
         {
             Root = null;
-            StatusMessage = string.Format("Explorer_WorkingDirectoryNotFound".GetLocalized(), WorkingDirectoryPath);
+            StatusMessage = string.Format("Explorer_WorkingDirectoryNotFound".Resolve(), WorkingDirectoryPath);
             return;
         }
 
@@ -120,13 +120,13 @@ public partial class ExplorerViewModel : ObservableObject, INavigationAware
         {
             _logger.LogWarning(ex, "Failed to read the working directory {WorkingDirectory} while building the Explorer tree.", WorkingDirectoryPath);
             Root = null;
-            StatusMessage = string.Format("Explorer_LoadFailed".GetLocalized(), ex.Message);
+            StatusMessage = string.Format("Explorer_LoadFailed".Resolve(), ex.Message);
         }
         catch (UnauthorizedAccessException ex)
         {
             _logger.LogWarning(ex, "Failed to read the working directory {WorkingDirectory} while building the Explorer tree.", WorkingDirectoryPath);
             Root = null;
-            StatusMessage = string.Format("Explorer_LoadFailed".GetLocalized(), ex.Message);
+            StatusMessage = string.Format("Explorer_LoadFailed".Resolve(), ex.Message);
         }
     }
 }

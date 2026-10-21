@@ -119,6 +119,6 @@ public partial class SettingsViewModel : ObservableRecipient, INavigationAware
     {
         var version = Assembly.GetExecutingAssembly().GetName().Version!;
 
-        return $"{"AppDisplayName".GetLocalized()} - {version.Major}.{version.Minor}.{version.Build}.{version.Revision}";
+        return $"{"AppDisplayName".Resolve()} - {version.Major}.{version.Minor}.{version.Build}.{version.Revision}";
     }
 }

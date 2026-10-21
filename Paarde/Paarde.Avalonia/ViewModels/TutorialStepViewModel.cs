@@ -96,12 +96,12 @@ public partial class TutorialStepViewModel : ObservableObject
         try
         {
             _fileChangeApplyService.Apply(_file, _workingDirectoryPath);
-            StatusMessage = string.Format("Tutorial_ChangeApplied".GetLocalized(), _file.FilePath);
+            StatusMessage = string.Format("Tutorial_ChangeApplied".Resolve(), _file.FilePath);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
             _logger.LogWarning(ex, "Failed to apply {FilePath} in {WorkingDirectory}.", _file.FilePath, _workingDirectoryPath);
-            StatusMessage = string.Format("Tutorial_ApplyFailed".GetLocalized(), ex.Message);
+            StatusMessage = string.Format("Tutorial_ApplyFailed".Resolve(), ex.Message);
         }
     }
 
@@ -135,7 +135,7 @@ public partial class TutorialStepViewModel : ObservableObject
 
             FurtherExplanation = result.Success
                 ? ExtractProseAnswer(result.Output)
-                : string.Format("Tutorial_ExplainFurtherFailed".GetLocalized(), result.ErrorMessage);
+                : string.Format("Tutorial_ExplainFurtherFailed".Resolve(), result.ErrorMessage);
         }
         finally
         {

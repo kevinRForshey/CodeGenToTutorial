@@ -117,9 +117,6 @@ don't exist yet.
   `Win32Exception`, which the generic `catch (Exception)` renders as a raw message. No preflight
   check, no configurable binary path.
 - **`ShellView.axaml` emits `AVLN3001`** (no public constructor reachable for the runtime loader).
-- **Localization is a stub.** `Strings/Resources.cs` is a hard-coded `Dictionary<string,string>`
-  replacing the WinUI `.resw` pipeline; several user-facing strings are inline in `.axaml` anyway.
-
 ### Security / safety
 
 - **Path traversal.** `Path.Combine(workingDirectoryPath, file.FilePath)` with an LLM-supplied
@@ -1738,7 +1735,19 @@ committed yet — review `git status`/`git diff` before committing.
   and confirmed to come up cleanly). These binaries are unsigned, so macOS Gatekeeper/Windows
   SmartScreen will warn on first launch; accepted for now rather than adding code-signing
   infrastructure this project doesn't have a certificate for yet.
-- T9.3.4 Finish or remove the half-stubbed localization layer.
+- [x] T9.3.4 **Finish or remove the half-stubbed localization layer.** — done 2026-10-21: removed the
+  stub, not finished it - `Strings/Resources.cs` had a comment framing it as a stand-in for the WinUI
+  `.resw`/`x:Uid` pipeline, but there's only ever been one locale (English), no per-culture resource
+  file, and no language switch anywhere in the app; nothing points at this project actually needing
+  multiple languages. Building real localization (translated resource sets, a culture switcher, the
+  ongoing cost of keeping translations in sync) would be effort spent on a requirement that doesn't
+  exist yet. Kept the dictionary itself - it's genuinely useful as the one place that centralizes the
+  ~80 code-formatted strings ViewModels/code-behind use, rather than scattering literals across them -
+  but rewrote its comment to describe it honestly as a UI string table, and renamed the misleading
+  `GetLocalized()` extension (which implied culture-aware lookup that was never implemented) to
+  `Resolve()` across all call sites. Markup-only strings (button labels, headers) stay directly in
+  `.axaml`, as before. Full solution builds with 0 warnings/errors, 592/592 tests pass (385 Core + 207
+  Avalonia).
 
 ---
 
