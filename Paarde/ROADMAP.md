@@ -1934,54 +1934,76 @@ neither needs new navigation or a new page.*
 
 **F10.2 — Built-in editor for arbitrary files, not just LLM proposals**
 
-- [ ] T10.2.1 Make the Explorer preview editable. `ExplorerView.axaml`'s `CodeEditor` is
-  `IsReadOnly="True"` (T8.1.3, deliberately - "Explorer stays a browse/view surface, editing a
-  proposal stays the Tutorial page's job"). Flip that: bind `SelectedFileContent` two-way (the
-  `TextEditorExtensions.BindableText` attached property already round-trips, T2.2.2) and add an
-  `IsFileDirty` `[ObservableProperty]`, flipped by comparing against a new private
-  `_originalFileContentOnDisk` field captured in `OnSelectedNodeChanged` right after reading the
-  file - same `IsDirty`-via-divergence shape `ProposedFileChangeViewModel` already uses, just without
-  a third (`ProposedContent`) baseline since there's no LLM proposal here.
-- [ ] T10.2.2 Add a `SaveSelectedFileCommand`. Gated on `IsFileDirty`. Writes through the existing
-  `IFileChangeApplyService.WriteRaw(relativePath, SelectedFileContent, WorkingDirectoryPath)` - not
-  a raw `File.WriteAllText` - so the save gets the same path-containment check (`FilePathContainment
-  .Resolve`, T4.1.1) and encoding/line-ending preservation (`FileEncodingDetector`, T4.1.3) every
-  other write in this app already gets; `relativePath` is
-  `Path.GetRelativePath(WorkingDirectoryPath, SelectedFilePath)` since `WriteRaw` expects a
+- [x] T10.2.1 Make the Explorer preview editable. — done 2026-10-21: `ExplorerView.axaml`'s
+  `CodeEditor` flipped from `IsReadOnly="True"` to `False`, and `BindableText` from `Mode=OneWay` to
+  its default `TwoWay` (round-trips via `TextEditorExtensions`, T2.2.2) so edits flow straight back
+  into `SelectedFileContent`. Added `[ObservableProperty] IsFileDirty` (bool) and a private
+  `_originalFileContentOnDisk` (string, not nullable - `FileContentReader.ReadOrEmpty` never returns
+  null) captured whenever a file is loaded; a new `OnSelectedFileContentChanged` partial hook sets
+  `IsFileDirty = value != _originalFileContentOnDisk` on every edit - same `IsDirty`-via-divergence
+  shape `ProposedFileChangeViewModel` already uses, just without a third (proposed) baseline since
+  there's no LLM proposal in this flow.
+- [x] T10.2.2 Add a `SaveSelectedFileCommand`. — done 2026-10-21: gated on `IsFileDirty`
+  (`CanSaveSelectedFile`, re-evaluated via `OnIsFileDirtyChanged`, this codebase's established
+  pattern rather than `[NotifyCanExecuteChangedFor]`). Writes through
+  `IFileChangeApplyService.WriteRaw(relativePath, SelectedFileContent, WorkingDirectoryPath)` - not a
+  raw `File.WriteAllText` - so the save gets the same path-containment check
+  (`FilePathContainment.Resolve`, T4.1.1) and encoding/line-ending preservation
+  (`FileEncodingDetector`, T4.1.3) every other write in this app already gets; `relativePath` is
+  `Path.GetRelativePath(WorkingDirectoryPath, SelectedFilePath)` (normalized to `/`, matching
+  `FileTreeBuilder`'s own relative-path convention) since `WriteRaw` expects a
   working-directory-relative path and `SelectedFilePath` is `FileTreeNodeViewModel.FullPath`
-  (absolute). `ExplorerViewModel` takes `IFileChangeApplyService` as a new constructor dependency.
-  After a successful write, reset `_originalFileContentOnDisk = SelectedFileContent` (clears
-  `IsFileDirty`) rather than re-reading the file back from disk.
-- [ ] T10.2.3 Protected-path guard. Before saving, check `ProtectedPathChecker.IsProtected`
-  (T4.1.2) against the same `.gitignore`/`.git`/`bin`/`obj` rules the apply flow already enforces;
-  block the save with a status message rather than silently writing to a path the rest of the app
-  treats as off-limits. Unlike the apply flow's "confirm and allow anyway" dialog (there's a batch
-  of files and a confirm-dialog service already wired for that), a single ad-hoc edit can just
-  refuse outright and tell the user why - simpler, and this is a new, narrower write path that
-  doesn't need to reuse `allowProtectedPaths`' override semantics on day one.
-- [ ] T10.2.4 Conflict guard: before saving, re-read the file from disk and compare against
-  `_originalFileContentOnDisk` (same check `ApplyOrchestrationService.ApplyOne` already does via
-  `currentDiskContent != file.OriginalContent`, T3.3.3) - if it changed since this file was opened
-  (an LLM apply ran, or something else touched it), refuse the save and tell the user to reload
-  rather than silently clobbering it.
-- [ ] T10.2.5 Guard against losing edits on navigation or re-selection. `ExplorerViewModel` should
-  implement `IConfirmNavigationAway` (`HasUnsavedChanges => IsFileDirty`, same interface
-  `TutorialViewModel` already implements for T2.2.4's `Frame.Navigating` guard - no new
-  infrastructure needed there). Separately, *within* the page, `OnSelectedNodeChanged` switching to
-  a different tree node is not a navigation and won't go through that guard - needs its own check
-  (via the existing `IDialogService` confirm dialog) before discarding `IsFileDirty` content when
-  the user clicks a different file.
-- [ ] T10.2.6 Undo/redo: free via `CodeEditor`'s underlying `AvaloniaEdit.TextEditor` (Ctrl+Z/Ctrl+Y
-  already wired by `TextAreaDefaultInputHandler`, confirmed under T2.2.4) the moment the editor stops
-  being read-only - no new code needed. Add a "Revert to disk" command (reloads
-  `SelectedFileContent`/`_originalFileContentOnDisk` from `_originalFileContentOnDisk`'s on-disk
-  source, discarding edits) for the case undo history doesn't cover - reselecting the same file after
-  switching away and back.
-- [ ] T10.2.7 Tests: `ExplorerViewModelTests` additions - dirty tracking on edit, successful save
-  clears dirty and writes via a faked `IFileChangeApplyService` (matching this test project's
-  no-mocking-library convention, same fake style as `FakeApplyOrchestrationService`), protected-path
-  save is blocked with no write attempted, a disk-side conflict blocks the save, and
-  `HasUnsavedChanges` reflects `IsFileDirty`.
+  (absolute). `ExplorerViewModel` took `IFileChangeApplyService` and `IDialogService` as new
+  constructor dependencies - both already DI-registered (`App.axaml.cs`), no registration change
+  needed. After a successful write, `_originalFileContentOnDisk = SelectedFileContent` and
+  `IsFileDirty = false` directly, rather than re-reading the file back from disk.
+- [x] T10.2.3 Protected-path guard. — done 2026-10-21, as part of T10.2.2: checked first, via
+  `ProtectedPathChecker.IsProtected` (T4.1.2, the same `.gitignore`/`.git`/`bin`/`obj` rules the
+  apply flow already enforces) against `relativePath` - blocks the save with a new
+  `Explorer_SaveBlockedProtectedPath` status message rather than writing. Refuses outright with no
+  "allow anyway" override, unlike the batch apply flow's confirm dialog - a single ad-hoc edit is a
+  narrower write path that doesn't need `allowProtectedPaths`' override semantics on day one.
+- [x] T10.2.4 Conflict guard. — done 2026-10-21, as part of T10.2.2: re-reads the file via
+  `FileContentReader.ReadOrEmpty(SelectedFilePath)` right before writing and compares it against
+  `_originalFileContentOnDisk` (same check `ApplyOrchestrationService.ApplyOne` does via
+  `currentDiskContent != file.OriginalContent`, T3.3.3) - a mismatch blocks the save with a new
+  `Explorer_SaveConflict` status message telling the user to reselect the file to reload it, rather
+  than silently clobbering whatever changed it.
+- [x] T10.2.5 Guard against losing edits on navigation or re-selection. — done 2026-10-21:
+  `ExplorerViewModel` now implements `IConfirmNavigationAway` (`HasUnsavedChanges => IsFileDirty`),
+  so `NavigationService`'s existing `Frame.Navigating` guard (already used by `TutorialViewModel`,
+  T2.2.4) covers leaving the page with no new infrastructure. Within the page, `OnSelectedNodeChanged`
+  switching to a different tree node needed its own check since that guard never sees it: a new
+  `OnSelectedNodeChanging(oldValue, newValue)` partial hook captures the node being left in
+  `_nodeBeforeSelectionChange`; if `IsFileDirty` when the new node lands, `OnSelectedNodeChanged`
+  defers to `ConfirmDiscardDirtyFileThenLoad` (an `IDialogService.ConfirmAsync` prompt, new
+  `Explorer_DiscardEdits*` resource keys) instead of loading immediately - confirming loads the new
+  node (discarding the edit); declining sets `SelectedNode = _nodeBeforeSelectionChange`, putting the
+  tree's selection back. That revert, and plain reselection of the node already loaded, both need to
+  be a no-op rather than re-triggering a reload (which would wipe out the very edit being protected) -
+  handled by comparing the new node's path against `SelectedFilePath` at the top of
+  `OnSelectedNodeChanged` and returning early on a match, before either the dirty check or the actual
+  load (factored into a private `LoadNode`) runs.
+- [x] T10.2.6 Undo/redo. — done 2026-10-21: Ctrl+Z/Ctrl+Y came for free the moment `CodeEditor` left
+  `IsReadOnly` (`AvaloniaEdit`'s `TextAreaDefaultInputHandler`, confirmed under T2.2.4) - no new code.
+  Added a `RevertSelectedFileToDiskCommand` (gated on `IsFileDirty`, same `OnIsFileDirtyChanged`
+  wiring as Save) that re-reads the file from disk right now (not the stale
+  `_originalFileContentOnDisk` captured at load time) into both `_originalFileContentOnDisk` and
+  `SelectedFileContent` - covers discarding every edit at once, including the case undo history
+  might not reach.
+- [x] T10.2.7 Tests. — done 2026-10-21: `ExplorerViewModelTests` gained `FakeFileChangeApplyService`
+  (extended with `WriteRawCallCount`/`LastWriteRawFilePath`/`LastWriteRawContent` tracking, plus
+  `WriteRaw` now honors `ExceptionToThrow` the way `Apply` already did) and `FakeDialogService`
+  fixtures, and 13 new cases: dirty tracking on edit and on editing back to the original content;
+  `SaveSelectedFileCommand`/`RevertSelectedFileToDiskCommand` `CanExecute` gating; a successful save
+  writing via the fake and clearing dirty; a protected-path save blocked with no write attempted; a
+  disk-side conflict blocking the save with no write attempted; revert-to-disk reloading current disk
+  content and clearing dirty; reselecting the already-loaded file being a no-op (no dialog, edit
+  survives); and the discard-edits confirm dialog on reselecting a different file both ways (confirmed
+  -> loads the new file; declined -> selection reverts and the edit survives). `HasUnsavedChanges`
+  covered indirectly via `IsFileDirty` in the dirty-tracking cases rather than its own case, since it's
+  a one-line passthrough. Full solution builds with 0 warnings/errors, 659/659 tests pass (407 Core +
+  252 Avalonia, up from 648).
 
 *Open question for F10.2, not resolved in this plan: should a manual Explorer save also go through
 `IApplyBackupStore`/`IApplyHistoryLog` (T4.2.1/T4.2.3) so "Revert all applied changes in this

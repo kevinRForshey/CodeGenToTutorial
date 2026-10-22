@@ -17,12 +17,25 @@ namespace Paarde.Avalonia.ViewModels;
 // picked on the Prompt page (same persisted setting, via WorkingDirectorySettingsKeys, rather
 // than IPromptResultStore.WorkingDirectoryPath - the tree should be browsable as soon as a folder
 // is picked, not only after a prompt has actually been run).
-public partial class ExplorerViewModel : ObservableObject, INavigationAware
+public partial class ExplorerViewModel : ObservableObject, INavigationAware, IConfirmNavigationAway
 {
     private readonly ILocalSettingsService _localSettingsService;
     private readonly IPromptResultStore _promptResultStore;
     private readonly ILlmRunner _llmRunner;
+    private readonly IFileChangeApplyService _fileChangeApplyService;
+    private readonly IDialogService _dialogService;
     private readonly ILogger<ExplorerViewModel> _logger;
+
+    // T10.2.1: what's actually on disk as of the last successful load/save, compared against
+    // SelectedFileContent to derive IsFileDirty - same IsDirty-via-divergence shape
+    // ProposedFileChangeViewModel already uses, just without a third (proposed) baseline since
+    // there's no LLM proposal in this flow.
+    private string _originalFileContentOnDisk = string.Empty;
+
+    // T10.2.5: captured by OnSelectedNodeChanging (fires before SelectedNode's backing field is
+    // updated) so a declined "discard unsaved edits?" prompt can put the tree's selection back
+    // where it was.
+    private FileTreeNodeViewModel? _nodeBeforeSelectionChange;
 
     [ObservableProperty]
     private string workingDirectoryPath = string.Empty;
@@ -53,22 +66,86 @@ public partial class ExplorerViewModel : ObservableObject, INavigationAware
     [ObservableProperty]
     private bool isLoadingOverview;
 
+    // T10.2.1: whether SelectedFileContent has diverged from _originalFileContentOnDisk.
+    [ObservableProperty]
+    private bool isFileDirty;
+
     public ExplorerViewModel(
         ILocalSettingsService localSettingsService,
         IPromptResultStore promptResultStore,
         ILlmRunner llmRunner,
+        IFileChangeApplyService fileChangeApplyService,
+        IDialogService dialogService,
         ILogger<ExplorerViewModel>? logger = null)
     {
         _promptResultStore = promptResultStore;
         _localSettingsService = localSettingsService;
         _llmRunner = llmRunner;
+        _fileChangeApplyService = fileChangeApplyService;
+        _dialogService = dialogService;
         _logger = logger ?? NullLogger<ExplorerViewModel>.Instance;
     }
+
+    // T10.2.5: IConfirmNavigationAway - checked by NavigationService.OnNavigating before leaving
+    // this page, same mechanism TutorialViewModel already uses for its own unsaved edits.
+    public bool HasUnsavedChanges => IsFileDirty;
+
+    partial void OnSelectedNodeChanging(FileTreeNodeViewModel? oldValue, FileTreeNodeViewModel? newValue) =>
+        _nodeBeforeSelectionChange = oldValue;
 
     // T8.1.3: open any file in the editor, proposed or not - a read-only preview, deliberately not
     // wired into ProposedFileChangeViewModel.EditedContent for touched files, so Explorer stays a
     // browse/view surface and editing a proposal stays the Tutorial page's job.
+    //
+    // T10.2.5: switching the tree selection is not a page navigation, so IConfirmNavigationAway's
+    // guard above never sees it - this needs its own unsaved-edits check. Re-entrancy guard first:
+    // reselecting the node that's already loaded (including the revert this method itself performs
+    // below when the user declines to discard) must not re-read from disk and wipe out the very
+    // edits being protected.
     partial void OnSelectedNodeChanged(FileTreeNodeViewModel? value)
+    {
+        var newPath = value is { IsDirectory: false } ? value.FullPath : string.Empty;
+
+        if (newPath == SelectedFilePath)
+        {
+            return;
+        }
+
+        if (IsFileDirty)
+        {
+            ConfirmDiscardDirtyFileThenLoad(value);
+            return;
+        }
+
+        LoadNode(value);
+    }
+
+    private async void ConfirmDiscardDirtyFileThenLoad(FileTreeNodeViewModel? value)
+    {
+        try
+        {
+            var discard = await _dialogService.ConfirmAsync(
+                "Explorer_DiscardEditsConfirmTitle".Resolve(),
+                "Explorer_DiscardEditsConfirmMessage".Resolve(),
+                "Explorer_DiscardEditsConfirmButton".Resolve(),
+                "Explorer_DiscardEditsCancelButton".Resolve());
+
+            if (discard)
+            {
+                LoadNode(value);
+            }
+            else
+            {
+                SelectedNode = _nodeBeforeSelectionChange;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to confirm discarding unsaved Explorer edits.");
+        }
+    }
+
+    private void LoadNode(FileTreeNodeViewModel? value)
     {
         // T10.1.3: a previous selection's explanation would otherwise linger and read as if it
         // described whatever's selected now.
@@ -77,17 +154,86 @@ public partial class ExplorerViewModel : ObservableObject, INavigationAware
         if (value is null || value.IsDirectory)
         {
             SelectedFilePath = string.Empty;
+            _originalFileContentOnDisk = string.Empty;
             SelectedFileContent = string.Empty;
             return;
         }
 
         SelectedFilePath = value.FullPath;
-        SelectedFileContent = FileContentReader.ReadOrEmpty(value.FullPath);
+        _originalFileContentOnDisk = FileContentReader.ReadOrEmpty(value.FullPath);
+        SelectedFileContent = _originalFileContentOnDisk;
     }
 
     partial void OnSelectedFilePathChanged(string value) => ExplainSelectedFileCommand.NotifyCanExecuteChanged();
 
+    partial void OnSelectedFileContentChanged(string value) => IsFileDirty = value != _originalFileContentOnDisk;
+
     partial void OnIsLoadingOverviewChanged(bool value) => ExplainSelectedFileCommand.NotifyCanExecuteChanged();
+
+    partial void OnIsFileDirtyChanged(bool value)
+    {
+        SaveSelectedFileCommand.NotifyCanExecuteChanged();
+        RevertSelectedFileToDiskCommand.NotifyCanExecuteChanged();
+    }
+
+    // T10.2.2: writes through IFileChangeApplyService.WriteRaw rather than a raw File.WriteAllText,
+    // so a manual save gets the same path-containment check (FilePathContainment.Resolve, T4.1.1)
+    // and encoding/line-ending preservation (FileEncodingDetector, T4.1.3) every other write in this
+    // app already gets.
+    [RelayCommand(CanExecute = nameof(CanSaveSelectedFile))]
+    private void SaveSelectedFile()
+    {
+        var relativePath = Path.GetRelativePath(WorkingDirectoryPath, SelectedFilePath).Replace(Path.DirectorySeparatorChar, '/');
+
+        // T10.2.3: refuses outright rather than offering an "apply anyway" override - unlike the
+        // batch apply flow (which already has a confirm-dialog service wired for exactly that),
+        // this is a single ad-hoc edit and a narrower write path that doesn't need to reuse
+        // allowProtectedPaths' override semantics on day one.
+        if (ProtectedPathChecker.IsProtected(WorkingDirectoryPath, relativePath))
+        {
+            StatusMessage = string.Format("Explorer_SaveBlockedProtectedPath".Resolve(), relativePath);
+            return;
+        }
+
+        // T10.2.4: the same check ApplyOrchestrationService.ApplyOne does before an LLM apply
+        // (currentDiskContent != file.OriginalContent, T3.3.3) - if the file changed on disk since
+        // it was opened here, refuse rather than silently clobbering whatever wrote it.
+        var currentDiskContent = FileContentReader.ReadOrEmpty(SelectedFilePath);
+
+        if (currentDiskContent != _originalFileContentOnDisk)
+        {
+            StatusMessage = string.Format("Explorer_SaveConflict".Resolve(), relativePath);
+            return;
+        }
+
+        try
+        {
+            _fileChangeApplyService.WriteRaw(relativePath, SelectedFileContent, WorkingDirectoryPath);
+            _originalFileContentOnDisk = SelectedFileContent;
+            IsFileDirty = false;
+            StatusMessage = string.Format("Explorer_SaveSucceeded".Resolve(), relativePath);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            _logger.LogWarning(ex, "Failed to save {FilePath} in {WorkingDirectory}.", relativePath, WorkingDirectoryPath);
+            StatusMessage = string.Format("Explorer_SaveFailed".Resolve(), relativePath, ex.Message);
+        }
+    }
+
+    private bool CanSaveSelectedFile() => IsFileDirty;
+
+    // T10.2.6: Undo/Redo themselves are free once CodeEditor stops being read-only (AvaloniaEdit's
+    // TextAreaDefaultInputHandler already wires Ctrl+Z/Ctrl+Y) - this covers the case undo history
+    // doesn't: discarding every edit at once and going back to what's on disk right now, which may
+    // have changed since this file was opened.
+    [RelayCommand(CanExecute = nameof(CanRevertSelectedFileToDisk))]
+    private void RevertSelectedFileToDisk()
+    {
+        _originalFileContentOnDisk = FileContentReader.ReadOrEmpty(SelectedFilePath);
+        SelectedFileContent = _originalFileContentOnDisk;
+    }
+
+    private bool CanRevertSelectedFileToDisk() => IsFileDirty;
 
     // T10.1.1/T10.1.2: reuses the plain-prose prompt pattern TutorialStepViewModel.ExplainFurtherAsync
     // already established (no JSON, no markdown fences - this is prose for a human, not something

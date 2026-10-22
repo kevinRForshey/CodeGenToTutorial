@@ -67,6 +67,15 @@
                              ToolTip.Tip="Ask the AI for a tutorial-style explanation of this file."
                              IsVisible="{Binding SelectedFilePath, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}" />
                     <ui:ProgressRing Width="18" Height="18" VerticalAlignment="Center" IsIndeterminate="True" IsActive="{Binding IsLoadingOverview}" />
+                    <!-- T10.2.2/T10.2.6: Save/Revert both gate on IsFileDirty, so there's nothing to
+                         accidentally click before an edit actually diverges from disk. -->
+                    <Button Content="Save"
+                             Command="{Binding SaveSelectedFileCommand}"
+                             ToolTip.Tip="Write this file's edits to disk." />
+                    <Button Content="Revert to disk"
+                             Command="{Binding RevertSelectedFileToDiskCommand}"
+                             ToolTip.Tip="Discard every edit and reload this file's current content from disk." />
+                    <TextBlock Text="Edited" IsVisible="{Binding IsFileDirty}" VerticalAlignment="Center" FontStyle="Italic" Opacity="0.7" />
                 </StackPanel>
 
                 <TextBlock Grid.Row="1"
@@ -75,11 +84,14 @@
                            Opacity="0.7"
                            IsVisible="{Binding SelectedFilePath, Converter={x:Static conv:StringConverters.IsNullOrEmpty}}" />
 
+                <!-- T10.2.1: editable now - BindableText is TwoWay by default (T2.2.2), so edits
+                     flow straight back into SelectedFileContent, where OnSelectedFileContentChanged
+                     derives IsFileDirty. -->
                 <controls:CodeEditor Grid.Row="1"
                                       Margin="8,0,0,0"
-                                      helpers:TextEditorExtensions.BindableText="{Binding SelectedFileContent, Mode=OneWay}"
+                                      helpers:TextEditorExtensions.BindableText="{Binding SelectedFileContent}"
                                       FilePath="{Binding SelectedFilePath}"
-                                      IsReadOnly="True"
+                                      IsReadOnly="False"
                                       HorizontalScrollBarVisibility="Auto"
                                       VerticalScrollBarVisibility="Auto"
                                       IsVisible="{Binding SelectedFilePath, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}" />

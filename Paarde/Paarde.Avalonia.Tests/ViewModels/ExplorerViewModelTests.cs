@@ -10,6 +10,8 @@ public class ExplorerViewModelTests : IDisposable
     private readonly FakeLocalSettingsService _localSettingsService = new();
     private readonly FakePromptResultStore _promptResultStore = new();
     private readonly FakeLlmRunner _llmRunner = new();
+    private readonly FakeFileChangeApplyService _fileChangeApplyService = new();
+    private readonly FakeDialogService _dialogService = new();
     private readonly string _workingDirectory;
 
     public ExplorerViewModelTests()
@@ -25,7 +27,7 @@ public class ExplorerViewModelTests : IDisposable
         }
     }
 
-    private ExplorerViewModel CreateSut() => new(_localSettingsService, _promptResultStore, _llmRunner);
+    private ExplorerViewModel CreateSut() => new(_localSettingsService, _promptResultStore, _llmRunner, _fileChangeApplyService, _dialogService);
 
     private async Task SetSavedWorkingDirectoryAsync(string path) =>
         await _localSettingsService.SaveSettingAsync(WorkingDirectorySettingsKeys.WorkingDirectory, path);
@@ -274,5 +276,189 @@ public class ExplorerViewModelTests : IDisposable
         sut.SelectedNode = srcFolder.Children.Single();
 
         Assert.Empty(sut.FileOverview);
+    }
+
+    [Fact]
+    public async Task SelectedFileContent_Edited_MarksTheFileDirty()
+    {
+        File.WriteAllText(Path.Combine(_workingDirectory, "a.txt"), "original");
+        await SetSavedWorkingDirectoryAsync(_workingDirectory);
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+        sut.SelectedNode = sut.Root!.Children.Single();
+
+        sut.SelectedFileContent = "edited";
+
+        Assert.True(sut.IsFileDirty);
+        Assert.True(sut.HasUnsavedChanges);
+    }
+
+    [Fact]
+    public async Task SelectedFileContent_EditedBackToOriginal_ClearsDirty()
+    {
+        File.WriteAllText(Path.Combine(_workingDirectory, "a.txt"), "original");
+        await SetSavedWorkingDirectoryAsync(_workingDirectory);
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+        sut.SelectedNode = sut.Root!.Children.Single();
+        sut.SelectedFileContent = "edited";
+
+        sut.SelectedFileContent = "original";
+
+        Assert.False(sut.IsFileDirty);
+    }
+
+    [Fact]
+    public void SaveSelectedFileCommand_NotDirty_CannotExecute()
+    {
+        var sut = CreateSut();
+
+        Assert.False(sut.SaveSelectedFileCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task SaveSelectedFileCommand_Dirty_Succeeds_WritesAndClearsDirty()
+    {
+        File.WriteAllText(Path.Combine(_workingDirectory, "a.txt"), "original");
+        await SetSavedWorkingDirectoryAsync(_workingDirectory);
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+        sut.SelectedNode = sut.Root!.Children.Single();
+        sut.SelectedFileContent = "edited";
+
+        Assert.True(sut.SaveSelectedFileCommand.CanExecute(null));
+        sut.SaveSelectedFileCommand.Execute(null);
+
+        Assert.False(sut.IsFileDirty);
+        Assert.Equal(1, _fileChangeApplyService.WriteRawCallCount);
+        Assert.Equal("a.txt", _fileChangeApplyService.LastWriteRawFilePath);
+        Assert.Equal("edited", _fileChangeApplyService.LastWriteRawContent);
+        Assert.NotEmpty(sut.StatusMessage);
+    }
+
+    [Fact]
+    public async Task SaveSelectedFileCommand_ProtectedPath_IsBlockedAndDoesNotWrite()
+    {
+        Directory.CreateDirectory(Path.Combine(_workingDirectory, "bin"));
+        File.WriteAllText(Path.Combine(_workingDirectory, "bin", "a.txt"), "original");
+        await SetSavedWorkingDirectoryAsync(_workingDirectory);
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+        var binFolder = sut.Root!.Children.Single(node => node.Name == "bin");
+        sut.SelectedNode = binFolder.Children.Single();
+        sut.SelectedFileContent = "edited";
+
+        sut.SaveSelectedFileCommand.Execute(null);
+
+        Assert.Equal(0, _fileChangeApplyService.WriteRawCallCount);
+        Assert.True(sut.IsFileDirty);
+        Assert.NotEmpty(sut.StatusMessage);
+    }
+
+    [Fact]
+    public async Task SaveSelectedFileCommand_FileChangedOnDiskSinceOpened_IsBlockedAndDoesNotWrite()
+    {
+        var filePath = Path.Combine(_workingDirectory, "a.txt");
+        File.WriteAllText(filePath, "original");
+        await SetSavedWorkingDirectoryAsync(_workingDirectory);
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+        sut.SelectedNode = sut.Root!.Children.Single();
+        sut.SelectedFileContent = "edited";
+        File.WriteAllText(filePath, "changed externally");
+
+        sut.SaveSelectedFileCommand.Execute(null);
+
+        Assert.Equal(0, _fileChangeApplyService.WriteRawCallCount);
+        Assert.True(sut.IsFileDirty);
+        Assert.NotEmpty(sut.StatusMessage);
+    }
+
+    [Fact]
+    public void RevertSelectedFileToDiskCommand_NotDirty_CannotExecute()
+    {
+        var sut = CreateSut();
+
+        Assert.False(sut.RevertSelectedFileToDiskCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task RevertSelectedFileToDiskCommand_Dirty_ReloadsFromDiskAndClearsDirty()
+    {
+        var filePath = Path.Combine(_workingDirectory, "a.txt");
+        File.WriteAllText(filePath, "original");
+        await SetSavedWorkingDirectoryAsync(_workingDirectory);
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+        sut.SelectedNode = sut.Root!.Children.Single();
+        sut.SelectedFileContent = "edited";
+        File.WriteAllText(filePath, "changed externally");
+
+        sut.RevertSelectedFileToDiskCommand.Execute(null);
+
+        Assert.Equal("changed externally", sut.SelectedFileContent);
+        Assert.False(sut.IsFileDirty);
+    }
+
+    [Fact]
+    public async Task SelectedNode_ReselectingTheSameFile_DoesNotDiscardEditsOrReload()
+    {
+        File.WriteAllText(Path.Combine(_workingDirectory, "a.txt"), "original");
+        await SetSavedWorkingDirectoryAsync(_workingDirectory);
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+        var fileNode = sut.Root!.Children.Single();
+        sut.SelectedNode = fileNode;
+        sut.SelectedFileContent = "edited";
+
+        sut.SelectedNode = fileNode;
+
+        Assert.Equal("edited", sut.SelectedFileContent);
+        Assert.True(sut.IsFileDirty);
+        Assert.Equal(0, _dialogService.ConfirmCallCount);
+    }
+
+    [Fact]
+    public async Task SelectedNode_ChangedWhileDirty_PromptsAndDiscardsWhenConfirmed()
+    {
+        Directory.CreateDirectory(Path.Combine(_workingDirectory, "src"));
+        File.WriteAllText(Path.Combine(_workingDirectory, "a.txt"), "original a");
+        File.WriteAllText(Path.Combine(_workingDirectory, "src", "b.txt"), "original b");
+        await SetSavedWorkingDirectoryAsync(_workingDirectory);
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+        sut.SelectedNode = sut.Root!.Children.Single(node => node.Name == "a.txt");
+        sut.SelectedFileContent = "edited a";
+        _dialogService.ConfirmResultToReturn = true;
+
+        var srcFolder = sut.Root!.Children.Single(node => node.Name == "src");
+        sut.SelectedNode = srcFolder.Children.Single();
+
+        Assert.Equal(1, _dialogService.ConfirmCallCount);
+        Assert.Equal("original b", sut.SelectedFileContent);
+        Assert.False(sut.IsFileDirty);
+    }
+
+    [Fact]
+    public async Task SelectedNode_ChangedWhileDirty_RevertsSelectionWhenDeclined()
+    {
+        Directory.CreateDirectory(Path.Combine(_workingDirectory, "src"));
+        File.WriteAllText(Path.Combine(_workingDirectory, "a.txt"), "original a");
+        File.WriteAllText(Path.Combine(_workingDirectory, "src", "b.txt"), "original b");
+        await SetSavedWorkingDirectoryAsync(_workingDirectory);
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+        var fileNodeA = sut.Root!.Children.Single(node => node.Name == "a.txt");
+        sut.SelectedNode = fileNodeA;
+        sut.SelectedFileContent = "edited a";
+        _dialogService.ConfirmResultToReturn = false;
+
+        var srcFolder = sut.Root!.Children.Single(node => node.Name == "src");
+        sut.SelectedNode = srcFolder.Children.Single();
+
+        Assert.Equal(1, _dialogService.ConfirmCallCount);
+        Assert.Equal(fileNodeA, sut.SelectedNode);
+        Assert.Equal("edited a", sut.SelectedFileContent);
+        Assert.True(sut.IsFileDirty);
     }
 }
