@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="using:FluentAvalonia.UI.Controls"
              xmlns:conv="using:Avalonia.Data.Converters"
              xmlns:vm="using:Paarde.Avalonia.ViewModels"
              xmlns:controls="using:Paarde.Avalonia.Controls"
@@ -54,13 +55,19 @@
 
             <GridSplitter Grid.Column="1" Name="TreeSplitter" Width="4" ResizeDirection="Columns" />
 
-            <Grid Grid.Column="2" RowDefinitions="Auto,*">
-                <TextBlock Grid.Row="0"
-                           Margin="8,0,0,4"
-                           Text="{Binding SelectedFilePath}"
-                           FontWeight="Bold"
-                           TextTrimming="CharacterEllipsis"
-                           IsVisible="{Binding SelectedFilePath, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}" />
+            <Grid Grid.Column="2" RowDefinitions="Auto,*,Auto">
+                <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" Margin="8,0,0,4" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding SelectedFilePath}"
+                               FontWeight="Bold"
+                               TextTrimming="CharacterEllipsis"
+                               VerticalAlignment="Center"
+                               IsVisible="{Binding SelectedFilePath, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}" />
+                    <Button Content="Explain this file"
+                             Command="{Binding ExplainSelectedFileCommand}"
+                             ToolTip.Tip="Ask the AI for a tutorial-style explanation of this file."
+                             IsVisible="{Binding SelectedFilePath, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}" />
+                    <ui:ProgressRing Width="18" Height="18" VerticalAlignment="Center" IsIndeterminate="True" IsActive="{Binding IsLoadingOverview}" />
+                </StackPanel>
 
                 <TextBlock Grid.Row="1"
                            Margin="8"
@@ -76,6 +83,20 @@
                                       HorizontalScrollBarVisibility="Auto"
                                       VerticalScrollBarVisibility="Auto"
                                       IsVisible="{Binding SelectedFilePath, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}" />
+
+                <!-- T10.1.4: collapsed until there's something to show, so the preview pane keeps
+                     its full height while browsing and only gives up space once an explanation has
+                     actually been requested. -->
+                <Expander Grid.Row="2"
+                           Margin="8,8,0,0"
+                           Header="Overview"
+                           IsExpanded="True"
+                           MaxHeight="260"
+                           IsVisible="{Binding FileOverview, Converter={x:Static conv:StringConverters.IsNotNullOrEmpty}}">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <controls:MarkdownTextBlock Margin="4" Text="{Binding FileOverview}" />
+                    </ScrollViewer>
+                </Expander>
             </Grid>
         </Grid>
     </Grid>

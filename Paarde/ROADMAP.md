@@ -1910,21 +1910,27 @@ neither needs new navigation or a new page.*
   loading; success populates `FileOverview` trimmed and sends the file path + content in the
   prompt with no `resumeSessionId`; failure populates the formatted error message; selecting a
   different node clears a previous explanation). Full solution builds with 0 warnings/errors,
-  648/648 tests pass (407 Core + 241 Avalonia, up from 642). T10.1.4 (UI panel) and T10.1.5's
-  remaining test gaps (none left - caching has no tests since it isn't built) are still open.
-- [ ] T10.1.4 UI: `ExplorerView.axaml` gains a collapsible panel above the existing `CodeEditor`
-  preview (mirrors `TutorialView.axaml`'s `HasTutorialOverview` panel, T7.3.3's precedent) with the
-  "Explain this file" button, a `ProgressRing` while `IsLoadingOverview` (same control
-  `PromptView`/`TutorialViewModel`'s refine flow already use), and the rendered overview text -
-  through `MarkdownTextBlock` rather than a plain `TextBlock` if the model's prose comes back with
-  any markdown emphasis, consistent with how the Tutorial page's own overview section renders
-  `Tutorial`.
+  648/648 tests pass (407 Core + 241 Avalonia, up from 642). T10.1.3's caching stretch goal
+  remains undone deliberately; T10.1.4's UI panel followed right after (see below).
+- [x] T10.1.4 UI: `ExplorerView.axaml` gains a collapsible panel. — done 2026-10-21: the file-preview
+  header row grew an "Explain this file" `Button` bound to `ExplainSelectedFileCommand` and a
+  `ui:ProgressRing` (same `FluentAvalonia` control `PromptView`'s run indicator already uses) bound
+  to `IsLoadingOverview`, both only visible once a file is selected. Below the `CodeEditor`, a new
+  `Expander` (header "Overview") holds the rendered result inside a `ScrollViewer` capped at
+  `MaxHeight="260"` so a long explanation doesn't push the tree/editor off-screen; it's bound
+  `IsVisible` to `FileOverview` being non-empty, so the pane keeps its full height while just
+  browsing and only gives up space once an explanation has actually been requested - mirrors
+  `TutorialView.axaml`/`TutorialDetailControl.axaml`'s existing `MarkdownTextBlock` usage rather than
+  a plain `TextBlock`, since the model's prose can come back with markdown emphasis. No dedicated
+  view-level test (this codebase has none for `.axaml` files; `ExplorerViewModelTests` already covers
+  every binding's underlying behavior). Full solution builds with 0 warnings/errors, 648/648 tests
+  pass.
 - [x] T10.1.5 Tests. — done 2026-10-21, as part of T10.1.1: `ExplorerViewModelTests` gained a
   `FakeLlmRunner` fixture (already shared by `TutorialViewModelTests`/`TutorialStepViewModelTests`)
   and 7 new cases covering `CanExplainSelectedFile` gating (no selection, has selection, already
   loading), a successful explain populating `FileOverview` trimmed, a failed explain populating the
   formatted error message, and a selection change clearing a previous overview. No test gap remains
-  for what's implemented; T10.1.4's UI panel has no tests of its own yet since it doesn't exist.
+  for what's implemented.
 
 **F10.2 — Built-in editor for arbitrary files, not just LLM proposals**
 
