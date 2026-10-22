@@ -101,7 +101,7 @@ public class AnthropicApiRunner : ILlmRunner
         return !string.IsNullOrWhiteSpace(options.ApiKey);
     }
 
-    public async Task<LlmRunResult> RunPromptAsync(string prompt, string? workingDirectory = null, Action<string>? onTextDelta = null, string? resumeSessionId = null, CancellationToken cancellationToken = default)
+    public async Task<LlmRunResult> RunPromptAsync(string prompt, string? workingDirectory = null, Action<string>? onTextDelta = null, Action<string>? onToolActivity = null, string? resumeSessionId = null, CancellationToken cancellationToken = default)
     {
         var options = await _optionsProvider();
 
@@ -164,7 +164,7 @@ public class AnthropicApiRunner : ILlmRunner
                 return new LlmRunResult { Success = false, ErrorMessage = ExtractErrorMessage(errorBody, response.StatusCode.ToString()) };
             }
 
-            var parsed = await ParseStreamAsync(response, onTextDelta, cancellationToken);
+            var parsed = await ParseStreamAsync(response, onTextDelta, onToolActivity, cancellationToken);
             inputTokens ??= parsed.InputTokens;
             outputTokens = (outputTokens ?? 0) + (parsed.OutputTokens ?? 0);
             stopReason = parsed.StopReason;
@@ -250,7 +250,7 @@ public class AnthropicApiRunner : ILlmRunner
     // content_block_start/delta/stop now generalized to build up either a text block or a tool_use
     // block per index (previously only text_delta was handled; everything else was silently
     // dropped, which is fine for a turn with no tools offered but would lose tool_use entirely).
-    private static async Task<StreamParseResult> ParseStreamAsync(HttpResponseMessage response, Action<string>? onTextDelta, CancellationToken cancellationToken)
+    private static async Task<StreamParseResult> ParseStreamAsync(HttpResponseMessage response, Action<string>? onTextDelta, Action<string>? onToolActivity, CancellationToken cancellationToken)
     {
         var blocks = new SortedDictionary<int, JObject>();
         var textByIndex = new Dictionary<int, StringBuilder>();
@@ -332,7 +332,13 @@ public class AnthropicApiRunner : ILlmRunner
                     else
                     {
                         var json = toolInputJsonByIndex[stopIndex].ToString();
-                        blocks[stopIndex]["input"] = string.IsNullOrWhiteSpace(json) ? new JObject() : JObject.Parse(json);
+                        var toolInput = string.IsNullOrWhiteSpace(json) ? new JObject() : JObject.Parse(json);
+                        blocks[stopIndex]["input"] = toolInput;
+
+                        // Epic 11 (F11.2.3): fires once the tool's full input has actually finished
+                        // streaming in, not at content_block_start, since e.g. a read_file's path
+                        // isn't known yet at that point.
+                        onToolActivity?.Invoke(ToolActivityDescriber.Describe(blocks[stopIndex]["name"]!.ToString(), toolInput));
                     }
 
                     break;

@@ -30,11 +30,11 @@ public class LlmRunnerSelector : ILlmRunner
         return await runner.IsAvailableAsync();
     }
 
-    public async Task<LlmRunResult> RunPromptAsync(string prompt, string? workingDirectory = null, Action<string>? onTextDelta = null, string? resumeSessionId = null, CancellationToken cancellationToken = default)
+    public async Task<LlmRunResult> RunPromptAsync(string prompt, string? workingDirectory = null, Action<string>? onTextDelta = null, Action<string>? onToolActivity = null, string? resumeSessionId = null, CancellationToken cancellationToken = default)
     {
         var runner = await ResolveSelectedRunner();
 
-        return await runner.RunPromptAsync(prompt, workingDirectory, onTextDelta, resumeSessionId, cancellationToken);
+        return await runner.RunPromptAsync(prompt, workingDirectory, onTextDelta, onToolActivity, resumeSessionId, cancellationToken);
     }
 
     private async Task<ILlmRunner> ResolveSelectedRunner()

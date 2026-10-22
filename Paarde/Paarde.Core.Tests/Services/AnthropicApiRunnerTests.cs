@@ -269,6 +269,36 @@ public class AnthropicApiRunnerTests
     }
 
     [Fact]
+    public async Task RunPromptAsync_ModelRequestsReadFile_InvokesOnToolActivityWithADescription()
+    {
+        using var workingDirectory = new TempDirectory();
+        File.WriteAllText(Path.Combine(workingDirectory.Path, "foo.txt"), "file contents");
+
+        const string ToolUseResponse = """
+            data: {"type":"message_start","message":{"usage":{"input_tokens":10}}}
+
+            data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"read_file","input":{}}}
+
+            data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"path\":\"foo.txt\"}"}}
+
+            data: {"type":"content_block_stop","index":0}
+
+            data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":5}}
+
+            data: {"type":"message_stop"}
+
+            """;
+        _handler.ResponseBodyQueue.Enqueue(ToolUseResponse);
+        _handler.ResponseBodyQueue.Enqueue(StreamedResponse);
+        var runner = CreateRunner(new AnthropicApiOptions("test-api-key", "claude-sonnet-5", AgentToolsEnabled: true));
+        var toolActivities = new List<string>();
+
+        await runner.RunPromptAsync("prompt", workingDirectory.Path, onToolActivity: toolActivities.Add);
+
+        Assert.Equal(new[] { "Reading `foo.txt`" }, toolActivities);
+    }
+
+    [Fact]
     public async Task RunPromptAsync_ModelRequestsReadFileOutsideTheWorkingDirectory_RejectsItAsAToolErrorInsteadOfThrowing()
     {
         using var workingDirectory = new TempDirectory();

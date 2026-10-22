@@ -188,6 +188,31 @@ public class ClaudeCliRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task RunPromptAsync_ToolUseStreamEvents_InvokeOnToolActivityWithoutPollutingAssistantText()
+    {
+        const string ToolUseScript = """
+            #!/bin/sh
+            cat > /dev/null
+            cat <<'EOF'
+            {"type":"system","subtype":"init"}
+            {"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tool-1","name":"Read"}}}
+            {"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"file_path\": \"Foo.cs\"}"}}}
+            {"type":"stream_event","event":{"type":"content_block_stop","index":0}}
+            {"type":"stream_event","event":{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"Done"}}}
+            {"type":"stream_event","event":{"type":"content_block_stop","index":1}}
+            {"type":"result","subtype":"success","is_error":false}
+            EOF
+            """;
+        var runner = CreateRunner(ToolUseScript);
+        var toolActivities = new List<string>();
+
+        var result = await runner.RunPromptAsync("prompt", onToolActivity: toolActivities.Add);
+
+        Assert.Equal(new[] { "Reading `Foo.cs`" }, toolActivities);
+        Assert.Equal("Done", result.Output);
+    }
+
+    [Fact]
     public async Task IsAvailableAsync_ScriptExists_ReturnsTrue()
     {
         Assert.True(await _runner.IsAvailableAsync());

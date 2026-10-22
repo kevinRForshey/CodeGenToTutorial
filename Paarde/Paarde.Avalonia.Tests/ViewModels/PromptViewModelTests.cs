@@ -875,6 +875,47 @@ public class PromptViewModelTests
     }
 
     [Fact]
+    public void ToolActivityLog_DefaultsToEmpty()
+    {
+        var sut = CreateSut();
+
+        Assert.False(sut.HasToolActivity);
+        Assert.Empty(sut.ToolActivityLog);
+    }
+
+    [Fact]
+    public void HasToolActivity_ReflectsWhetherToolActivityLogHasEntries()
+    {
+        var sut = CreateSut();
+
+        sut.ToolActivityLog.Add("Reading `Foo.cs`");
+
+        Assert.True(sut.HasToolActivity);
+
+        sut.ToolActivityLog.Clear();
+
+        Assert.False(sut.HasToolActivity);
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_PriorToolActivityLogEntries_ClearsThemAtTheStartOfTheRun()
+    {
+        // Epic 11 (F11.2.2): onToolActivity dispatches through Dispatcher.UIThread.Post, same as
+        // OnTextDelta above - not exercised here since nothing pumps the dispatcher in this plain
+        // xunit host (see RunPromptAsync_StreamedTextDeltas_DoNotReparseOrStoreUntilTheRunFinishes'
+        // own comment), so this only verifies the synchronous Clear() at the start of a run, not a
+        // tool call actually appending to the log mid-run.
+        var sut = CreateSut();
+        sut.PromptText = "Do something";
+        sut.ToolActivityLog.Add("Stale entry from a previous run");
+        _llmRunner.ResultToReturn = new LlmRunResult { Success = true, Output = "done" };
+
+        await sut.RunPromptCommand.ExecuteAsync(null);
+
+        Assert.Empty(sut.ToolActivityLog);
+    }
+
+    [Fact]
     public async Task RunPromptAsync_ResultWithUsageData_PopulatesUsageSummary()
     {
         var sut = CreateSut();

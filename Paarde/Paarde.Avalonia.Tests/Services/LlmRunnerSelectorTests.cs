@@ -65,9 +65,10 @@ public class LlmRunnerSelectorTests
         await _localSettingsService.SaveSettingAsync(LlmRunnerSettingsKeys.SelectedRunner, nameof(LlmRunnerKind.AnthropicApi));
         var sut = CreateSut();
         var deltas = new List<string>();
+        var toolActivities = new List<string>();
         using var cts = new CancellationTokenSource();
 
-        await sut.RunPromptAsync("prompt", "/work/dir", deltas.Add, "session-id", cts.Token);
+        await sut.RunPromptAsync("prompt", "/work/dir", deltas.Add, toolActivities.Add, "session-id", cts.Token);
 
         Assert.Equal("prompt", _anthropicApiRunner.LastPrompt);
         Assert.Equal("/work/dir", _anthropicApiRunner.LastWorkingDirectory);

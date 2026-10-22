@@ -35,7 +35,7 @@ public class ClaudeCliRunner : ILlmRunner
         return ExecutablePathResolver.ExistsOnPath(options.ExecutablePath);
     }
 
-    public async Task<LlmRunResult> RunPromptAsync(string prompt, string? workingDirectory = null, Action<string>? onTextDelta = null, string? resumeSessionId = null, CancellationToken cancellationToken = default)
+    public async Task<LlmRunResult> RunPromptAsync(string prompt, string? workingDirectory = null, Action<string>? onTextDelta = null, Action<string>? onToolActivity = null, string? resumeSessionId = null, CancellationToken cancellationToken = default)
     {
         var options = await _optionsProvider();
 
@@ -91,6 +91,14 @@ public class ClaudeCliRunner : ILlmRunner
 
         var assistantText = new StringBuilder();
         var standardError = new StringBuilder();
+
+        // Epic 11 (F11.2.1): a tool_use content block's name arrives on content_block_start, but
+        // its input only finishes streaming in (via input_json_delta) by content_block_stop - so
+        // these track in-progress blocks by index the same way AnthropicApiRunner.ParseStreamAsync
+        // does, keyed only for blocks that are actually tool_use (text blocks are still just
+        // appended to assistantText directly, unchanged from before this).
+        var toolNamesByIndex = new Dictionary<int, string>();
+        var toolInputJsonByIndex = new Dictionary<int, StringBuilder>();
         double? totalCostUsd = null;
         long? durationMs = null;
         int? inputTokens = null;
@@ -124,13 +132,60 @@ public class ClaudeCliRunner : ILlmRunner
                 case "stream_event":
                     var streamEvent = line["event"] as JObject;
 
-                    if (streamEvent?["type"]?.ToString() == "content_block_delta" &&
-                        streamEvent["delta"] is JObject delta &&
-                        delta["type"]?.ToString() == "text_delta")
+                    switch (streamEvent?["type"]?.ToString())
                     {
-                        var text = delta["text"]?.ToString() ?? string.Empty;
-                        assistantText.Append(text);
-                        onTextDelta?.Invoke(text);
+                        case "content_block_start":
+                            if (streamEvent["content_block"] is JObject { } startBlock && startBlock["type"]?.ToString() == "tool_use")
+                            {
+                                var startIndex = streamEvent["index"]?.ToObject<int>() ?? 0;
+                                toolNamesByIndex[startIndex] = startBlock["name"]?.ToString() ?? "tool";
+                                toolInputJsonByIndex[startIndex] = new StringBuilder();
+                            }
+
+                            break;
+
+                        case "content_block_delta":
+                            if (streamEvent["delta"] is JObject delta)
+                            {
+                                if (delta["type"]?.ToString() == "text_delta")
+                                {
+                                    var text = delta["text"]?.ToString() ?? string.Empty;
+                                    assistantText.Append(text);
+                                    onTextDelta?.Invoke(text);
+                                }
+                                else if (delta["type"]?.ToString() == "input_json_delta")
+                                {
+                                    var deltaIndex = streamEvent["index"]?.ToObject<int>() ?? 0;
+
+                                    if (toolInputJsonByIndex.TryGetValue(deltaIndex, out var builder))
+                                    {
+                                        builder.Append(delta["partial_json"]?.ToString() ?? string.Empty);
+                                    }
+                                }
+                            }
+
+                            break;
+
+                        case "content_block_stop":
+                            var stopIndex = streamEvent["index"]?.ToObject<int>() ?? 0;
+
+                            if (toolNamesByIndex.TryGetValue(stopIndex, out var toolName))
+                            {
+                                var json = toolInputJsonByIndex[stopIndex].ToString();
+                                JObject? toolInput = null;
+
+                                try
+                                {
+                                    toolInput = string.IsNullOrWhiteSpace(json) ? new JObject() : JObject.Parse(json);
+                                }
+                                catch (Newtonsoft.Json.JsonException)
+                                {
+                                }
+
+                                onToolActivity?.Invoke(ToolActivityDescriber.Describe(toolName, toolInput));
+                            }
+
+                            break;
                     }
 
                     break;

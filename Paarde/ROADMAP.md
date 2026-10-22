@@ -2059,27 +2059,39 @@ confirmation) - that's a materially bigger, separate decision, not something to 
     against a model stuck repeatedly requesting tools.
 
 **F11.2 — Surface tool activity during a run**
-- [ ] T11.2.1 `ClaudeCliRunner`'s stream parser (the `switch (line["type"]...)` in `RunPromptAsync`)
+- [x] T11.2.1 `ClaudeCliRunner`'s stream parser (the `switch (line["type"]...)` in `RunPromptAsync`)
   only handles `stream_event`/`content_block_delta`/`text_delta` and the final `result` today - every
   other event type (including tool-use deltas once F11.1 is enabled) is silently dropped. Add
   handling for a tool-use content block: raise a new `onToolActivity` callback (parallel to the
   existing `onTextDelta`) with a short description ("Reading `Foo.cs`", "Searching for
   `IGitStatusService`").
-- [ ] T11.2.2 `PromptViewModel` gains a `ToolActivityLog` (`ObservableCollection<string>`, cleared at
+- [x] T11.2.2 `PromptViewModel` gains a `ToolActivityLog` (`ObservableCollection<string>`, cleared at
   the start of each run) shown in a small collapsible list under the run progress indicator - same
   "`Expander`, visible only once non-empty" pattern T10.1.4 used for `FileOverview`, not a new control.
-- [ ] T11.2.3 `AnthropicApiRunner`'s loop (T11.1.3) raises the same `onToolActivity` callback per tool
+- [x] T11.2.3 `AnthropicApiRunner`'s loop (T11.1.3) raises the same `onToolActivity` callback per tool
   call, so both runners feed the same UI regardless of which is active.
+  - The description text itself is built by a new shared `Paarde.Core.Helpers.ToolActivityDescriber`,
+    since `ClaudeCliRunner`'s CLI-native tools (`Read`/`Grep`/`Glob`) and `AnthropicApiRunner`'s own
+    schemas (`read_file`/`grep`/`glob`) use different tool/field names for the same three operations.
+    `ILlmRunner.RunPromptAsync` gained `onToolActivity` as a new optional parameter (after
+    `onTextDelta`, before `resumeSessionId`); `LlmRunnerSelector` and the test `FakeLlmRunner` were
+    updated to pass it through.
 
 **F11.3 — Tests**
-- [ ] T11.3.1 `ClaudeCliRunnerTests`: `--allowedTools`/`--permission-mode` appear only when
+- [x] T11.3.1 `ClaudeCliRunnerTests`: `--allowedTools`/`--permission-mode` appear only when
   `AgentToolsEnabled`; tool-use stream events populate `onToolActivity` without being misparsed as
   assistant text.
-- [ ] T11.3.2 `AnthropicApiRunnerTests`: a fake tool-call response drives one loop iteration (tool
+- [x] T11.3.2 `AnthropicApiRunnerTests`: a fake tool-call response drives one loop iteration (tool
   executed, `tool_result` appended, loop terminates on a text-only follow-up); a `Read` outside
   `workingDirectory` is rejected the same way `FilePathContainment` rejects a write today.
-- [ ] T11.3.3 `PromptViewModelTests`: `ToolActivityLog` accumulates during a run and resets on the
+- [x] T11.3.3 `PromptViewModelTests`: `ToolActivityLog` accumulates during a run and resets on the
   next one.
+  - `onToolActivity`, like `onTextDelta`, dispatches through `Dispatcher.UIThread.Post`, which nothing
+    pumps in this plain xunit host (same pre-existing limitation `RunPromptAsync_StreamedTextDeltas_
+    DoNotReparseOrStoreUntilTheRunFinishes` already documents for `onTextDelta`/`CliOutput`) - so
+    mid-run accumulation itself isn't exercised through `RunPromptCommand`, only that a prior run's
+    entries are cleared at the start of the next one, plus direct `HasToolActivity`/`ToolActivityLog`
+    property-level coverage.
 
 *Explicit non-goal: model-initiated Write/Edit/Bash. If ever pursued, that needs its own epic with its
 own review gate (e.g. every agent-proposed write still lands as a `ProposedFileChangeViewModel` the

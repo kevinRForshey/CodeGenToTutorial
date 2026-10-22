@@ -38,9 +38,13 @@ public class FakeLlmRunner : ILlmRunner
     // T6.2.1: text chunks RunPromptAsync should hand to onTextDelta, in order, before returning.
     public IReadOnlyList<string> TextDeltasToEmit { get; set; } = Array.Empty<string>();
 
+    // Epic 11 (F11.3.3): descriptions RunPromptAsync should hand to onToolActivity, in order,
+    // before returning - same shape as TextDeltasToEmit above.
+    public IReadOnlyList<string> ToolActivitiesToEmit { get; set; } = Array.Empty<string>();
+
     public Task<bool> IsAvailableAsync() => Task.FromResult(AvailableToReturn);
 
-    public async Task<LlmRunResult> RunPromptAsync(string prompt, string? workingDirectory = null, Action<string>? onTextDelta = null, string? resumeSessionId = null, CancellationToken cancellationToken = default)
+    public async Task<LlmRunResult> RunPromptAsync(string prompt, string? workingDirectory = null, Action<string>? onTextDelta = null, Action<string>? onToolActivity = null, string? resumeSessionId = null, CancellationToken cancellationToken = default)
     {
         CallCount++;
         LastPrompt = prompt;
@@ -62,6 +66,11 @@ public class FakeLlmRunner : ILlmRunner
         foreach (var delta in TextDeltasToEmit)
         {
             onTextDelta?.Invoke(delta);
+        }
+
+        foreach (var activity in ToolActivitiesToEmit)
+        {
+            onToolActivity?.Invoke(activity);
         }
 
         return ResultsToReturnInOrder is { Count: > 0 } queue ? queue.Dequeue() : ResultToReturn;

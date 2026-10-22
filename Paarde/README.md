@@ -120,6 +120,9 @@ Prompt page's working directory to one you've used before) lists.
 - Click **Send to Claude Code** to run it. A progress ring, elapsed time, and a running character
   count show that a response is streaming in; once it completes you're told how many files are ready
   to review. **Cancel** stops an in-flight run.
+- **Tool activity** — if **Enable read-only agent tools** is on (Settings page), a small collapsible
+  list appears under the progress indicator as Claude reads, greps, or globs the project mid-run
+  (e.g. "Reading `Foo.cs`"). Hidden when the setting is off or no tool has been used yet.
 
 ### 3. Explorer page
 
