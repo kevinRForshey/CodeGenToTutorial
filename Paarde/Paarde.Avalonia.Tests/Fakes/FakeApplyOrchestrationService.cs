@@ -18,6 +18,8 @@ public class FakeApplyOrchestrationService : IApplyOrchestrationService
 
     public bool? LastAllowProtectedPaths { get; private set; }
 
+    public bool? LastStageAppliedFiles { get; private set; }
+
     public bool TryUndoLastApplyResultToReturn { get; set; }
 
     public RevertResult UndoLastApplyRevertResultToReturn { get; set; } = new(Array.Empty<RevertFileResult>());
@@ -34,11 +36,12 @@ public class FakeApplyOrchestrationService : IApplyOrchestrationService
         return PreviewToReturn;
     }
 
-    public ApplyBatchResult ApplySelected(IReadOnlyList<ProposedFileChangeViewModel> files, string workingDirectoryPath, bool allowProtectedPaths = false)
+    public ApplyBatchResult ApplySelected(IReadOnlyList<ProposedFileChangeViewModel> files, string workingDirectoryPath, bool allowProtectedPaths = false, bool stageAppliedFiles = true)
     {
         ApplySelectedCallCount++;
         LastWorkingDirectoryPath = workingDirectoryPath;
         LastAllowProtectedPaths = allowProtectedPaths;
+        LastStageAppliedFiles = stageAppliedFiles;
         return ApplySelectedResultToReturn;
     }
 

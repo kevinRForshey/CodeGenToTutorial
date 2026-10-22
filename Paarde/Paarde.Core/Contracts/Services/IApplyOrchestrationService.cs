@@ -16,7 +16,7 @@ public interface IApplyOrchestrationService
     // conflict or failure never stops the rest of the batch (T3.3.4). A file resolving to a
     // protected path (.git/bin/obj or .gitignore) is skipped as ProtectedPathBlocked unless
     // allowProtectedPaths is true, meaning the caller already confirmed that with the user (T4.1.2).
-    ApplyBatchResult ApplySelected(IReadOnlyList<ProposedFileChangeViewModel> files, string workingDirectoryPath, bool allowProtectedPaths = false);
+    ApplyBatchResult ApplySelected(IReadOnlyList<ProposedFileChangeViewModel> files, string workingDirectoryPath, bool allowProtectedPaths = false, bool stageAppliedFiles = true);
 
     // Undoes the most recently applied ApplySelected batch (T4.2.2), restoring each of its files'
     // pre-apply content. False (with an empty result) if there's no recorded batch left to undo.
