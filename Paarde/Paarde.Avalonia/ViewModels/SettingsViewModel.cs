@@ -37,6 +37,16 @@ public partial class SettingsViewModel : ObservableRecipient, INavigationAware
     [ObservableProperty]
     private string claudeCliArguments = ClaudeCliOptions.Default.Arguments;
 
+    // Epic 12 (F12.1.2): the commands run after an apply, if non-blank, to check the result still
+    // builds/passes its tests. Blank means "skip" rather than falling back to some default command
+    // name - not every working directory is a .NET project, and a wrong guess shelling out to a
+    // nonexistent command would be a worse default than doing nothing.
+    [ObservableProperty]
+    private string buildCommand = "dotnet build";
+
+    [ObservableProperty]
+    private string testCommand = "dotnet test";
+
     // T6.3.2/T6.3.3: which ILlmRunner implementation LlmRunnerSelector should delegate to.
     [ObservableProperty]
     private LlmRunnerKind selectedRunnerKind = LlmRunnerKind.ClaudeCli;
@@ -106,6 +116,12 @@ public partial class SettingsViewModel : ObservableRecipient, INavigationAware
             var savedArguments = await _localSettingsService.ReadSettingAsync<string>(ClaudeCliSettingsKeys.Arguments);
             ClaudeCliArguments = string.IsNullOrWhiteSpace(savedArguments) ? ClaudeCliOptions.Default.Arguments : savedArguments;
 
+            // Unlike ClaudeCliArguments above, a saved-but-blank value here is a deliberate "skip" -
+            // not "nothing saved yet" - so it's read as-is rather than falling back to the "dotnet
+            // build"/"dotnet test" field defaults.
+            BuildCommand = await _localSettingsService.ReadSettingAsync<string>(BuildTestSettingsKeys.BuildCommand) ?? BuildCommand;
+            TestCommand = await _localSettingsService.ReadSettingAsync<string>(BuildTestSettingsKeys.TestCommand) ?? TestCommand;
+
             PromptTemplateOverride = await _localSettingsService.ReadSettingAsync<string>(PromptTemplateSettingsKeys.Override) ?? string.Empty;
 
             var savedRunnerKind = await _localSettingsService.ReadSettingAsync<string>(LlmRunnerSettingsKeys.SelectedRunner);
@@ -134,6 +150,10 @@ public partial class SettingsViewModel : ObservableRecipient, INavigationAware
     partial void OnClaudeCliExecutablePathChanged(string value) => _localSettingsService.SaveSettingAsync(ClaudeCliSettingsKeys.ExecutablePath, value);
 
     partial void OnClaudeCliArgumentsChanged(string value) => _localSettingsService.SaveSettingAsync(ClaudeCliSettingsKeys.Arguments, value);
+
+    partial void OnBuildCommandChanged(string value) => _localSettingsService.SaveSettingAsync(BuildTestSettingsKeys.BuildCommand, value);
+
+    partial void OnTestCommandChanged(string value) => _localSettingsService.SaveSettingAsync(BuildTestSettingsKeys.TestCommand, value);
 
     partial void OnSelectedRunnerKindChanged(LlmRunnerKind value) => _localSettingsService.SaveSettingAsync(LlmRunnerSettingsKeys.SelectedRunner, value.ToString());
 

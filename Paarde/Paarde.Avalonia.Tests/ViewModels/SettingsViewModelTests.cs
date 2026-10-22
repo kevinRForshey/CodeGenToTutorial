@@ -67,6 +67,59 @@ public class SettingsViewModelTests
     }
 
     [Fact]
+    public void BuildTestCommands_DefaultToDotnetBuildAndDotnetTest()
+    {
+        var sut = CreateSut();
+
+        Assert.Equal("dotnet build", sut.BuildCommand);
+        Assert.Equal("dotnet test", sut.TestCommand);
+    }
+
+    [Fact]
+    public async Task BuildCommand_WhenChanged_PersistsToSettings()
+    {
+        var sut = CreateSut();
+        sut.BuildCommand = "msbuild";
+
+        Assert.Equal("msbuild", await _localSettingsService.ReadSettingAsync<string>("BuildTestBuildCommand"));
+    }
+
+    [Fact]
+    public async Task TestCommand_WhenChanged_PersistsToSettings()
+    {
+        var sut = CreateSut();
+        sut.TestCommand = "npm test";
+
+        Assert.Equal("npm test", await _localSettingsService.ReadSettingAsync<string>("BuildTestTestCommand"));
+    }
+
+    [Fact]
+    public async Task OnNavigatedTo_RestoresSavedBuildTestCommands()
+    {
+        await _localSettingsService.SaveSettingAsync("BuildTestBuildCommand", "make");
+        await _localSettingsService.SaveSettingAsync("BuildTestTestCommand", "make test");
+        var sut = CreateSut();
+
+        sut.OnNavigatedTo(null!);
+        await Task.Yield();
+
+        Assert.Equal("make", sut.BuildCommand);
+        Assert.Equal("make test", sut.TestCommand);
+    }
+
+    [Fact]
+    public async Task OnNavigatedTo_SavedBuildCommandIsBlank_RestoresTheBlankRatherThanTheDefault()
+    {
+        await _localSettingsService.SaveSettingAsync("BuildTestBuildCommand", string.Empty);
+        var sut = CreateSut();
+
+        sut.OnNavigatedTo(null!);
+        await Task.Yield();
+
+        Assert.Equal(string.Empty, sut.BuildCommand);
+    }
+
+    [Fact]
     public void DefaultPromptTemplate_IsTheProvidersBuiltInTemplate()
     {
         var sut = CreateSut();

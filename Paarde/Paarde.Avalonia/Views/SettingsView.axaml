@@ -70,6 +70,26 @@
                       MinWidth="220" />
         </StackPanel>
 
+        <TextBlock Margin="0,16,0,0" Text="Build &amp; test" FontSize="20" FontWeight="SemiBold" />
+
+        <StackPanel Margin="0,8,0,0" Spacing="4">
+            <TextBlock Text="Build command" FontSize="12" Opacity="0.7" />
+            <TextBlock Text="Run after applying changes to check the result still builds. Leave blank to skip."
+                       FontSize="12"
+                       Opacity="0.7"
+                       TextWrapping="Wrap" />
+            <TextBox Text="{Binding BuildCommand}" Watermark="dotnet build" />
+        </StackPanel>
+
+        <StackPanel Margin="0,8,0,0" Spacing="4">
+            <TextBlock Text="Test command" FontSize="12" Opacity="0.7" />
+            <TextBlock Text="Run after a successful build. Leave blank to skip."
+                       FontSize="12"
+                       Opacity="0.7"
+                       TextWrapping="Wrap" />
+            <TextBox Text="{Binding TestCommand}" Watermark="dotnet test" />
+        </StackPanel>
+
         <TextBlock Margin="0,16,0,0" Text="Prompt template" FontSize="20" FontWeight="SemiBold" />
 
         <StackPanel Margin="0,8,0,0" Spacing="4">

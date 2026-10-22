@@ -2015,6 +2015,289 @@ than this feature needs on day one.*
 
 ---
 
+### EPIC 11 — Agentic tool use, scoped to read-only *(P2)*
+
+*Why: `ClaudeCliRunner` always invokes `claude` with `ClaudeCliOptions.Default` (`"-p"`, plain print
+mode) plus the fixed `StreamingArguments` (T6.2.1) - no `--permission-mode`, `--allowedTools`, or
+`--disallowedTools` flag is ever passed, so the CLI's own agent loop (file read/search/bash) never
+engages even though the underlying `claude` binary is fully capable of it. Every proposed file today
+is a whole-file echo the model produces blind, from only whatever `BuildContextFilesBlock` (T5.4.1)
+manually inlined - it can't open a file it wasn't handed, grep for a usage, or check how a type is
+actually declared elsewhere in the repo. This is the single biggest structural difference from Cursor
+Agent/Windsurf Cascade/Cline: those tools let the model explore the codebase itself before answering.
+Scope here is deliberately narrowed to **read-only** tools (`Read`, `Grep`, `Glob`) - Write/Edit/Bash
+stay off by default. Letting the model write directly to disk would bypass every safety mechanism
+Epic 3/4 already built (hunk selection, backup/undo, protected-path and git-dirty guards, apply
+confirmation) - that's a materially bigger, separate decision, not something to ship quietly inside
+"better context." Model-initiated writes are called out as an explicit non-goal below.*
+
+**F11.1 — Read-only tool permissions on the CLI runner**
+- [ ] T11.1.1 Add an `AgentToolsEnabled` (bool) setting next to the existing CLI arguments box on the
+  Settings page, persisted via a new `ClaudeCliSettingsKeys.AgentToolsEnabled` (same read/save shape
+  `SettingsViewModel.ClaudeCliArguments` already uses). Off by default - this changes what the model
+  can *do* mid-run, not just how it's invoked.
+- [ ] T11.1.2 When enabled, `ClaudeCliRunner.RunPromptAsync` appends `--allowedTools Read Grep Glob
+  --permission-mode default` (not `bypassPermissions` - the CLI still owns enforcing the allow-list,
+  Paarde doesn't re-implement it) at the same point `resumeArguments`/`StreamingArguments` are
+  concatenated today.
+- [ ] T11.1.3 `AnthropicApiRunner` gets its own implementation via the Messages API's native `tools`
+  parameter: define `read_file`/`grep`/`glob` tool schemas, loop on `tool_use` content blocks
+  (executed against `workingDirectory` through the same containment check `FilePathContainment.Resolve`
+  already enforces for writes, applied here to reads) and append `tool_result` blocks until the model
+  stops requesting tools - this runner has no external process to delegate the loop to, so the loop
+  has to live here.
+- [ ] T11.1.4 A CLI version too old to support `--allowedTools` should fail the run with a clear
+  message rather than an opaque argument-parsing error - document the minimum CLI version in
+  Settings' help text.
+
+**F11.2 — Surface tool activity during a run**
+- [ ] T11.2.1 `ClaudeCliRunner`'s stream parser (the `switch (line["type"]...)` in `RunPromptAsync`)
+  only handles `stream_event`/`content_block_delta`/`text_delta` and the final `result` today - every
+  other event type (including tool-use deltas once F11.1 is enabled) is silently dropped. Add
+  handling for a tool-use content block: raise a new `onToolActivity` callback (parallel to the
+  existing `onTextDelta`) with a short description ("Reading `Foo.cs`", "Searching for
+  `IGitStatusService`").
+- [ ] T11.2.2 `PromptViewModel` gains a `ToolActivityLog` (`ObservableCollection<string>`, cleared at
+  the start of each run) shown in a small collapsible list under the run progress indicator - same
+  "`Expander`, visible only once non-empty" pattern T10.1.4 used for `FileOverview`, not a new control.
+- [ ] T11.2.3 `AnthropicApiRunner`'s loop (T11.1.3) raises the same `onToolActivity` callback per tool
+  call, so both runners feed the same UI regardless of which is active.
+
+**F11.3 — Tests**
+- [ ] T11.3.1 `ClaudeCliRunnerTests`: `--allowedTools`/`--permission-mode` appear only when
+  `AgentToolsEnabled`; tool-use stream events populate `onToolActivity` without being misparsed as
+  assistant text.
+- [ ] T11.3.2 `AnthropicApiRunnerTests`: a fake tool-call response drives one loop iteration (tool
+  executed, `tool_result` appended, loop terminates on a text-only follow-up); a `Read` outside
+  `workingDirectory` is rejected the same way `FilePathContainment` rejects a write today.
+- [ ] T11.3.3 `PromptViewModelTests`: `ToolActivityLog` accumulates during a run and resets on the
+  next one.
+
+*Explicit non-goal: model-initiated Write/Edit/Bash. If ever pursued, that needs its own epic with its
+own review gate (e.g. every agent-proposed write still lands as a `ProposedFileChangeViewModel` the
+existing Apply flow reviews, rather than hitting disk directly) - not a quiet extension of this one.*
+
+---
+
+### EPIC 12 — Automated build/test feedback loop *(P1)*
+
+*Why: applying a change ends the loop today - nothing in the app knows whether the result even
+compiles, and there's no way to hand a build error or failing test back to the model without the user
+manually copying it into a fresh prompt. This is the most bounded of these seven gaps: it needs
+neither agent tool permissions (Epic 11) nor any new model capability, just a shell-out (the same
+`Process`-based pattern `IGitStatusService` already uses for `git`) plus a follow-up prompt built from
+the captured output. Recommended as the first of these seven to build.*
+
+**F12.1 — Run a project command and capture output**
+- [x] T12.1.1 New `IBuildTestRunner` (`Paarde.Core.Contracts.Services`):
+  `Task<CommandResult> RunAsync(string command, string workingDirectoryPath, CancellationToken)`,
+  `CommandResult(int ExitCode, string StandardOutput, string StandardError, TimeSpan Duration)`.
+  Implementation (`ProcessCommandRunner`) shells out via `ProcessStartInfo` the same way
+  `ClaudeCliRunner` already does for `claude` and `GitStatusService` does for `git` - no new
+  process-invocation pattern introduced.
+- [x] T12.1.2 Settings: a `BuildCommand`/`TestCommand` pair (default `dotnet build`/`dotnet test` for a
+  .NET working directory, blank = skip), persisted the same way `ClaudeCliArguments` is.
+- [x] T12.1.3 Timeout and cancellation on the run, mirroring the existing timeout/cancel behavior the
+  CLI run already has (`Prompt_RunTimedOut`) - a hung build must not hang the whole apply flow. (Fixed
+  300s timeout rather than a second Settings-configurable value and no manual Cancel button - a stuck
+  build/test command is a different failure mode than a long-running agentic CLI turn.)
+
+**F12.2 — Wire it into the apply flow**
+- [x] T12.2.1 After `ApplyOrchestrationService` completes, if a build command is configured, run it and
+  show pass/fail inline in the same results dialog (`Tutorial_ApplySelectedResultTitle`) rather than a
+  second popup.
+- [x] T12.2.2 On failure, a "Send errors back to Claude" button builds a follow-up prompt (captured
+  stderr/stdout, truncated to a sane length, plus the original instruction) and sends it via
+  `ILlmRunner.RunPromptAsync` with `resumeSessionId` set to the just-finished run's session id
+  (T7.3.1's existing continuation mechanism) - a correction turn in the same conversation, not a
+  brand-new unrelated prompt.
+- [x] T12.2.3 The corrected response flows through the exact same Tutorial/Diffs/Apply review pipeline
+  as any other run - this epic doesn't add a second, unreviewed write path.
+
+**F12.3 — Tests**
+- [x] T12.3.1 `ProcessCommandRunnerTests`: captures stdout/stderr/exit code for a trivial,
+  platform-safe command; times out and cancels cleanly.
+- [x] T12.3.2 `ApplyOrchestrationServiceTests`/`TutorialViewModelTests`: a configured build command
+  runs post-apply and its pass/fail reaches the result dialog; "send errors back" builds the expected
+  resumed prompt.
+
+---
+
+### EPIC 13 — Inline diff view in the editor *(P2)*
+
+*Why: diffs today live entirely on a separate page (`DiffsView`/`DiffsDetailControl`) - reviewing a
+proposed change means leaving the code, not looking at it in place the way Cursor/Windsurf render
+red/green overlays directly in the editor with per-hunk accept/reject. `CodeEditor` already has one
+precedent for this kind of in-editor decoration: `BracketHighlightRenderer`, wired in via
+AvaloniaEdit's `IBackgroundRenderer` on `TextArea.TextView`. That's the natural home for hunk-level
+diff rendering too.*
+
+**F13.1 — Render hunks inline**
+- [ ] T13.1.1 New `DiffBackgroundRenderer` (`Paarde.Avalonia.Controls`, same `IBackgroundRenderer`
+  interface `BracketHighlightRenderer` implements) paints a translucent green/red band behind
+  added/removed line ranges, driven by the same `DiffLine`/hunk model `DiffBuilder` already produces
+  (T8.3.1/T8.3.2) - no second diff algorithm.
+- [ ] T13.1.2 `TutorialDetailControl`'s editor (the editable proposal view, not Explorer's read-only
+  preview) hosts the renderer when a file has pending hunks, reusing
+  `ProposedFileChangeViewModel.DiffLines` already bound elsewhere on the same view model.
+- [ ] T13.1.3 A left-margin gutter button per hunk ("Accept"/"Reject") - AvaloniaEdit margins
+  (`AbstractMargin`) are a different extension point than background renderers and need their own
+  small class - calling the existing per-hunk selection toggle (Epic 3's hunk `IsSelected`/
+  apply-selected machinery) rather than introducing a second accept/reject model.
+
+**F13.2 — Keep it in sync with manual edits**
+- [ ] T13.2.1 Editing text inside a still-pending hunk (the editable Tutorial editor already supports
+  this) must not desync the renderer from stale line offsets - recompute/re-anchor hunk ranges on
+  `EditedContent` change rather than caching offsets once at load.
+- [ ] T13.2.2 Accepting/rejecting a hunk through the new gutter button removes its band immediately (no
+  waiting for the next full `Apply`), mirroring the existing checkbox-based selection UI it's an
+  alternate entry point into.
+
+**F13.3 — Tests**
+- [ ] T13.3.1 Cover the pure line-range-to-band-rect mapping function, not the actual paint call -
+  AvaloniaEdit rendering itself isn't unit-testable the way T8.1.3's visual bugs showed.
+- [ ] T13.3.2 Gutter accept/reject reaches the same `IsSelected` state the existing checkbox UI does -
+  one `TutorialStepViewModelTests` case per action, not a new behavior to test twice.
+
+---
+
+### EPIC 14 — Codebase-aware context: @-mentions + semantic search *(P2)*
+
+*Why: `PromptViewModel.AddContextFilesAsync` (T5.4.1) only attaches whatever the user manually browses
+to and inlines full file contents via `BuildContextFilesBlock` - there's no way to ask "find the files
+relevant to X" and no `@file`/`@symbol` picker in the prompt box itself. Full semantic (embeddings)
+search is a large, infrastructure-heavy bite (a vector store, an embedding call per indexed chunk,
+re-indexing on file changes) - split into a cheap first slice (filename-based `@mention` autocomplete,
+no embeddings) and a second slice (actual semantic ranking) so the first ships without a new external
+dependency.*
+
+**F14.1 — `@file` mention picker (no embeddings)**
+- [ ] T14.1.1 The prompt `TextBox` in `PromptView` gains an `@`-triggered autocomplete popup (a new
+  small attached behavior; the prompt box today is a plain `TextBox`, not `CodeEditor`, so this likely
+  means a lightweight popup `ListBox` positioned under the caret rather than reusing AvaloniaEdit's
+  `CompletionWindow`) listing files from `FileTreeBuilder`'s existing gitignore-aware walk (same one
+  Explorer already uses, T8.1.1) filtered by the typed prefix.
+- [ ] T14.1.2 Selecting a result inserts a relative-path token and attaches that file the same way
+  `AddContextFilesAsync` already does (reuses `BuildContextFilesBlock`) - a faster entry point into the
+  existing attachment mechanism, not a new one.
+- [ ] T14.1.3 `@symbol` mentions (`@ClassName`/`@MethodName`) need a symbol index and are out of scope
+  here without Epic 17's LSP integration; file-level `@mention` ships first.
+
+**F14.2 — Relevance ranking (semantic, second slice)**
+- [ ] T14.2.1 New `ICodebaseIndexService`: chunks each non-ignored file (same `GitIgnoreMatcher`/
+  `FileTreeBuilder` exclusions as Explorer) and embeds each chunk. **Open question:** Anthropic doesn't
+  currently expose a public embeddings endpoint, so this may need a different provider configured
+  specifically for embeddings - a real added dependency, not a trivial add; needs a decision before
+  F14.2 starts.
+- [ ] T14.2.2 A local on-disk index (e.g. SQLite + a simple cosine-similarity scan - no dedicated
+  vector DB needed at this project's likely repo sizes) keyed by working directory, invalidated
+  per-file on mtime change rather than a full re-index per run.
+- [ ] T14.2.3 The manual attach flow stays the explicit override; this adds an opt-in "suggest relevant
+  files" step before sending a prompt, surfaced as suggestions the user accepts into the same
+  attachment list - never silently auto-injected context.
+
+**F14.3 — Tests**
+- [ ] T14.3.1 `@mention` popup filtering against a fake file tree; selecting an entry attaches the
+  right relative path.
+- [ ] T14.3.2 `ICodebaseIndexService` chunking/invalidation logic (pure, no real embedding calls) -
+  embedding-call correctness itself isn't something to unit test against a live API.
+
+---
+
+### EPIC 15 — Inline ghost-text autocomplete *(P3)*
+
+*Why: Copilot/Cursor Tab-style completion predicts the next few tokens as you type; Paarde has no
+equivalent anywhere `CodeEditor` is used read/write (Explorer's F10.2 editor, Tutorial's proposal
+editor). This is the most isolated of these seven gaps - it touches one control and doesn't interact
+with the apply/review pipeline at all - but it's also the one most exposed to latency (a completion
+that arrives after the user has already typed past it is worse than none), which is why it's ranked
+lowest alongside Epic 17.*
+
+**F15.1 — Ghost-text rendering**
+- [ ] T15.1.1 New `GhostTextRenderer` on `CodeEditor` (same extension-point family as
+  `BracketHighlightRenderer`/Epic 13's `DiffBackgroundRenderer`; AvaloniaEdit's own samples use a
+  `VisualLineElementGenerator` for inline ghost suggestions) renders a dimmed inline suggestion at the
+  caret, accepted with Tab and dismissed on any other keystroke.
+- [ ] T15.1.2 Debounced trigger (e.g. 300ms after the caret stops moving in insert mode) rather than
+  firing a completion request per keystroke.
+
+**F15.2 — Completion source**
+- [ ] T15.2.1 A small, fast prompt (file content up to the caret plus a short suffix window, not the
+  whole-file/whole-tutorial prompt shape every other feature here uses) sent via the existing
+  `ILlmRunner.RunPromptAsync` - reuses the runner abstraction, but needs its own short request timeout
+  distinct from the main run's configurable one, which is tuned for multi-file generation, not a
+  300ms-budget completion.
+- [ ] T15.2.2 **Open question, not resolved in this plan:** is a per-keystroke-adjacent call to the
+  configured runner (CLI process spawn, or a billed API call) fast/cheap enough to feel like real
+  autocomplete, or does this need a separate, smaller/faster model configured specifically for
+  completions? Needs a spike before committing to F15.2's shape.
+
+**F15.3 — Tests**
+- [ ] T15.3.1 Debounce timing and accept/dismiss state transitions (pure logic, no real completion
+  calls).
+
+---
+
+### EPIC 16 — Integrated terminal *(P2)*
+
+*Why: every build/test/git command today requires leaving the app. `IGitStatusService` already shells
+out to `git` for status/staging, and Epic 12 shells out for build/test - an embedded terminal is the
+generalized, user-driven version of the same capability: run anything, see raw output, without
+context-switching to an external terminal window.*
+
+**F16.1 — A real terminal, not a command-output log**
+- [ ] T16.1.1 Avalonia has no first-party terminal/PTY control; a true PTY (wrapping `Pty.Net`/
+  `ConPTY` bindings through a custom control rendering raw ANSI output) is meaningfully more work than
+  every other control in this app, all of which are built on existing Avalonia/AvaloniaEdit pieces.
+  **Recommend the scoped-down version first**: a "run a command, stream its output" panel (plain
+  stdout/stderr text, no PTY, no interactive programs like `vim`/`htop`) - most of the value here
+  (`dotnet test`, `git log`, `npm install`) doesn't need a real PTY.
+- [ ] T16.1.2 New `TerminalViewModel`/`TerminalView` page (added to `PageService`/`ShellView`'s nav,
+  same registration pattern every other page follows), reusing Epic 12's `ProcessCommandRunner`
+  generalized to an arbitrary command string instead of just the configured build/test commands.
+- [ ] T16.1.3 Streamed output (append-as-it-runs, not wait-for-exit) the same way `ClaudeCliRunner`
+  already streams CLI stdout - same `Process`/async-read pattern, different command.
+
+**F16.2 — Tests**
+- [ ] T16.2.1 `TerminalViewModelTests`: running a command streams output incrementally and records
+  exit code; a long-running command can be cancelled.
+
+---
+
+### EPIC 17 — LSP-backed code intelligence *(P3)*
+
+*Why: `CodeEditor` today is AvaloniaEdit + TextMate syntax coloring - real syntax highlighting, zero
+semantic understanding. Go-to-definition, find-references, and live diagnostics all need an actual
+language server, not just a grammar file. This is the largest and most speculative item here, and the
+lowest priority: `CodeEditor` is a preview/light-edit surface (Explorer's F10.2, Tutorial's proposal
+review), not this app's primary authoring surface, so the payoff-per-effort is weaker than for a tool
+where the editor *is* the product.*
+
+**F17.1 — A language server client**
+- [ ] T17.1.1 For C#/.NET specifically (this repo's own stack): OmniSharp or `csharp-ls` over stdio,
+  speaking LSP; a generic `ILanguageServerClient` abstraction (mirroring `ILlmRunner`'s
+  provider-agnostic shape) so other languages could plug in later, but **only one implementation ships
+  in this epic** - no speculative multi-language support built ahead of a second real use case.
+- [ ] T17.1.2 Diagnostics: subscribe to `textDocument/publishDiagnostics`, render as squiggly
+  underlines via another `IBackgroundRenderer` (same family as Epics 13/15's renderers) plus a tooltip
+  with the message.
+- [ ] T17.1.3 Go-to-definition/find-references: `textDocument/definition`/`textDocument/references`
+  requests on a keybind/context-menu action, opening results through Explorer's existing file-open
+  path (T8.1.3) rather than a new navigation surface.
+
+**F17.2 — Lifecycle**
+- [ ] T17.2.1 Start one server process per working directory (keyed the same way other
+  per-working-directory state already is, e.g. `WorkingDirectorySettingsKeys`), torn down on app exit
+  or working-directory switch - needs explicit process-lifetime ownership, unlike the CLI runner's
+  one-process-per-prompt shape.
+
+**F17.3 — Tests**
+- [ ] T17.3.1 `ILanguageServerClient` contract tests against a fake/stub server (JSON-RPC framing,
+  request/response correlation) - not against a real OmniSharp process in CI, which would be slow and
+  environment-fragile.
+
+---
+
 ## 4. Suggested execution order
 
 1. **Epic 1** — one codebase, or everything after this costs double.
@@ -2031,3 +2314,18 @@ than this feature needs on day one.*
 10. **Epic 10** — Explorer page AI overview + in-place editing. F10.1 (overview) first since it's
     additive and read-only; F10.2 (editing) second since it's a new write path that needs its own
     safety checks (containment, protected paths, conflict detection) before it ships.
+11. **Epic 12** — build/test feedback loop. The most bounded of the new "feels like a typical
+    LLM-driven IDE" gaps: no new model capability, just a shell-out and a resumed prompt.
+12. **Epic 11** — agentic read-only tool use. A bigger shift than Epic 12; ship read-only tools and
+    prove out the activity-feed UI before ever considering model-initiated writes (explicit non-goal
+    for now).
+13. **Epic 16** — integrated terminal (scoped command-runner version first, not a real PTY). Shares
+    Epic 12's `ProcessCommandRunner`.
+14. **Epic 13** — inline diff view in the editor. Polish on an already-solid review/apply flow, not a
+    new safety-critical path.
+15. **Epic 14** — codebase-aware context. F14.1 (`@file` mention, no embeddings) before F14.2
+    (semantic ranking, which adds a new embeddings-provider dependency).
+16. **Epic 15** — inline ghost-text autocomplete. Needs a latency/cost spike (F15.2.2) before
+    committing to its final shape.
+17. **Epic 17** — LSP-backed code intelligence. Largest and most speculative; lowest priority given
+    `CodeEditor` is a review/light-edit surface here, not the app's primary authoring surface.

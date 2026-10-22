@@ -120,6 +120,7 @@ public partial class App : Application
             });
 
             services.AddTransient<IGitStatusService, GitStatusService>();
+            services.AddTransient<IBuildTestRunner, ProcessCommandRunner>();
             services.AddTransient<IApplyOrchestrationService, ApplyOrchestrationService>();
             services.AddTransient<INavigationViewService, NavigationViewService>();
             services.AddTransient<IDialogService, DialogService>();
