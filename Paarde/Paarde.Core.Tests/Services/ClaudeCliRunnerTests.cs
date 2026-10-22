@@ -61,14 +61,14 @@ public class ClaudeCliRunnerTests : IDisposable
 
     private readonly List<string> _extraScriptPaths = [];
 
-    private ClaudeCliRunner CreateRunner(string script)
+    private ClaudeCliRunner CreateRunner(string script, bool agentToolsEnabled = false)
     {
         var path = Path.Combine(Path.GetTempPath(), $"fake-claude-{Guid.NewGuid()}.sh");
         File.WriteAllText(path, script);
         File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         _extraScriptPaths.Add(path);
 
-        return new ClaudeCliRunner(() => Task.FromResult(new ClaudeCliOptions(path, string.Empty)));
+        return new ClaudeCliRunner(() => Task.FromResult(new ClaudeCliOptions(path, string.Empty, agentToolsEnabled)));
     }
 
     [Fact]
@@ -123,6 +123,68 @@ public class ClaudeCliRunnerTests : IDisposable
         var result = await runner.RunPromptAsync("prompt");
 
         Assert.DoesNotContain("--resume", result.ErrorMessage.Split('\n'));
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_AgentToolsDisabled_DoesNotPassAllowedToolsOrPermissionModeFlags()
+    {
+        var runner = CreateRunner(ArgvEchoingFakeClaudeScript, agentToolsEnabled: false);
+
+        var result = await runner.RunPromptAsync("prompt");
+
+        var argv = result.ErrorMessage.Split('\n');
+        Assert.DoesNotContain("--allowedTools", argv);
+        Assert.DoesNotContain("--permission-mode", argv);
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_AgentToolsEnabled_PassesAllowedToolsAndPermissionModeFlags()
+    {
+        var runner = CreateRunner(ArgvEchoingFakeClaudeScript, agentToolsEnabled: true);
+
+        var result = await runner.RunPromptAsync("prompt");
+
+        var argv = result.ErrorMessage.Split('\n');
+        Assert.Contains("--allowedTools", argv);
+        Assert.Contains("Read", argv);
+        Assert.Contains("Grep", argv);
+        Assert.Contains("Glob", argv);
+        Assert.Contains("--permission-mode", argv);
+        Assert.Contains("default", argv);
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_AgentToolsEnabledAndCliRejectsTheFlag_ReturnsAnActionableErrorMessage()
+    {
+        const string UnsupportedCliScript = """
+            #!/bin/sh
+            cat > /dev/null
+            echo "error: unknown option '--allowedTools'" >&2
+            exit 1
+            """;
+        var runner = CreateRunner(UnsupportedCliScript, agentToolsEnabled: true);
+
+        var result = await runner.RunPromptAsync("prompt");
+
+        Assert.False(result.Success);
+        Assert.Contains("doesn't recognize --allowedTools", result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_AgentToolsDisabledAndCliFailsForAnUnrelatedReason_LeavesTheRawErrorMessageAlone()
+    {
+        const string UnsupportedCliScript = """
+            #!/bin/sh
+            cat > /dev/null
+            echo "error: unknown option '--allowedTools'" >&2
+            exit 1
+            """;
+        var runner = CreateRunner(UnsupportedCliScript, agentToolsEnabled: false);
+
+        var result = await runner.RunPromptAsync("prompt");
+
+        Assert.False(result.Success);
+        Assert.DoesNotContain("doesn't recognize --allowedTools", result.ErrorMessage);
     }
 
     [Fact]

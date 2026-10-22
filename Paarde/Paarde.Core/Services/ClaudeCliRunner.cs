@@ -43,7 +43,15 @@ public class ClaudeCliRunner : ILlmRunner
         // session_id, rather than starting a fresh conversation - this is what makes a follow-up
         // prompt carry the prior turn's context.
         var resumeArguments = string.IsNullOrWhiteSpace(resumeSessionId) ? Enumerable.Empty<string>() : new[] { "--resume", resumeSessionId };
-        var arguments = options.Arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries).Concat(resumeArguments).Concat(StreamingArguments);
+
+        // Epic 11 (F11.1.2): "default" (not "bypassPermissions") because the CLI itself should still
+        // own enforcing the allow-list - Paarde isn't re-implementing permission checking here, just
+        // asking the CLI to let its own agent loop read/search the repo.
+        var agentToolsArguments = options.AgentToolsEnabled
+            ? new[] { "--allowedTools", "Read", "Grep", "Glob", "--permission-mode", "default" }
+            : Enumerable.Empty<string>();
+
+        var arguments = options.Arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries).Concat(resumeArguments).Concat(agentToolsArguments).Concat(StreamingArguments);
 
         // On Windows this is routed through cmd.exe so PATH resolution picks up the claude.cmd shim installed
         // by npm; other platforms can invoke the executable directly. The prompt is written to stdin rather
@@ -169,11 +177,22 @@ public class ClaudeCliRunner : ILlmRunner
             throw;
         }
 
+        var errorMessage = standardError.ToString().TrimEnd();
+
+        // T11.1.4: a CLI build too old to recognize --allowedTools/--permission-mode fails with its
+        // own argument-parsing error (e.g. "error: unknown option '--allowedTools'") rather than
+        // anything that names the actual problem - only worth checking for when this run is the one
+        // that added those flags, since an unrelated argument-parsing failure shouldn't be relabeled.
+        if (process.ExitCode != 0 && options.AgentToolsEnabled && LooksLikeUnrecognizedAgentToolsFlag(errorMessage))
+        {
+            errorMessage = "This Claude Code CLI build doesn't recognize --allowedTools/--permission-mode, used because \"Enable read-only agent tools\" is turned on in Settings. Upgrade the CLI (npm install -g @anthropic-ai/claude-code) or turn that setting off.";
+        }
+
         return new LlmRunResult
         {
             Success = process.ExitCode == 0,
             Output = assistantText.ToString().TrimEnd(),
-            ErrorMessage = standardError.ToString().TrimEnd(),
+            ErrorMessage = errorMessage,
             ExitCode = process.ExitCode,
             TotalCostUsd = totalCostUsd,
             DurationMs = durationMs,
@@ -182,4 +201,8 @@ public class ClaudeCliRunner : ILlmRunner
             SessionId = sessionId,
         };
     }
+
+    private static bool LooksLikeUnrecognizedAgentToolsFlag(string stderr) =>
+        stderr.Contains("unknown option", StringComparison.OrdinalIgnoreCase) &&
+        (stderr.Contains("--allowedTools", StringComparison.OrdinalIgnoreCase) || stderr.Contains("--permission-mode", StringComparison.OrdinalIgnoreCase));
 }

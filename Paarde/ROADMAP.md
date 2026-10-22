@@ -2032,23 +2032,31 @@ confirmation) - that's a materially bigger, separate decision, not something to 
 "better context." Model-initiated writes are called out as an explicit non-goal below.*
 
 **F11.1 — Read-only tool permissions on the CLI runner**
-- [ ] T11.1.1 Add an `AgentToolsEnabled` (bool) setting next to the existing CLI arguments box on the
+- [x] T11.1.1 Add an `AgentToolsEnabled` (bool) setting next to the existing CLI arguments box on the
   Settings page, persisted via a new `ClaudeCliSettingsKeys.AgentToolsEnabled` (same read/save shape
   `SettingsViewModel.ClaudeCliArguments` already uses). Off by default - this changes what the model
   can *do* mid-run, not just how it's invoked.
-- [ ] T11.1.2 When enabled, `ClaudeCliRunner.RunPromptAsync` appends `--allowedTools Read Grep Glob
+- [x] T11.1.2 When enabled, `ClaudeCliRunner.RunPromptAsync` appends `--allowedTools Read Grep Glob
   --permission-mode default` (not `bypassPermissions` - the CLI still owns enforcing the allow-list,
   Paarde doesn't re-implement it) at the same point `resumeArguments`/`StreamingArguments` are
   concatenated today.
-- [ ] T11.1.3 `AnthropicApiRunner` gets its own implementation via the Messages API's native `tools`
+- [x] T11.1.3 `AnthropicApiRunner` gets its own implementation via the Messages API's native `tools`
   parameter: define `read_file`/`grep`/`glob` tool schemas, loop on `tool_use` content blocks
   (executed against `workingDirectory` through the same containment check `FilePathContainment.Resolve`
   already enforces for writes, applied here to reads) and append `tool_result` blocks until the model
   stops requesting tools - this runner has no external process to delegate the loop to, so the loop
   has to live here.
-- [ ] T11.1.4 A CLI version too old to support `--allowedTools` should fail the run with a clear
+- [x] T11.1.4 A CLI version too old to support `--allowedTools` should fail the run with a clear
   message rather than an opaque argument-parsing error - document the minimum CLI version in
   Settings' help text.
+  - Implemented as a runtime check rather than a hardcoded version number: no minimum CLI version is
+    asserted (unverified to pin to a specific release), so `ClaudeCliRunner` instead pattern-matches
+    stderr for an "unknown option"-style rejection of `--allowedTools`/`--permission-mode` (only when
+    this run actually added those flags) and substitutes an actionable upgrade message. Settings' help
+    text points at `claude --version`/`npm install -g @anthropic-ai/claude-code` instead of a specific
+    version floor. Also added a 25-iteration safety cap (`MaxAgentToolIterations`) on
+    `AnthropicApiRunner`'s tool loop, not explicitly called for by this task but a necessary guard
+    against a model stuck repeatedly requesting tools.
 
 **F11.2 — Surface tool activity during a run**
 - [ ] T11.2.1 `ClaudeCliRunner`'s stream parser (the `switch (line["type"]...)` in `RunPromptAsync`)

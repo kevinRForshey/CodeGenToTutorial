@@ -1,5 +1,6 @@
 using Paarde.Avalonia.Tests.Fakes;
 using Paarde.Avalonia.ViewModels;
+using Paarde.Core.Models;
 using Paarde.Core.Services;
 
 namespace Paarde.Avalonia.Tests.ViewModels;
@@ -64,6 +65,66 @@ public class SettingsViewModelTests
 
         Assert.Equal("claude", sut.ClaudeCliExecutablePath);
         Assert.Equal("-p", sut.ClaudeCliArguments);
+    }
+
+    [Fact]
+    public void SelectedAnthropicModel_DefaultsToTheMatchingCatalogEntryForTheDefaultModelId()
+    {
+        var sut = CreateSut();
+
+        Assert.Equal(AnthropicModelCatalog.DefaultModelId, sut.SelectedAnthropicModel?.Id);
+    }
+
+    [Fact]
+    public void SelectedAnthropicModel_WhenSet_UpdatesAnthropicApiModel()
+    {
+        var sut = CreateSut();
+        var opus = AnthropicModelCatalog.Models.Single(model => model.Id == "claude-opus-5");
+
+        sut.SelectedAnthropicModel = opus;
+
+        Assert.Equal("claude-opus-5", sut.AnthropicApiModel);
+    }
+
+    [Fact]
+    public async Task OnNavigatedTo_RestoresSavedAnthropicApiModel_UpdatesSelectedAnthropicModelToo()
+    {
+        await _localSettingsService.SaveSettingAsync("AnthropicApiModel", "claude-opus-5");
+        var sut = CreateSut();
+
+        sut.OnNavigatedTo(null!);
+        await Task.Yield();
+
+        Assert.Equal("claude-opus-5", sut.SelectedAnthropicModel?.Id);
+    }
+
+    [Fact]
+    public void AgentToolsEnabled_DefaultsToFalse()
+    {
+        var sut = CreateSut();
+
+        Assert.False(sut.AgentToolsEnabled);
+    }
+
+    [Fact]
+    public async Task AgentToolsEnabled_WhenChanged_PersistsToSettings()
+    {
+        var sut = CreateSut();
+        sut.AgentToolsEnabled = true;
+
+        Assert.True(await _localSettingsService.ReadSettingAsync<bool?>("ClaudeCliAgentToolsEnabled"));
+    }
+
+    [Fact]
+    public async Task OnNavigatedTo_RestoresSavedAgentToolsEnabled()
+    {
+        await _localSettingsService.SaveSettingAsync("ClaudeCliAgentToolsEnabled", true);
+        var sut = CreateSut();
+
+        sut.OnNavigatedTo(null!);
+        await Task.Yield();
+
+        Assert.True(sut.AgentToolsEnabled);
     }
 
     [Fact]

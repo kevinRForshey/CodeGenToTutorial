@@ -179,6 +179,14 @@ Every run is persisted automatically. Select a past session from the list to see
 - **Theme** — Light, Dark, or Default (follow the OS).
 - **Claude Code CLI** — override the executable path and arguments if `claude` isn't on your `PATH`
   or you need custom flags.
+- **Enable read-only agent tools** — lets Claude read files, search (grep), and list files (glob) in
+  your project itself while it's generating a response, instead of only seeing whatever context you
+  attached or Paarde inlined. It still can't write files or run commands — those stay off. Off by
+  default, since this changes what the model can *do* mid-run, not just how it's invoked; check this
+  box on the Settings page to turn it on. It applies to whichever LLM runner (Claude Code CLI or
+  Anthropic API) is currently selected above it. Using it with the Claude Code CLI runner requires a
+  CLI build that supports `--allowedTools`/`--permission-mode` — run `claude --version`, and if
+  turning this on causes an error, upgrade with `npm install -g @anthropic-ai/claude-code`.
 - **Prompt template** — view or override the instruction preamble sent ahead of every prompt;
   **Reset to default** restores the built-in template.
 

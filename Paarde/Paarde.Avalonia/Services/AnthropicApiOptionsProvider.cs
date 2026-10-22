@@ -22,9 +22,11 @@ public class AnthropicApiOptionsProvider
     {
         var apiKey = await _secureStorageService.ReadAsync(AnthropicApiSettingsKeys.ApiKey);
         var model = await _localSettingsService.ReadSettingAsync<string>(AnthropicApiSettingsKeys.Model);
+        var agentToolsEnabled = await _localSettingsService.ReadSettingAsync<bool?>(ClaudeCliSettingsKeys.AgentToolsEnabled) ?? false;
 
         return new AnthropicApiOptions(
             apiKey ?? string.Empty,
-            string.IsNullOrWhiteSpace(model) ? AnthropicApiOptions.Default.Model : model);
+            string.IsNullOrWhiteSpace(model) ? AnthropicApiOptions.Default.Model : model,
+            agentToolsEnabled);
     }
 }
