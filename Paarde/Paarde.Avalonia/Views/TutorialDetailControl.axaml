@@ -39,6 +39,8 @@
                               Margin="0,0,0,8"
                               helpers:TextEditorExtensions.BindableText="{Binding EditedContent, Mode=TwoWay}"
                               FilePath="{Binding FilePath}"
+                              DiffLines="{Binding DiffLines}"
+                              DiffHunks="{Binding DiffHunks}"
                               IsReadOnly="False"
                               Height="320"
                               HorizontalScrollBarVisibility="Auto"

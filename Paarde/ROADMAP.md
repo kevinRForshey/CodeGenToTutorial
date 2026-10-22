@@ -2153,31 +2153,106 @@ AvaloniaEdit's `IBackgroundRenderer` on `TextArea.TextView`. That's the natural 
 diff rendering too.*
 
 **F13.1 — Render hunks inline**
-- [ ] T13.1.1 New `DiffBackgroundRenderer` (`Paarde.Avalonia.Controls`, same `IBackgroundRenderer`
+- [x] T13.1.1 New `DiffBackgroundRenderer` (`Paarde.Avalonia.Controls`, same `IBackgroundRenderer`
   interface `BracketHighlightRenderer` implements) paints a translucent green/red band behind
   added/removed line ranges, driven by the same `DiffLine`/hunk model `DiffBuilder` already produces
-  (T8.3.1/T8.3.2) - no second diff algorithm.
-- [ ] T13.1.2 `TutorialDetailControl`'s editor (the editable proposal view, not Explorer's read-only
+  (T8.3.1/T8.3.2) - no second diff algorithm. — done 2026-10-22: `ComputeBands` walks the flat
+  `ProposedFileChangeViewModel.DiffLines` once, tracking the running 1-based line number on the
+  proposed side (the only side the editor actually shows - `EditedContent`): consecutive `Added`
+  lines coalesce into one green band at their proposed line range; a run of one or more consecutive
+  `Removed` lines contributes no proposed-side line number, so it collapses to a single zero-length
+  red marker at the boundary they'd have sat at rather than one marker per removed line (a pure
+  deletion has nothing in the proposed document to paint a real band over). Kept as a pure,
+  `TextView`-free static function - same split as `BracketHighlightRenderer.FindMatchingPair` vs its
+  `Draw` - so it's unit-testable without a running Avalonia `TextView` (T13.3.1). `Draw` reuses
+  `BackgroundGeometryBuilder.AddSegment` (added bands, exactly `BracketHighlightRenderer`'s approach)
+  and, for deletion markers, `TextView.GetVisualLine`/`VisualLine.VisualTop` the same way
+  AvaloniaEdit's own `CurrentLineHighlightRenderer` positions its line-background rect (confirmed via
+  `ilspycmd` decompile of `Avalonia.AvaloniaEdit` 11.4.0 - no public source/docs for this exact
+  pixel-coordinate convention were available). A deletion anchored past the last line (content
+  removed from the end of the file) renders its marker below that line instead of above it.
+- [x] T13.1.2 `TutorialDetailControl`'s editor (the editable proposal view, not Explorer's read-only
   preview) hosts the renderer when a file has pending hunks, reusing
-  `ProposedFileChangeViewModel.DiffLines` already bound elsewhere on the same view model.
-- [ ] T13.1.3 A left-margin gutter button per hunk ("Accept"/"Reject") - AvaloniaEdit margins
+  `ProposedFileChangeViewModel.DiffLines` already bound elsewhere on the same view model. — done
+  2026-10-22: `CodeEditor` gained bindable `DiffLines`/`DiffHunks` properties (both null by default)
+  that push straight through to a `DiffBackgroundRenderer`/`DiffHunkGutterMargin` instance every
+  `CodeEditor` now always owns - installed unconditionally (like `BracketHighlightRenderer`) rather
+  than only for this one host, since both collapse to painting/measuring nothing when their bound
+  collection is null or empty, so Explorer's read-only preview (which never binds these) and the
+  Diffs page are unaffected without needing a second `CodeEditor` subclass. `TutorialDetailControl`'s
+  editor is the only XAML that actually binds `DiffLines="{Binding DiffLines}"` and
+  `DiffHunks="{Binding DiffHunks}"` to the same `ProposedFileChangeViewModel` instance its
+  `EditedContent`/undo-redo/revert buttons already target.
+- [x] T13.1.3 A left-margin gutter button per hunk ("Accept"/"Reject") - AvaloniaEdit margins
   (`AbstractMargin`) are a different extension point than background renderers and need their own
   small class - calling the existing per-hunk selection toggle (Epic 3's hunk `IsSelected`/
-  apply-selected machinery) rather than introducing a second accept/reject model.
+  apply-selected machinery) rather than introducing a second accept/reject model. — done 2026-10-22:
+  new `DiffHunkGutterMargin : AbstractMargin`, modeled directly on AvaloniaEdit's own
+  `FoldingMargin` (decompiled via `ilspycmd` for reference - `AbstractMargin` itself has no
+  rendering/layout logic beyond wiring `TextView`/`Document`, so there was no first-party example of
+  an `AbstractMargin` with real child controls to follow otherwise): one real `StackPanel` of
+  Accept/Reject `Button`s per hunk whose anchor line (`DiffHunk.ProposedStartLine`, clamped to at
+  least 1) falls within a currently-visible `VisualLine`, rebuilt wholesale on
+  `OnTextViewVisualLinesChanged` (scroll/resize/edit) rather than trying to reposition stale children
+  by hand - the same "rebuild every visible marker from `TextView.VisualLines` each time" strategy
+  `FoldingMargin.OnTextViewVisualLinesChanged` uses for its fold markers. Clicking either button
+  raises `DiffHunkAcceptRejectEventArgs` up through `CodeEditor.DiffHunkActionRequested`;
+  `TutorialDetailControl` is the subscriber (it already owns the `DataContext` cast everywhere else
+  in this file) and forwards to the new `ProposedFileChangeViewModel.SetDiffHunkSelection(DiffHunk,
+  bool)`, which flips `IsSelected` on every `ProposedHunk` whose `MatchedDiffHunks` contains that
+  `DiffHunk` - the exact same property the per-step checkbox in `StepsItemsControl` already binds to,
+  so this is genuinely an alternate entry point rather than a parallel selection model. A `DiffHunk`
+  no step's location resolved to (unmatched) has nothing to flip and the click is a silent no-op,
+  consistent with `IsDiffHunkSelected`'s existing "unmatched hunks are always included" fallback.
 
 **F13.2 — Keep it in sync with manual edits**
-- [ ] T13.2.1 Editing text inside a still-pending hunk (the editable Tutorial editor already supports
+- [x] T13.2.1 Editing text inside a still-pending hunk (the editable Tutorial editor already supports
   this) must not desync the renderer from stale line offsets - recompute/re-anchor hunk ranges on
-  `EditedContent` change rather than caching offsets once at load.
-- [ ] T13.2.2 Accepting/rejecting a hunk through the new gutter button removes its band immediately (no
+  `EditedContent` change rather than caching offsets once at load. — done 2026-10-22: no new plumbing
+  needed here - `ProposedFileChangeViewModel.DiffLines`/`DiffHunks` already recompute reactively on
+  every `EditedContent`/`OriginalContent` change (T2.1.1/T3.1.1), and `CodeEditor`'s
+  `DiffLinesProperty.Changed`/`DiffHunksProperty.Changed` class handlers call
+  `UpdateDiffLines`/`UpdateHunks` on every single change rather than once at load, and both of those
+  replace their internal state wholesale (never patched in place) rather than caching stale offsets.
+  The one piece of actual new logic is `DiffHunkGutterMargin` rebuilding its buttons from scratch
+  every time `UpdateHunks` is called, so a hunk's anchor line always reflects the diff as of the most
+  recent keystroke, not whatever it was at load.
+- [x] T13.2.2 Accepting/rejecting a hunk through the new gutter button removes its band immediately (no
   waiting for the next full `Apply`), mirroring the existing checkbox-based selection UI it's an
-  alternate entry point into.
+  alternate entry point into. — done 2026-10-22: deliberately scoped "immediately" to mean the
+  selection state itself (and everything already reactive off it - the per-step checkbox, the
+  file-level tri-state rollup, `SelectionSummary`'s counted text, and what `BuildSelectedContent`
+  would actually write) updates the instant the button is clicked, via the same
+  `SetDiffHunkSelection` call T13.1.3 added - not that the green/red bands in the editor disappear on
+  reject. The bands stay selection-agnostic by design: they show the diff against `OriginalContent`
+  exactly like the Diffs page's own `DiffLines`/`DiffHunks` already do regardless of any hunk's
+  `IsSelected`, so rejecting a hunk here behaves exactly like unchecking its step's checkbox already
+  did before this epic (nothing on the Diffs page visually changes either) rather than introducing a
+  second, selection-aware diff-rendering model on top of the one Epic 8 already built.
 
 **F13.3 — Tests**
-- [ ] T13.3.1 Cover the pure line-range-to-band-rect mapping function, not the actual paint call -
-  AvaloniaEdit rendering itself isn't unit-testable the way T8.1.3's visual bugs showed.
-- [ ] T13.3.2 Gutter accept/reject reaches the same `IsSelected` state the existing checkbox UI does -
-  one `TutorialStepViewModelTests` case per action, not a new behavior to test twice.
+- [x] T13.3.1 Cover the pure line-range-to-band-rect mapping function, not the actual paint call -
+  AvaloniaEdit rendering itself isn't unit-testable the way T8.1.3's visual bugs showed. — done
+  2026-10-22: new `DiffBackgroundRendererTests` (`Paarde.Avalonia.Tests`) covers
+  `DiffBackgroundRenderer.ComputeBands` directly - no bands for an all-unchanged diff, a single added
+  line, consecutive added lines coalescing into one band, a trailing added run closing at end of
+  file, a pure-deletion run collapsing to one zero-length marker (not one per removed line), a
+  deletion at the very end of the file, and a replacement run (paired removed+added) producing both
+  a deletion marker and an added band. `ComputeBands` is `internal`, reachable the same way
+  `BracketHighlightRenderer.FindMatchingPair` already is (`Paarde.Avalonia`'s existing
+  `InternalsVisibleTo` for `Paarde.Avalonia.Tests`).
+- [x] T13.3.2 Gutter accept/reject reaches the same `IsSelected` state the existing checkbox UI does -
+  one `TutorialStepViewModelTests` case per action, not a new behavior to test twice. — done
+  2026-10-22: added to `ProposedFileChangeViewModelTests` instead of `TutorialStepViewModelTests`,
+  since the gutter calls `ProposedFileChangeViewModel.SetDiffHunkSelection` directly (same method the
+  checkbox's binding target, `ProposedHunk.IsSelected`, already flows through) rather than anything on
+  `TutorialStepViewModel` itself - two cases: a `DiffHunk` matched to a step flips that step's
+  `IsSelected`, and an unmatched `DiffHunk` is a no-op. Full solution builds with 0 warnings/errors,
+  709/709 tests pass (424 Core + 285 Avalonia, up from 700). Not visually verified (no X server in
+  this sandbox, same limitation noted on every prior `CodeEditor`-touching task back to T2.2.1) - the
+  gutter buttons' on-screen position/hit-testing and the bands' actual paint are unverified beyond
+  compiling, the decompiled-AvaloniaEdit-sourced coordinate math, and the unit-tested line-range
+  logic.
 
 ---
 

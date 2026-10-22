@@ -7,6 +7,8 @@ using Avalonia.Media;
 using AvaloniaEdit;
 using AvaloniaEdit.TextMate;
 
+using Paarde.Core.Models;
+
 using TextMateSharp.Grammars;
 
 namespace Paarde.Avalonia.Controls;
@@ -22,8 +24,19 @@ public class CodeEditor : TextEditor
     public static readonly StyledProperty<string?> FilePathProperty =
         AvaloniaProperty.Register<CodeEditor, string?>(nameof(FilePath));
 
+    // T13.1.2: null (not set) for every CodeEditor host except TutorialDetailControl's editable
+    // proposal view - Explorer's read-only preview never binds these, so the renderer/margin stay
+    // empty and invisible there.
+    public static readonly StyledProperty<IReadOnlyList<DiffLine>?> DiffLinesProperty =
+        AvaloniaProperty.Register<CodeEditor, IReadOnlyList<DiffLine>?>(nameof(DiffLines));
+
+    public static readonly StyledProperty<IReadOnlyList<DiffHunk>?> DiffHunksProperty =
+        AvaloniaProperty.Register<CodeEditor, IReadOnlyList<DiffHunk>?>(nameof(DiffHunks));
+
     private readonly TextMate.Installation _textMateInstallation;
     private readonly BracketHighlightRenderer _bracketHighlightRenderer;
+    private readonly DiffBackgroundRenderer _diffBackgroundRenderer;
+    private readonly DiffHunkGutterMargin _diffHunkGutterMargin;
 
     // TemplatedControl resolves its default ControlTheme via StyleKeyOverride, which defaults to
     // GetType(). Without this override Avalonia looks for a theme keyed {x:Type CodeEditor} - which
@@ -37,9 +50,28 @@ public class CodeEditor : TextEditor
         set => SetValue(FilePathProperty, value);
     }
 
+    public IReadOnlyList<DiffLine>? DiffLines
+    {
+        get => GetValue(DiffLinesProperty);
+        set => SetValue(DiffLinesProperty, value);
+    }
+
+    public IReadOnlyList<DiffHunk>? DiffHunks
+    {
+        get => GetValue(DiffHunksProperty);
+        set => SetValue(DiffHunksProperty, value);
+    }
+
+    // T13.1.3: raised when the gutter's Accept/Reject button for a hunk is clicked; the host
+    // (TutorialDetailControl) is the one that knows which ProposedFileChangeViewModel owns that
+    // hunk's selection, so this control just forwards which DiffHunk and which action.
+    public event EventHandler<DiffHunkAcceptRejectEventArgs>? DiffHunkActionRequested;
+
     static CodeEditor()
     {
         FilePathProperty.Changed.AddClassHandler<CodeEditor>((editor, _) => editor.ApplyGrammarForFilePath());
+        DiffLinesProperty.Changed.AddClassHandler<CodeEditor>((editor, _) => editor._diffBackgroundRenderer.UpdateDiffLines(editor.DiffLines));
+        DiffHunksProperty.Changed.AddClassHandler<CodeEditor>((editor, _) => editor._diffHunkGutterMargin.UpdateHunks(editor.DiffHunks));
     }
 
     public CodeEditor()
@@ -50,6 +82,12 @@ public class CodeEditor : TextEditor
         _textMateInstallation = this.InstallTextMate(RegistryOptions);
         _bracketHighlightRenderer = new BracketHighlightRenderer(TextArea.TextView);
         TextArea.Caret.PositionChanged += (_, _) => _bracketHighlightRenderer.UpdateHighlight(Document, CaretOffset);
+
+        _diffBackgroundRenderer = new DiffBackgroundRenderer(TextArea.TextView);
+
+        _diffHunkGutterMargin = new DiffHunkGutterMargin();
+        _diffHunkGutterMargin.HunkActionRequested += (_, e) => DiffHunkActionRequested?.Invoke(this, e);
+        TextArea.LeftMargins.Add(_diffHunkGutterMargin);
 
         // AvaloniaEdit.TextMate only recolors syntax - it never touches the editor's own
         // Background/Foreground, so without this the DarkPlus theme's light foreground text is drawn
