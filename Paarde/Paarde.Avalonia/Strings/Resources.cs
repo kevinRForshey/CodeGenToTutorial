@@ -82,6 +82,7 @@ public static class Resources
         ["Explorer_NoWorkingDirectory"] = "No working directory selected yet. Pick one on the Prompt page.",
         ["Explorer_WorkingDirectoryNotFound"] = "The working directory no longer exists: {0}",
         ["Explorer_LoadFailed"] = "Failed to read the working directory: {0}",
+        ["Explorer_ExplainFailed"] = "Failed to explain this file: {0}",
     };
 
     public static string Resolve(this string resourceKey) =>

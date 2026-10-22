@@ -21,6 +21,7 @@ public partial class ExplorerViewModel : ObservableObject, INavigationAware
 {
     private readonly ILocalSettingsService _localSettingsService;
     private readonly IPromptResultStore _promptResultStore;
+    private readonly ILlmRunner _llmRunner;
     private readonly ILogger<ExplorerViewModel> _logger;
 
     [ObservableProperty]
@@ -41,10 +42,26 @@ public partial class ExplorerViewModel : ObservableObject, INavigationAware
     [ObservableProperty]
     private string selectedFileContent = string.Empty;
 
-    public ExplorerViewModel(ILocalSettingsService localSettingsService, IPromptResultStore promptResultStore, ILogger<ExplorerViewModel>? logger = null)
+    // T10.1.1: the AI-generated tutorial-style explanation of SelectedFilePath, requested on demand
+    // via ExplainSelectedFileCommand rather than automatically on every selection - running a prompt
+    // on every tree click would be surprising cost/latency, same reasoning
+    // TutorialViewModel.RefineSelectedFileCommand/TutorialStepViewModel.ExplainFurtherCommand are
+    // both explicit actions rather than eager.
+    [ObservableProperty]
+    private string fileOverview = string.Empty;
+
+    [ObservableProperty]
+    private bool isLoadingOverview;
+
+    public ExplorerViewModel(
+        ILocalSettingsService localSettingsService,
+        IPromptResultStore promptResultStore,
+        ILlmRunner llmRunner,
+        ILogger<ExplorerViewModel>? logger = null)
     {
         _promptResultStore = promptResultStore;
         _localSettingsService = localSettingsService;
+        _llmRunner = llmRunner;
         _logger = logger ?? NullLogger<ExplorerViewModel>.Instance;
     }
 
@@ -53,6 +70,10 @@ public partial class ExplorerViewModel : ObservableObject, INavigationAware
     // browse/view surface and editing a proposal stays the Tutorial page's job.
     partial void OnSelectedNodeChanged(FileTreeNodeViewModel? value)
     {
+        // T10.1.3: a previous selection's explanation would otherwise linger and read as if it
+        // described whatever's selected now.
+        FileOverview = string.Empty;
+
         if (value is null || value.IsDirectory)
         {
             SelectedFilePath = string.Empty;
@@ -63,6 +84,42 @@ public partial class ExplorerViewModel : ObservableObject, INavigationAware
         SelectedFilePath = value.FullPath;
         SelectedFileContent = FileContentReader.ReadOrEmpty(value.FullPath);
     }
+
+    partial void OnSelectedFilePathChanged(string value) => ExplainSelectedFileCommand.NotifyCanExecuteChanged();
+
+    partial void OnIsLoadingOverviewChanged(bool value) => ExplainSelectedFileCommand.NotifyCanExecuteChanged();
+
+    // T10.1.1/T10.1.2: reuses the plain-prose prompt pattern TutorialStepViewModel.ExplainFurtherAsync
+    // already established (no JSON, no markdown fences - this is prose for a human, not something
+    // ClaudeJsonResponseParser needs to parse). No resumeSessionId - this is a one-off lookup against
+    // whatever file is open in Explorer, not a continuation of the active tutorial's conversation.
+    [RelayCommand(CanExecute = nameof(CanExplainSelectedFile))]
+    private async Task ExplainSelectedFileAsync()
+    {
+        IsLoadingOverview = true;
+        FileOverview = string.Empty;
+
+        try
+        {
+            var prompt =
+                "Explain this file in a tutorial style - what it does, how it's structured, and " +
+                "anything a newcomer to this codebase should notice. Respond in plain prose only - " +
+                "no JSON, no markdown fences.\n\n" +
+                $"File: {SelectedFilePath}\n\n{SelectedFileContent}";
+
+            var result = await _llmRunner.RunPromptAsync(prompt, WorkingDirectoryPath);
+
+            FileOverview = result.Success
+                ? result.Output.Trim()
+                : string.Format("Explorer_ExplainFailed".Resolve(), result.ErrorMessage);
+        }
+        finally
+        {
+            IsLoadingOverview = false;
+        }
+    }
+
+    private bool CanExplainSelectedFile() => !IsLoadingOverview && !string.IsNullOrEmpty(SelectedFilePath);
 
     // T9.2.3: async void because INavigationAware.OnNavigatedTo returns void - wrapped so a
     // corrupt settings file (the one thing ReadSettingAsync can actually throw on) is logged

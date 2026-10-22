@@ -9,6 +9,7 @@ public class ExplorerViewModelTests : IDisposable
 {
     private readonly FakeLocalSettingsService _localSettingsService = new();
     private readonly FakePromptResultStore _promptResultStore = new();
+    private readonly FakeLlmRunner _llmRunner = new();
     private readonly string _workingDirectory;
 
     public ExplorerViewModelTests()
@@ -24,7 +25,7 @@ public class ExplorerViewModelTests : IDisposable
         }
     }
 
-    private ExplorerViewModel CreateSut() => new(_localSettingsService, _promptResultStore);
+    private ExplorerViewModel CreateSut() => new(_localSettingsService, _promptResultStore, _llmRunner);
 
     private async Task SetSavedWorkingDirectoryAsync(string path) =>
         await _localSettingsService.SaveSettingAsync(WorkingDirectorySettingsKeys.WorkingDirectory, path);
@@ -184,5 +185,94 @@ public class ExplorerViewModelTests : IDisposable
         Assert.Null(sut.SelectedNode);
         Assert.Empty(sut.SelectedFilePath);
         Assert.Empty(sut.SelectedFileContent);
+    }
+
+    [Fact]
+    public void ExplainSelectedFileCommand_NoFileSelected_CannotExecute()
+    {
+        var sut = CreateSut();
+
+        Assert.False(sut.ExplainSelectedFileCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task ExplainSelectedFileCommand_FileSelected_CanExecute()
+    {
+        File.WriteAllText(Path.Combine(_workingDirectory, "a.txt"), "content");
+        await SetSavedWorkingDirectoryAsync(_workingDirectory);
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+        sut.SelectedNode = sut.Root!.Children.Single();
+
+        Assert.True(sut.ExplainSelectedFileCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task ExplainSelectedFileCommand_AlreadyLoading_CannotExecute()
+    {
+        File.WriteAllText(Path.Combine(_workingDirectory, "a.txt"), "content");
+        await SetSavedWorkingDirectoryAsync(_workingDirectory);
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+        sut.SelectedNode = sut.Root!.Children.Single();
+
+        sut.IsLoadingOverview = true;
+
+        Assert.False(sut.ExplainSelectedFileCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task ExplainSelectedFileAsync_Succeeds_PopulatesFileOverviewAndSendsFilePathAndContent()
+    {
+        File.WriteAllText(Path.Combine(_workingDirectory, "a.txt"), "file content");
+        await SetSavedWorkingDirectoryAsync(_workingDirectory);
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+        sut.SelectedNode = sut.Root!.Children.Single();
+        _llmRunner.ResultToReturn = new() { Success = true, Output = "  This file does X.  " };
+
+        await sut.ExplainSelectedFileCommand.ExecuteAsync(null);
+
+        Assert.Equal("This file does X.", sut.FileOverview);
+        Assert.False(sut.IsLoadingOverview);
+        Assert.Contains(sut.SelectedFilePath, _llmRunner.LastPrompt);
+        Assert.Contains("file content", _llmRunner.LastPrompt);
+        Assert.Null(_llmRunner.LastResumeSessionId);
+    }
+
+    [Fact]
+    public async Task ExplainSelectedFileAsync_Fails_PopulatesFileOverviewWithFormattedError()
+    {
+        File.WriteAllText(Path.Combine(_workingDirectory, "a.txt"), "content");
+        await SetSavedWorkingDirectoryAsync(_workingDirectory);
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+        sut.SelectedNode = sut.Root!.Children.Single();
+        _llmRunner.ResultToReturn = new() { Success = false, ErrorMessage = "boom" };
+
+        await sut.ExplainSelectedFileCommand.ExecuteAsync(null);
+
+        Assert.Equal("Failed to explain this file: boom", sut.FileOverview);
+        Assert.False(sut.IsLoadingOverview);
+    }
+
+    [Fact]
+    public async Task SelectedNode_ChangedAfterExplaining_ClearsThePreviousOverview()
+    {
+        Directory.CreateDirectory(Path.Combine(_workingDirectory, "src"));
+        File.WriteAllText(Path.Combine(_workingDirectory, "a.txt"), "content");
+        File.WriteAllText(Path.Combine(_workingDirectory, "src", "b.txt"), "content");
+        await SetSavedWorkingDirectoryAsync(_workingDirectory);
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+        sut.SelectedNode = sut.Root!.Children.Single(node => node.Name == "a.txt");
+        _llmRunner.ResultToReturn = new() { Success = true, Output = "Explanation of a.txt" };
+        await sut.ExplainSelectedFileCommand.ExecuteAsync(null);
+        Assert.NotEmpty(sut.FileOverview);
+
+        var srcFolder = sut.Root!.Children.Single(node => node.Name == "src");
+        sut.SelectedNode = srcFolder.Children.Single();
+
+        Assert.Empty(sut.FileOverview);
     }
 }
