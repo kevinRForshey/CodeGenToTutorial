@@ -1872,6 +1872,149 @@ how this document was originally sequenced.
 
 ---
 
+### EPIC 10 — Explorer page: AI file overview & in-place editing *(P1/P2)*
+
+*Why: the Explorer page (F8.1, T8.1.3) can already browse any file in the working directory and
+preview it, but the preview is read-only and mute - it shows bytes, not understanding, and offers no
+way to change a file that the LLM never proposed touching. Both features below hang off the same
+`ExplorerViewModel.SelectedNode`/`SelectedFilePath`/`SelectedFileContent` the page already has;
+neither needs new navigation or a new page.*
+
+**F10.1 — AI-generated tutorial overview of the currently open file**
+
+- [x] T10.1.1 Add an "Explain this file" action to `ExplorerViewModel`. — done 2026-10-21: new
+  `[ObservableProperty] FileOverview` (string, empty until requested) and `IsLoadingOverview` (bool),
+  and an `ExplainSelectedFileCommand` (`[RelayCommand(CanExecute = nameof(CanExplainSelectedFile))]`,
+  gated on `SelectedFilePath` non-empty and `!IsLoadingOverview`, same shape as
+  `TutorialViewModel.RefineSelectedFileCommand`/`IsRefining` - `CanExecute` re-evaluated via
+  `OnSelectedFilePathChanged`/`OnIsLoadingOverviewChanged` partial hooks, the same pattern
+  `TutorialViewModel` already uses rather than `[NotifyCanExecuteChangedFor]`). Took a new
+  `ILlmRunner` constructor dependency - already DI-registered as a singleton via `LlmRunnerSelector`
+  in `App.axaml.cs`, so no registration change was needed, only adding the parameter.
+  Implemented together with T10.1.2 (the command body) and the core of T10.1.3 (clearing
+  `FileOverview` on selection change) - a command with no real action, or one that could show a
+  stale explanation for a file no longer selected, would be a half-finished slice of the feature,
+  not a smaller one. Prompt (T10.1.2): reuses the plain-prose pattern
+  `TutorialStepViewModel.ExplainFurtherAsync` already established (no JSON, no markdown fences),
+  sent via `_llmRunner.RunPromptAsync(prompt, WorkingDirectoryPath)` with no `resumeSessionId` - a
+  one-off lookup, not a continuation of the active tutorial's conversation. On success,
+  `FileOverview = result.Output.Trim()`; on failure, a new `Explorer_ExplainFailed` `Resources.cs`
+  key (same naming convention as the existing `Explorer_*` keys) formatted with
+  `result.ErrorMessage`. Selection-change reset (core of T10.1.3): `OnSelectedNodeChanged` now
+  clears `FileOverview` first, before the existing `SelectedFilePath`/`SelectedFileContent` reset
+  logic (T8.1.3), for every selection change (file, directory, or null) - not just a new file
+  selection - so a stale explanation never lingers across any kind of reselect. T10.1.3's
+  in-memory per-path cache (avoiding a repeat prompt when revisiting an already-explained file) is
+  deliberately *not* done here - a real scope addition, not core correctness, left for its own pass.
+  Covered by 7 new `ExplorerViewModelTests` (CanExecute gating: no selection, has selection, already
+  loading; success populates `FileOverview` trimmed and sends the file path + content in the
+  prompt with no `resumeSessionId`; failure populates the formatted error message; selecting a
+  different node clears a previous explanation). Full solution builds with 0 warnings/errors,
+  648/648 tests pass (407 Core + 241 Avalonia, up from 642). T10.1.3's caching stretch goal
+  remains undone deliberately; T10.1.4's UI panel followed right after (see below).
+- [x] T10.1.4 UI: `ExplorerView.axaml` gains a collapsible panel. — done 2026-10-21: the file-preview
+  header row grew an "Explain this file" `Button` bound to `ExplainSelectedFileCommand` and a
+  `ui:ProgressRing` (same `FluentAvalonia` control `PromptView`'s run indicator already uses) bound
+  to `IsLoadingOverview`, both only visible once a file is selected. Below the `CodeEditor`, a new
+  `Expander` (header "Overview") holds the rendered result inside a `ScrollViewer` capped at
+  `MaxHeight="260"` so a long explanation doesn't push the tree/editor off-screen; it's bound
+  `IsVisible` to `FileOverview` being non-empty, so the pane keeps its full height while just
+  browsing and only gives up space once an explanation has actually been requested - mirrors
+  `TutorialView.axaml`/`TutorialDetailControl.axaml`'s existing `MarkdownTextBlock` usage rather than
+  a plain `TextBlock`, since the model's prose can come back with markdown emphasis. No dedicated
+  view-level test (this codebase has none for `.axaml` files; `ExplorerViewModelTests` already covers
+  every binding's underlying behavior). Full solution builds with 0 warnings/errors, 648/648 tests
+  pass.
+- [x] T10.1.5 Tests. — done 2026-10-21, as part of T10.1.1: `ExplorerViewModelTests` gained a
+  `FakeLlmRunner` fixture (already shared by `TutorialViewModelTests`/`TutorialStepViewModelTests`)
+  and 7 new cases covering `CanExplainSelectedFile` gating (no selection, has selection, already
+  loading), a successful explain populating `FileOverview` trimmed, a failed explain populating the
+  formatted error message, and a selection change clearing a previous overview. No test gap remains
+  for what's implemented.
+
+**F10.2 — Built-in editor for arbitrary files, not just LLM proposals**
+
+- [x] T10.2.1 Make the Explorer preview editable. — done 2026-10-21: `ExplorerView.axaml`'s
+  `CodeEditor` flipped from `IsReadOnly="True"` to `False`, and `BindableText` from `Mode=OneWay` to
+  its default `TwoWay` (round-trips via `TextEditorExtensions`, T2.2.2) so edits flow straight back
+  into `SelectedFileContent`. Added `[ObservableProperty] IsFileDirty` (bool) and a private
+  `_originalFileContentOnDisk` (string, not nullable - `FileContentReader.ReadOrEmpty` never returns
+  null) captured whenever a file is loaded; a new `OnSelectedFileContentChanged` partial hook sets
+  `IsFileDirty = value != _originalFileContentOnDisk` on every edit - same `IsDirty`-via-divergence
+  shape `ProposedFileChangeViewModel` already uses, just without a third (proposed) baseline since
+  there's no LLM proposal in this flow.
+- [x] T10.2.2 Add a `SaveSelectedFileCommand`. — done 2026-10-21: gated on `IsFileDirty`
+  (`CanSaveSelectedFile`, re-evaluated via `OnIsFileDirtyChanged`, this codebase's established
+  pattern rather than `[NotifyCanExecuteChangedFor]`). Writes through
+  `IFileChangeApplyService.WriteRaw(relativePath, SelectedFileContent, WorkingDirectoryPath)` - not a
+  raw `File.WriteAllText` - so the save gets the same path-containment check
+  (`FilePathContainment.Resolve`, T4.1.1) and encoding/line-ending preservation
+  (`FileEncodingDetector`, T4.1.3) every other write in this app already gets; `relativePath` is
+  `Path.GetRelativePath(WorkingDirectoryPath, SelectedFilePath)` (normalized to `/`, matching
+  `FileTreeBuilder`'s own relative-path convention) since `WriteRaw` expects a
+  working-directory-relative path and `SelectedFilePath` is `FileTreeNodeViewModel.FullPath`
+  (absolute). `ExplorerViewModel` took `IFileChangeApplyService` and `IDialogService` as new
+  constructor dependencies - both already DI-registered (`App.axaml.cs`), no registration change
+  needed. After a successful write, `_originalFileContentOnDisk = SelectedFileContent` and
+  `IsFileDirty = false` directly, rather than re-reading the file back from disk.
+- [x] T10.2.3 Protected-path guard. — done 2026-10-21, as part of T10.2.2: checked first, via
+  `ProtectedPathChecker.IsProtected` (T4.1.2, the same `.gitignore`/`.git`/`bin`/`obj` rules the
+  apply flow already enforces) against `relativePath` - blocks the save with a new
+  `Explorer_SaveBlockedProtectedPath` status message rather than writing. Refuses outright with no
+  "allow anyway" override, unlike the batch apply flow's confirm dialog - a single ad-hoc edit is a
+  narrower write path that doesn't need `allowProtectedPaths`' override semantics on day one.
+- [x] T10.2.4 Conflict guard. — done 2026-10-21, as part of T10.2.2: re-reads the file via
+  `FileContentReader.ReadOrEmpty(SelectedFilePath)` right before writing and compares it against
+  `_originalFileContentOnDisk` (same check `ApplyOrchestrationService.ApplyOne` does via
+  `currentDiskContent != file.OriginalContent`, T3.3.3) - a mismatch blocks the save with a new
+  `Explorer_SaveConflict` status message telling the user to reselect the file to reload it, rather
+  than silently clobbering whatever changed it.
+- [x] T10.2.5 Guard against losing edits on navigation or re-selection. — done 2026-10-21:
+  `ExplorerViewModel` now implements `IConfirmNavigationAway` (`HasUnsavedChanges => IsFileDirty`),
+  so `NavigationService`'s existing `Frame.Navigating` guard (already used by `TutorialViewModel`,
+  T2.2.4) covers leaving the page with no new infrastructure. Within the page, `OnSelectedNodeChanged`
+  switching to a different tree node needed its own check since that guard never sees it: a new
+  `OnSelectedNodeChanging(oldValue, newValue)` partial hook captures the node being left in
+  `_nodeBeforeSelectionChange`; if `IsFileDirty` when the new node lands, `OnSelectedNodeChanged`
+  defers to `ConfirmDiscardDirtyFileThenLoad` (an `IDialogService.ConfirmAsync` prompt, new
+  `Explorer_DiscardEdits*` resource keys) instead of loading immediately - confirming loads the new
+  node (discarding the edit); declining sets `SelectedNode = _nodeBeforeSelectionChange`, putting the
+  tree's selection back. That revert, and plain reselection of the node already loaded, both need to
+  be a no-op rather than re-triggering a reload (which would wipe out the very edit being protected) -
+  handled by comparing the new node's path against `SelectedFilePath` at the top of
+  `OnSelectedNodeChanged` and returning early on a match, before either the dirty check or the actual
+  load (factored into a private `LoadNode`) runs.
+- [x] T10.2.6 Undo/redo. — done 2026-10-21: Ctrl+Z/Ctrl+Y came for free the moment `CodeEditor` left
+  `IsReadOnly` (`AvaloniaEdit`'s `TextAreaDefaultInputHandler`, confirmed under T2.2.4) - no new code.
+  Added a `RevertSelectedFileToDiskCommand` (gated on `IsFileDirty`, same `OnIsFileDirtyChanged`
+  wiring as Save) that re-reads the file from disk right now (not the stale
+  `_originalFileContentOnDisk` captured at load time) into both `_originalFileContentOnDisk` and
+  `SelectedFileContent` - covers discarding every edit at once, including the case undo history
+  might not reach.
+- [x] T10.2.7 Tests. — done 2026-10-21: `ExplorerViewModelTests` gained `FakeFileChangeApplyService`
+  (extended with `WriteRawCallCount`/`LastWriteRawFilePath`/`LastWriteRawContent` tracking, plus
+  `WriteRaw` now honors `ExceptionToThrow` the way `Apply` already did) and `FakeDialogService`
+  fixtures, and 13 new cases: dirty tracking on edit and on editing back to the original content;
+  `SaveSelectedFileCommand`/`RevertSelectedFileToDiskCommand` `CanExecute` gating; a successful save
+  writing via the fake and clearing dirty; a protected-path save blocked with no write attempted; a
+  disk-side conflict blocking the save with no write attempted; revert-to-disk reloading current disk
+  content and clearing dirty; reselecting the already-loaded file being a no-op (no dialog, edit
+  survives); and the discard-edits confirm dialog on reselecting a different file both ways (confirmed
+  -> loads the new file; declined -> selection reverts and the edit survives). `HasUnsavedChanges`
+  covered indirectly via `IsFileDirty` in the dirty-tracking cases rather than its own case, since it's
+  a one-line passthrough. Full solution builds with 0 warnings/errors, 659/659 tests pass (407 Core +
+  252 Avalonia, up from 648).
+
+*Open question for F10.2, not resolved in this plan: should a manual Explorer save also go through
+`IApplyBackupStore`/`IApplyHistoryLog` (T4.2.1/T4.2.3) so "Revert all applied changes in this
+session" and the Tutorial page's history panel also cover hand-edits, or stay entirely separate from
+the LLM-apply machinery since it's a different kind of write? Lean toward separate for now - the
+apply-history stores are keyed and reasoned about in terms of an LLM proposal's lifecycle
+(`ProposedFileChangeViewModel`), and folding in a second, unrelated write path there is more coupling
+than this feature needs on day one.*
+
+---
+
 ## 4. Suggested execution order
 
 1. **Epic 1** — one codebase, or everything after this costs double.
@@ -1885,3 +2028,6 @@ how this document was originally sequenced.
 7. **Epic 7** — sessions and multi-turn.
 8. **Epic 8** — the IDE surface and presentation polish.
 9. **Epic 9** remaining — CI, docs, packaging.
+10. **Epic 10** — Explorer page AI overview + in-place editing. F10.1 (overview) first since it's
+    additive and read-only; F10.2 (editing) second since it's a new write path that needs its own
+    safety checks (containment, protected paths, conflict detection) before it ships.
