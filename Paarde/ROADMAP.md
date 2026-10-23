@@ -2256,7 +2256,7 @@ diff rendering too.*
 
 ---
 
-### EPIC 14 — Codebase-aware context: @-mentions + semantic search *(P2)*
+### EPIC 14 — Codebase-aware context: @-mentions + semantic search *(P2)* — ⏸ Deferred 2026-10-23 (F14.1 shipped; F14.2/F14.3.2 on hold, not currently planned)
 
 *Why: `PromptViewModel.AddContextFilesAsync` (T5.4.1) only attaches whatever the user manually browses
 to and inlines full file contents via `BuildContextFilesBlock` - there's no way to ask "find the files
@@ -2301,7 +2301,7 @@ dependency.*
   here without Epic 17's LSP integration; file-level `@mention` ships first. Confirmed still out of
   scope - nothing here attempts symbol-level matching.
 
-**F14.2 — Relevance ranking (semantic, second slice)**
+**F14.2 — Relevance ranking (semantic, second slice)** — ⏸ Deferred, not currently planned
 - [ ] T14.2.1 New `ICodebaseIndexService`: chunks each non-ignored file (same `GitIgnoreMatcher`/
   `FileTreeBuilder` exclusions as Explorer) and embeds each chunk. **Open question:** Anthropic doesn't
   currently expose a public embeddings endpoint, so this may need a different provider configured
@@ -2331,7 +2331,7 @@ dependency.*
 
 ---
 
-### EPIC 15 — Inline ghost-text autocomplete *(P3)*
+### EPIC 15 — Inline ghost-text autocomplete *(P3)* — ✅ Done 2026-10-23
 
 *Why: Copilot/Cursor Tab-style completion predicts the next few tokens as you type; Paarde has no
 equivalent anywhere `CodeEditor` is used read/write (Explorer's F10.2 editor, Tutorial's proposal
@@ -2340,28 +2340,57 @@ with the apply/review pipeline at all - but it's also the one most exposed to la
 that arrives after the user has already typed past it is worse than none), which is why it's ranked
 lowest alongside Epic 17.*
 
-**F15.1 — Ghost-text rendering**
-- [ ] T15.1.1 New `GhostTextRenderer` on `CodeEditor` (same extension-point family as
+**F15.1 — Ghost-text rendering** — ✅ Done 2026-10-23
+- [x] T15.1.1 New `GhostTextRenderer` on `CodeEditor` (same extension-point family as
   `BracketHighlightRenderer`/Epic 13's `DiffBackgroundRenderer`; AvaloniaEdit's own samples use a
   `VisualLineElementGenerator` for inline ghost suggestions) renders a dimmed inline suggestion at the
-  caret, accepted with Tab and dismissed on any other keystroke.
-- [ ] T15.1.2 Debounced trigger (e.g. 300ms after the caret stops moving in insert mode) rather than
-  firing a completion request per keystroke.
+  caret, accepted with Tab and dismissed on any other keystroke. Done as: `GhostTextRenderer`
+  (`VisualLineElementGenerator` + `InlineObjectElement(0, textBlock)`, dimmed via a translucent grey
+  brush, font matched to `GlobalTextRunProperties`), plus `GhostTextSuggestionState` tracking the
+  active offset/text. `CodeEditor` intercepts Tab/Escape via a tunnel-routed `KeyDown` handler on
+  `TextArea` (needed because `TextArea.OnKeyDown` unconditionally consumes Tab itself when
+  `Options.AcceptsTab` is set - confirmed by decompiling the installed AvaloniaEdit 11.4.0 with
+  `ilspycmd`, since this sandbox has no X server to verify visually); Tab inserts the suggestion and
+  moves the caret past it, any other key (via the existing `TextChanged` hook) dismisses it. Not
+  visually verified, same caveat as every other Avalonia-touching task in this roadmap.
+- [x] T15.1.2 Debounced trigger (e.g. 300ms after the caret stops moving in insert mode) rather than
+  firing a completion request per keystroke. Done as: `GhostTextDebouncer`, a pure clock-injected
+  state machine (`NotifyInput(now)`/`ShouldFire(now)`/`Cancel()`) kept separate from the real
+  `DispatcherTimer` glue in `CodeEditor` so it's unit-testable without a real timer. 400ms delay,
+  polled by a 150ms `DispatcherTimer` tick.
 
-**F15.2 — Completion source**
-- [ ] T15.2.1 A small, fast prompt (file content up to the caret plus a short suffix window, not the
+**F15.2 — Completion source** — ✅ Done 2026-10-23
+- [x] T15.2.1 A small, fast prompt (file content up to the caret plus a short suffix window, not the
   whole-file/whole-tutorial prompt shape every other feature here uses) sent via the existing
   `ILlmRunner.RunPromptAsync` - reuses the runner abstraction, but needs its own short request timeout
   distinct from the main run's configurable one, which is tuned for multi-file generation, not a
-  300ms-budget completion.
-- [ ] T15.2.2 **Open question, not resolved in this plan:** is a per-keystroke-adjacent call to the
-  configured runner (CLI process spawn, or a billed API call) fast/cheap enough to feel like real
-  autocomplete, or does this need a separate, smaller/faster model configured specifically for
-  completions? Needs a spike before committing to F15.2's shape.
+  300ms-budget completion. Done as: `ExplorerViewModel.RequestGhostTextCompletionAsync` and
+  `TutorialViewModel.RequestGhostTextCompletionAsync`, each following this codebase's existing
+  convention that view models - not views - own every `ILlmRunner` call. Text before/after the caret
+  is capped at 4000/1000 characters; the prompt asks for only the inserted text, with an `<cursor/>`
+  marker, no markdown fences. Each request gets its own `CancellationTokenSource` with a 2s timeout,
+  cancelled outright if a newer keystroke supersedes it. `CodeEditor` separately guards against a
+  stale response landing after the caret has moved on by comparing the request's caret offset against
+  the current one before showing a suggestion. Explorer's `CodeEditor.GhostTextSuggestion` binds
+  directly to `ExplorerViewModel.GhostTextSuggestion` (same `DataContext`); Tutorial's proposal editor
+  can't do that - `TutorialDetailControl`'s `Editor` is bound to a `ProposedFileChangeViewModel`, which
+  deliberately has no `ILlmRunner` - so there `RequestGhostTextCompletionAsync` returns the suggestion
+  directly and `TutorialDetailControl`'s code-behind forwards the request up to the page-level
+  `TutorialViewModel` (via the same `FindAncestorOfType<TutorialView>()` lookup `ApplyPendingStepTarget`
+  already uses) and assigns the result straight onto `Editor.GhostTextSuggestion`.
+- [x] T15.2.2 **Open question, resolved:** reuses whichever `ILlmRunner` the user already has
+  configured, rather than adding a dedicated fast/cheap completion model - simpler, and the existing
+  400ms debounce + 2s per-request timeout + caret-offset staleness check (T15.2.1) keeps a slow runner
+  from feeling broken even if it doesn't feel instant. Revisit a dedicated fast model only if real
+  usage shows the reused runner is consistently too slow to be useful.
 
-**F15.3 — Tests**
-- [ ] T15.3.1 Debounce timing and accept/dismiss state transitions (pure logic, no real completion
-  calls).
+**F15.3 — Tests** — ✅ Done 2026-10-23
+- [x] T15.3.1 Debounce timing and accept/dismiss state transitions (pure logic, no real completion
+  calls). Done as: `GhostTextDebouncerTests` (no-input/pre-delay/post-delay firing, fires-once-per-
+  input, input resets the window, `Cancel` suppresses a pending fire) and
+  `GhostTextSuggestionStateTests` (`Show`/`Accept`/`Dismiss` transitions, `Accept` at the wrong caret
+  offset leaves the suggestion in place, empty-text `Show` doesn't count as a suggestion) in
+  `Paarde.Avalonia.Tests/Helpers/`.
 
 ---
 
@@ -2469,9 +2498,10 @@ where the editor *is* the product.*
     Epic 12's `ProcessCommandRunner`.
 14. **Epic 13** — inline diff view in the editor. Polish on an already-solid review/apply flow, not a
     new safety-critical path.
-15. **Epic 14** — codebase-aware context. F14.1 (`@file` mention, no embeddings) before F14.2
-    (semantic ranking, which adds a new embeddings-provider dependency).
-16. **Epic 15** — inline ghost-text autocomplete. Needs a latency/cost spike (F15.2.2) before
-    committing to its final shape.
-17. **Epic 17** — LSP-backed code intelligence. Largest and most speculative; lowest priority given
+15. **Epic 15** — inline ghost-text autocomplete. ✅ Done 2026-10-23.
+16. **Epic 17** — LSP-backed code intelligence. Largest and most speculative; lowest priority given
     `CodeEditor` is a review/light-edit surface here, not the app's primary authoring surface.
+
+**Epic 14** (F14.2 semantic ranking) is deferred, not currently planned — F14.1 (`@file` mention,
+no embeddings) already shipped; the remainder is on hold pending a decision on an embeddings
+provider.

@@ -25,5 +25,10 @@ public partial class ExplorerView : UserControl
         _paneHelper = new ResizablePaneHelper(WorkspaceGrid.ColumnDefinitions[0], App.GetService<ILocalSettingsService>(), WorkspaceLayoutSettingsKeys.ExplorerTreeWidth, defaultWidth: 300);
         Loaded += async (_, _) => await _paneHelper.RestoreAsync();
         TreeSplitter.DragCompleted += (_, _) => _paneHelper.OnSplitterDragCompleted();
+
+        // Epic 15: Editor itself has no ILlmRunner - it just reports where the caret is, and
+        // ViewModel (which already owns _llmRunner for ExplainSelectedFileCommand) decides what to
+        // do with that.
+        Editor.GhostTextRequested += async (_, e) => await ViewModel.RequestGhostTextCompletionAsync(e.TextBeforeCaret, e.TextAfterCaret);
     }
 }

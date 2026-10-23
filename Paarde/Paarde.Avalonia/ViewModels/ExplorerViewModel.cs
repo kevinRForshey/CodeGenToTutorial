@@ -66,6 +66,15 @@ public partial class ExplorerViewModel : ObservableObject, INavigationAware, ICo
     [ObservableProperty]
     private bool isLoadingOverview;
 
+    // Epic 15, T15.2: the most recent ghost-text completion CodeEditor asked for - set to null then
+    // immediately to the new value (rather than straight to the new value) so a repeat suggestion
+    // (same text twice in a row) still raises PropertyChanged; Avalonia's property system otherwise
+    // short-circuits a set that equals the current value, and CodeEditor would never redisplay it.
+    [ObservableProperty]
+    private string? ghostTextSuggestion;
+
+    private CancellationTokenSource? _ghostTextCancellationTokenSource;
+
     // T10.2.1: whether SelectedFileContent has diverged from _originalFileContentOnDisk.
     [ObservableProperty]
     private bool isFileDirty;
@@ -266,6 +275,46 @@ public partial class ExplorerViewModel : ObservableObject, INavigationAware, ICo
     }
 
     private bool CanExplainSelectedFile() => !IsLoadingOverview && !string.IsNullOrEmpty(SelectedFilePath);
+
+    // Epic 15, T15.2.1/T15.2.2: handles CodeEditor.GhostTextRequested. Deliberately reuses whichever
+    // ILlmRunner is already configured (same as ExplainSelectedFileAsync above) rather than adding a
+    // dedicated fast-model setting for completions - latency will vary with the active runner (a
+    // ClaudeCli process spawn is a lot slower than a direct API call), which is a real, currently
+    // unverified-in-this-sandbox UX risk the roadmap flagged as an open question (F15.2.2). The
+    // short per-request timeout plus CodeEditor's own staleness check (dropping a suggestion whose
+    // caret offset no longer matches) are the mitigation for now; a dedicated faster model is the
+    // follow-up if this proves too slow in practice, not something to build ahead of that evidence.
+    //
+    // No resumeSessionId - a one-off lookup against whatever's open in Explorer, not a continuation
+    // of any other conversation, same reasoning ExplainSelectedFileAsync's comment gives.
+    public async Task RequestGhostTextCompletionAsync(string textBeforeCaret, string textAfterCaret)
+    {
+        _ghostTextCancellationTokenSource?.Cancel();
+        var cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        _ghostTextCancellationTokenSource = cancellationTokenSource;
+
+        try
+        {
+            var prompt =
+                "Complete the code at the <cursor/> marker below. Respond with ONLY the text that " +
+                "should be inserted at the cursor - no explanation, no markdown fences, nothing before " +
+                "or after it. If nothing reasonable completes the code there, respond with nothing.\n\n" +
+                $"File: {SelectedFilePath}\n\n{textBeforeCaret}<cursor/>{textAfterCaret}";
+
+            var result = await _llmRunner.RunPromptAsync(prompt, WorkingDirectoryPath, cancellationToken: cancellationTokenSource.Token);
+            if (cancellationTokenSource.IsCancellationRequested || !result.Success || string.IsNullOrWhiteSpace(result.Output))
+            {
+                return;
+            }
+
+            GhostTextSuggestion = null;
+            GhostTextSuggestion = result.Output.Trim();
+        }
+        catch (OperationCanceledException)
+        {
+            // Superseded by a newer request, or timed out - either way, there's nothing to show.
+        }
+    }
 
     // T9.2.3: async void because INavigationAware.OnNavigatedTo returns void - wrapped so a
     // corrupt settings file (the one thing ReadSettingAsync can actually throw on) is logged

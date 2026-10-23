@@ -87,10 +87,12 @@
                 <!-- T10.2.1: editable now - BindableText is TwoWay by default (T2.2.2), so edits
                      flow straight back into SelectedFileContent, where OnSelectedFileContentChanged
                      derives IsFileDirty. -->
-                <controls:CodeEditor Grid.Row="1"
+                <controls:CodeEditor Name="Editor"
+                                      Grid.Row="1"
                                       Margin="8,0,0,0"
                                       helpers:TextEditorExtensions.BindableText="{Binding SelectedFileContent}"
                                       FilePath="{Binding SelectedFilePath}"
+                                      GhostTextSuggestion="{Binding GhostTextSuggestion}"
                                       IsReadOnly="False"
                                       HorizontalScrollBarVisibility="Auto"
                                       VerticalScrollBarVisibility="Auto"
