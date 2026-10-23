@@ -119,7 +119,9 @@ Prompt page's working directory to one you've used before) lists.
 - **Context files** — optionally attach specific files or a whole folder as extra context for the
   model, beyond what's in the working directory. You can also attach a file by typing `@` followed
   by part of its name directly in the prompt text box — a popup lists matching files (gitignore-aware)
-  for you to pick from.
+  for you to pick from. **Suggest relevant files** ranks every file in the working directory against
+  your prompt text (keyword matching, not a cloud embeddings call — no API key or extra setup needed)
+  and lists candidates below; double-click one to attach it, or **Dismiss** to ignore the suggestions.
 - **Prompt text** — describe what you want built, fixed, or changed, in plain English. A live
   estimated token count is shown above the box.
 - **Preset** — a short instruction nudge appended ahead of your prompt: `General`, `Feature`,

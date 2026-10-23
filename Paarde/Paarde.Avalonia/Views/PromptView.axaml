@@ -36,13 +36,33 @@
         </Grid>
 
         <StackPanel Grid.Row="2" Margin="0,8,0,0" Spacing="4">
-            <Grid ColumnDefinitions="*,Auto,Auto,Auto">
+            <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto">
                 <TextBlock Grid.Column="0" Text="Context files" FontSize="12" Opacity="0.7" VerticalAlignment="Center" />
                 <Button Grid.Column="1" Content="Add files..." Command="{Binding AddContextFilesCommand}" />
                 <Button Grid.Column="2" Content="Add folder..." Margin="8,0,0,0" Command="{Binding AddContextFolderCommand}" />
                 <Button Grid.Column="3" Content="Remove selected" Margin="8,0,0,0" Command="{Binding RemoveAttachedPathCommand}" />
+                <Button Grid.Column="4" Content="Suggest relevant files" Margin="8,0,0,0" Command="{Binding SuggestRelevantFilesCommand}" />
             </Grid>
             <ListBox ItemsSource="{Binding AttachedPaths}" SelectedItem="{Binding SelectedAttachedPath}" MaxHeight="96" />
+
+            <!-- T14.2.3: suggestions are never auto-attached - double-tap accepts one (removing it
+                 from this list), "Dismiss" clears the rest without attaching anything. -->
+            <Border IsVisible="{Binding HasSuggestedRelevantFiles}"
+                    Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                    BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                    BorderThickness="1"
+                    Padding="8">
+                <StackPanel Spacing="4">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0" Text="Suggested relevant files (double-click to attach)" FontSize="12" Opacity="0.7" VerticalAlignment="Center" />
+                        <Button Grid.Column="1" Content="Dismiss" Command="{Binding DismissSuggestedRelevantFilesCommand}" />
+                    </Grid>
+                    <ListBox Name="SuggestedRelevantFilesListBox"
+                             ItemsSource="{Binding SuggestedRelevantFiles}"
+                             MaxHeight="96"
+                             DoubleTapped="OnSuggestedRelevantFileDoubleTapped" />
+                </StackPanel>
+            </Border>
         </StackPanel>
 
         <StackPanel Grid.Row="3" Margin="0,8,0,0" Spacing="4">

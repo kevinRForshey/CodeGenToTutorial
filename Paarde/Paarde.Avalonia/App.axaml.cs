@@ -123,6 +123,11 @@ public partial class App : Application
             services.AddTransient<IBuildTestRunner, ProcessCommandRunner>();
             services.AddTransient<ITerminalCommandRunner, ProcessCommandRunner>();
 
+            // T14.2.1/T14.2.2: singleton so its per-working-directory TF-IDF index survives across
+            // prompts in the same session instead of re-tokenizing the whole project on every
+            // "Suggest relevant files" click.
+            services.AddSingleton<ICodebaseIndexService, TfIdfCodebaseIndexService>();
+
             // Epic 17 (T17.2.1): singleton, not transient like the per-call runners above - this is
             // a long-lived process tied to Explorer's current working directory, started/stopped by
             // ExplorerViewModel rather than spun up fresh per call.

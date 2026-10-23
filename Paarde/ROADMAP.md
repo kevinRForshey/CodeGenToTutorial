@@ -2256,7 +2256,7 @@ diff rendering too.*
 
 ---
 
-### EPIC 14 — Codebase-aware context: @-mentions + semantic search *(P2)* — ⏸ Deferred 2026-10-23 (F14.1 shipped; F14.2/F14.3.2 on hold, not currently planned)
+### EPIC 14 — Codebase-aware context: @-mentions + semantic search *(P2)* — ✅ Done 2026-10-23
 
 *Why: `PromptViewModel.AddContextFilesAsync` (T5.4.1) only attaches whatever the user manually browses
 to and inlines full file contents via `BuildContextFilesBlock` - there's no way to ask "find the files
@@ -2301,18 +2301,43 @@ dependency.*
   here without Epic 17's LSP integration; file-level `@mention` ships first. Confirmed still out of
   scope - nothing here attempts symbol-level matching.
 
-**F14.2 — Relevance ranking (semantic, second slice)** — ⏸ Deferred, not currently planned
-- [ ] T14.2.1 New `ICodebaseIndexService`: chunks each non-ignored file (same `GitIgnoreMatcher`/
+**F14.2 — Relevance ranking (semantic, second slice)** — ✅ Done 2026-10-23, as **lexical** (TF-IDF)
+ranking rather than true semantic (embedding) search - resolves the open question below by sidestepping
+it: no embeddings provider, no API key, no new runtime dependency, at the cost of missing
+synonyms/paraphrases a real embedding model would catch. Revisit with a local ONNX-hosted embedding
+model if lexical matching proves too weak in practice.
+- [x] T14.2.1 New `ICodebaseIndexService`: chunks each non-ignored file (same `GitIgnoreMatcher`/
   `FileTreeBuilder` exclusions as Explorer) and embeds each chunk. **Open question:** Anthropic doesn't
   currently expose a public embeddings endpoint, so this may need a different provider configured
   specifically for embeddings - a real added dependency, not a trivial add; needs a decision before
-  F14.2 starts.
-- [ ] T14.2.2 A local on-disk index (e.g. SQLite + a simple cosine-similarity scan - no dedicated
+  F14.2 starts. Done as: `ICodebaseIndexService.FindRelevantFilesAsync` and `TfIdfCodebaseIndexService` -
+  scores *whole files*, not chunks, since the only consumer (T14.2.3) attaches a whole file to the
+  prompt the same way `PromptViewModel.AttachedPaths` already does; chunk-level granularity would have
+  had nowhere to surface. Tokenizes to lowercase alphanumeric terms (`[A-Za-z0-9]+`, no camelCase
+  splitting, no stopword list - kept deliberately simple for a first pass) and scores the prompt text's
+  terms against each file's standard TF-IDF weight. Files are skipped (not just "scored low") if they're
+  over 1MB or contain a NUL byte in their first 8KB - the same cheap binary heuristic used nowhere else
+  in this codebase yet, since nothing else here reads arbitrary file content for scoring.
+- [x] T14.2.2 A local on-disk index (e.g. SQLite + a simple cosine-similarity scan - no dedicated
   vector DB needed at this project's likely repo sizes) keyed by working directory, invalidated
-  per-file on mtime change rather than a full re-index per run.
-- [ ] T14.2.3 The manual attach flow stays the explicit override; this adds an opt-in "suggest relevant
+  per-file on mtime change rather than a full re-index per run. Done as: in-memory only (not on-disk -
+  a TF-IDF term-count table is cheap enough to rebuild once per app run and not worth persisting), a
+  `ConcurrentDictionary<workingDirectoryPath, Dictionary<filePath, FileTermVector>>` on the singleton
+  `TfIdfCodebaseIndexService`. Each call re-walks the file tree and only re-tokenizes a file whose
+  `LastWriteTimeUtc` changed since it was last indexed; files no longer present (deleted or newly
+  gitignored) are dropped from the cache at the same time. No cross-directory eviction - acceptable
+  since a session typically has one project open at a time.
+- [x] T14.2.3 The manual attach flow stays the explicit override; this adds an opt-in "suggest relevant
   files" step before sending a prompt, surfaced as suggestions the user accepts into the same
-  attachment list - never silently auto-injected context.
+  attachment list - never silently auto-injected context. Done as: a new "Suggest relevant files"
+  button next to Prompt's existing "Add files.../Add folder..." row, wired to
+  `PromptViewModel.SuggestRelevantFilesCommand` (gated on a non-blank working directory and prompt
+  text). Results populate `SuggestedRelevantFiles`, rendered as a dismissible list below the attached-
+  files list; already-attached files are filtered out of the suggestions. Double-clicking a suggestion
+  calls `AttachSuggestedFile` - the same `AddAttachedPaths`/`SaveAttachedPathsAsync` pair
+  `AttachMentionedFile` (T14.1.2) already uses - and removes just that one entry, so multiple
+  suggestions can be accepted without re-running the search; "Dismiss" clears the rest without
+  attaching anything.
 
 **F14.3 — Tests**
 - [x] T14.3.1 `@mention` popup filtering against a fake file tree; selecting an entry attaches the
@@ -2326,8 +2351,16 @@ dependency.*
   `UpdateMentionSuggestions_NoWorkingDirectory_LeavesMentionSuggestionsEmpty`,
   `CloseMentionPopup_ClearsMentionSuggestions`, and
   `AttachMentionedFile_ResolvesTheRelativePathAgainstWorkingDirectoryAndAttachesIt`.
-- [ ] T14.3.2 `ICodebaseIndexService` chunking/invalidation logic (pure, no real embedding calls) -
-  embedding-call correctness itself isn't something to unit test against a live API.
+- [x] T14.3.2 `ICodebaseIndexService` chunking/invalidation logic (pure, no real embedding calls) -
+  embedding-call correctness itself isn't something to unit test against a live API. Done as:
+  `TfIdfCodebaseIndexServiceTests` against real temp directories (same pattern as
+  `FileTreeBuilderTests`) - covers ranking order (a file that repeats the query term scores above one
+  that mentions it once), no-match/blank-query/missing-directory returning empty, the binary-NUL-byte
+  skip, relative-path shaping, `maxResults` capping, and the two invalidation paths: a file's content
+  changing between calls (old term gone, new term found) and a file being deleted between calls
+  (silently dropped, no exception). `PromptViewModelTests` covers the ViewModel-level glue
+  (`FakeCodebaseIndexService`) - suggestion population, already-attached filtering, the command's
+  CanExecute gating, attach-and-remove-one, and dismiss-clears-without-attaching.
 
 ---
 
@@ -2565,6 +2598,6 @@ a language server to track there.
     `CodeEditor` is a review/light-edit surface here, not the app's primary authoring surface. ✅ Done
     2026-10-23.
 
-**Epic 14** (F14.2 semantic ranking) is deferred, not currently planned — F14.1 (`@file` mention,
-no embeddings) already shipped; the remainder is on hold pending a decision on an embeddings
-provider.
+17. **Epic 14 (F14.2)** — relevance ranking, shipped as lexical TF-IDF rather than true semantic
+    (embedding) search, sidestepping the embeddings-provider/API-key decision entirely. ✅ Done
+    2026-10-23.
