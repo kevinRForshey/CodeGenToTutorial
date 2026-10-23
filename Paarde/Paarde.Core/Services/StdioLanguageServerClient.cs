@@ -16,7 +16,7 @@ namespace Paarde.Core.Services;
 // Process.OutputDataReceived's line-based callback.
 public class StdioLanguageServerClient : ILanguageServerClient, IAsyncDisposable
 {
-    private readonly Func<Task<LspOptions>> _optionsProvider;
+    private readonly Func<Task<LanguageServerOptions>> _optionsProvider;
     private readonly object _lifecycleLock = new();
 
     private Process? _process;
@@ -27,9 +27,9 @@ public class StdioLanguageServerClient : ILanguageServerClient, IAsyncDisposable
     private readonly Dictionary<int, TaskCompletionSource<JToken?>> _pendingRequests = new();
     private readonly Dictionary<string, int> _documentVersionsByUri = new();
 
-    public StdioLanguageServerClient(Func<Task<LspOptions>>? optionsProvider = null)
+    public StdioLanguageServerClient(Func<Task<LanguageServerOptions>>? optionsProvider = null)
     {
-        _optionsProvider = optionsProvider ?? (() => Task.FromResult(LspOptions.Default));
+        _optionsProvider = optionsProvider ?? (() => Task.FromResult(LanguageServerOptions.Defaults[0]));
     }
 
     public bool IsRunning => _process is { HasExited: false };
@@ -88,7 +88,20 @@ public class StdioLanguageServerClient : ILanguageServerClient, IAsyncDisposable
         {
             ["processId"] = Environment.ProcessId,
             ["rootUri"] = rootUri,
-            ["capabilities"] = new JObject(),
+
+            // specs/multi-language-support/requirements.md R5: previously an empty object - this
+            // app always relied on publishDiagnostics/definition/references without ever telling a
+            // server it supports them. Structured so adding "completion" later
+            // (specs/editor-autocomplete) is a one-property addition, not a restructure.
+            ["capabilities"] = new JObject
+            {
+                ["textDocument"] = new JObject
+                {
+                    ["publishDiagnostics"] = new JObject(),
+                    ["definition"] = new JObject(),
+                    ["references"] = new JObject(),
+                },
+            },
         }, cancellationToken);
 
         await SendNotificationAsync("initialized", new JObject());
@@ -148,7 +161,7 @@ public class StdioLanguageServerClient : ILanguageServerClient, IAsyncDisposable
         _readLoopTask = null;
     }
 
-    public Task NotifyDocumentOpenedAsync(string filePath, string text)
+    public Task NotifyDocumentOpenedAsync(string filePath, string text, string languageId)
     {
         var uri = PathToUri(filePath);
         _documentVersionsByUri[uri] = 1;
@@ -158,7 +171,7 @@ public class StdioLanguageServerClient : ILanguageServerClient, IAsyncDisposable
             ["textDocument"] = new JObject
             {
                 ["uri"] = uri,
-                ["languageId"] = "csharp",
+                ["languageId"] = languageId,
                 ["version"] = 1,
                 ["text"] = text,
             },

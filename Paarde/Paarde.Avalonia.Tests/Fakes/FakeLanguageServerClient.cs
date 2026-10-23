@@ -32,7 +32,13 @@ public class FakeLanguageServerClient : ILanguageServerClient
         return Task.CompletedTask;
     }
 
-    public Task NotifyDocumentOpenedAsync(string filePath, string text) => Task.CompletedTask;
+    public string? LastOpenedLanguageId { get; private set; }
+
+    public Task NotifyDocumentOpenedAsync(string filePath, string text, string languageId)
+    {
+        LastOpenedLanguageId = languageId;
+        return Task.CompletedTask;
+    }
 
     public Task NotifyDocumentChangedAsync(string filePath, string text) => Task.CompletedTask;
 

@@ -27,7 +27,7 @@ public partial class ExplorerViewModel : ObservableObject, INavigationAware, ICo
     private readonly ILlmRunner _llmRunner;
     private readonly IFileChangeApplyService _fileChangeApplyService;
     private readonly IDialogService _dialogService;
-    private readonly ILanguageServerClient _languageServerClient;
+    private readonly ILanguageServerSessionManager _languageServerSessionManager;
     private readonly ILogger<ExplorerViewModel> _logger;
 
     // Epic 17, T17.1.3: set by NavigateToLocation, consumed once by ExplorerView.axaml.cs's
@@ -101,7 +101,7 @@ public partial class ExplorerViewModel : ObservableObject, INavigationAware, ICo
         ILlmRunner llmRunner,
         IFileChangeApplyService fileChangeApplyService,
         IDialogService dialogService,
-        ILanguageServerClient languageServerClient,
+        ILanguageServerSessionManager languageServerSessionManager,
         ILogger<ExplorerViewModel>? logger = null)
     {
         _promptResultStore = promptResultStore;
@@ -109,10 +109,10 @@ public partial class ExplorerViewModel : ObservableObject, INavigationAware, ICo
         _llmRunner = llmRunner;
         _fileChangeApplyService = fileChangeApplyService;
         _dialogService = dialogService;
-        _languageServerClient = languageServerClient;
+        _languageServerSessionManager = languageServerSessionManager;
         _logger = logger ?? NullLogger<ExplorerViewModel>.Instance;
 
-        _languageServerClient.DiagnosticsPublished += OnDiagnosticsPublished;
+        _languageServerSessionManager.DiagnosticsPublished += OnDiagnosticsPublished;
     }
 
     // T10.2.5: IConfirmNavigationAway - checked by NavigationService.OnNavigating before leaving
@@ -184,7 +184,7 @@ public partial class ExplorerViewModel : ObservableObject, INavigationAware, ICo
         // opening a new one - a no-op if nothing was open or the server isn't running.
         if (!string.IsNullOrEmpty(SelectedFilePath))
         {
-            _ = _languageServerClient.NotifyDocumentClosedAsync(SelectedFilePath);
+            _ = _languageServerSessionManager.NotifyDocumentClosedAsync(SelectedFilePath);
         }
 
         Diagnostics = null;
@@ -201,7 +201,7 @@ public partial class ExplorerViewModel : ObservableObject, INavigationAware, ICo
         _originalFileContentOnDisk = FileContentReader.ReadOrEmpty(value.FullPath);
         SelectedFileContent = _originalFileContentOnDisk;
 
-        _ = _languageServerClient.NotifyDocumentOpenedAsync(SelectedFilePath, SelectedFileContent);
+        _ = _languageServerSessionManager.NotifyDocumentOpenedAsync(SelectedFilePath, SelectedFileContent);
     }
 
     partial void OnSelectedFilePathChanged(string value) => ExplainSelectedFileCommand.NotifyCanExecuteChanged();
@@ -212,7 +212,7 @@ public partial class ExplorerViewModel : ObservableObject, INavigationAware, ICo
 
         if (!string.IsNullOrEmpty(SelectedFilePath))
         {
-            _ = _languageServerClient.NotifyDocumentChangedAsync(SelectedFilePath, value);
+            _ = _languageServerSessionManager.NotifyDocumentChangedAsync(SelectedFilePath, value);
         }
     }
 
@@ -367,11 +367,13 @@ public partial class ExplorerViewModel : ObservableObject, INavigationAware, ICo
             WorkingDirectoryPath = await _localSettingsService.ReadSettingAsync<string>(WorkingDirectorySettingsKeys.WorkingDirectory) ?? string.Empty;
             RefreshTree();
 
-            // Epic 17, T17.2.1: lifecycle tied to Explorer's working directory - a no-op if the
-            // configured server isn't installed, or if it's already running against this same path.
-            if (!string.IsNullOrWhiteSpace(WorkingDirectoryPath) && Directory.Exists(WorkingDirectoryPath) && await _languageServerClient.IsAvailableAsync())
+            // Epic 17, T17.2.1/Epic 18: lifecycle tied to Explorer's working directory -
+            // StartAllAsync itself detects which configured languages are relevant here (project
+            // markers) and skips any whose executable isn't installed, per-language, rather than
+            // this call site gating on a single IsAvailableAsync check.
+            if (!string.IsNullOrWhiteSpace(WorkingDirectoryPath) && Directory.Exists(WorkingDirectoryPath))
             {
-                await _languageServerClient.StartAsync(WorkingDirectoryPath);
+                await _languageServerSessionManager.StartAllAsync(WorkingDirectoryPath);
             }
         }
         catch (Exception ex)
@@ -386,7 +388,7 @@ public partial class ExplorerViewModel : ObservableObject, INavigationAware, ICo
     // unhooked here or it accumulates one stale handler per visit to this page. The server process
     // itself keeps running (teardown is app-exit only, per the approved scope) - only the event
     // subscription is page-navigation-scoped.
-    public void OnNavigatedFrom() => _languageServerClient.DiagnosticsPublished -= OnDiagnosticsPublished;
+    public void OnNavigatedFrom() => _languageServerSessionManager.DiagnosticsPublished -= OnDiagnosticsPublished;
 
     // Epic 17, T17.1.2: fires on the server's notification-read background thread - marshaled to
     // the UI thread before touching Diagnostics, same caveat ILlmRunner's onTextDelta callbacks
@@ -413,7 +415,7 @@ public partial class ExplorerViewModel : ObservableObject, INavigationAware, ICo
 
         try
         {
-            var locations = await _languageServerClient.GetDefinitionAsync(SelectedFilePath, position);
+            var locations = await _languageServerSessionManager.GetDefinitionAsync(SelectedFilePath, position);
             if (locations.Count > 0)
             {
                 NavigateToLocation(locations[0]);
@@ -437,7 +439,7 @@ public partial class ExplorerViewModel : ObservableObject, INavigationAware, ICo
 
         try
         {
-            return await _languageServerClient.GetReferencesAsync(SelectedFilePath, position);
+            return await _languageServerSessionManager.GetReferencesAsync(SelectedFilePath, position);
         }
         catch (Exception ex)
         {

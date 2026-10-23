@@ -128,11 +128,16 @@ public partial class App : Application
             // "Suggest relevant files" click.
             services.AddSingleton<ICodebaseIndexService, TfIdfCodebaseIndexService>();
 
-            // Epic 17 (T17.2.1): singleton, not transient like the per-call runners above - this is
-            // a long-lived process tied to Explorer's current working directory, started/stopped by
-            // ExplorerViewModel rather than spun up fresh per call.
-            services.AddSingleton<LspOptionsProvider>();
-            services.AddSingleton<ILanguageServerClient>(sp => new StdioLanguageServerClient(sp.GetRequiredService<LspOptionsProvider>().GetOptionsAsync));
+            // Epic 17 (T17.2.1)/Epic 18 (specs/multi-language-support): singleton, not transient
+            // like the per-call runners above - ILanguageServerSessionManager owns zero-or-more
+            // long-lived per-language server processes tied to Explorer's current working
+            // directory, started/stopped by ExplorerViewModel rather than spun up fresh per call.
+            services.AddSingleton<LanguageServerOptionsProvider>();
+            services.AddSingleton<IProjectTypeDetector, ProjectTypeDetector>();
+            services.AddSingleton<ILanguageServerSessionManager>(sp => new LanguageServerSessionManager(
+                sp.GetRequiredService<IProjectTypeDetector>(),
+                sp.GetRequiredService<LanguageServerOptionsProvider>().GetOptionsAsync,
+                logger: sp.GetRequiredService<ILogger<LanguageServerSessionManager>>()));
             services.AddTransient<IApplyOrchestrationService, ApplyOrchestrationService>();
             services.AddTransient<INavigationViewService, NavigationViewService>();
             services.AddTransient<IDialogService, DialogService>();
@@ -229,11 +234,12 @@ public partial class App : Application
             // InvokeShutdown() call, sidesteps the race instead of letting Avalonia's internal teardown hit it.
             desktop.Exit += (_, _) =>
             {
-                // Epic 17 (T17.2.1): the language server is a child process with no owner other
-                // than this app - Environment.Exit(0) below terminates this process immediately and
-                // would otherwise orphan it. StopAsync's own kill is bounded (a couple of seconds at
-                // most), so blocking briefly here is acceptable on the way out.
-                GetService<ILanguageServerClient>().StopAsync().GetAwaiter().GetResult();
+                // Epic 17 (T17.2.1)/Epic 18: every language server is a child process with no
+                // owner other than this app - Environment.Exit(0) below terminates this process
+                // immediately and would otherwise orphan it/them. Each client's StopAsync kill is
+                // bounded (a couple of seconds at most), so blocking briefly here is acceptable on
+                // the way out.
+                GetService<ILanguageServerSessionManager>().StopAllAsync().GetAwaiter().GetResult();
                 Environment.Exit(0);
             };
 

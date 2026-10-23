@@ -1,5 +1,7 @@
 using System.Runtime.Versioning;
 
+using Newtonsoft.Json.Linq;
+
 using Paarde.Core.Models;
 using Paarde.Core.Services;
 
@@ -17,7 +19,15 @@ public class StdioLanguageServerClientTests : IAsyncLifetime
 {
     private const string FakeLspServerScript = """
         #!/usr/bin/env python3
-        import sys, json
+        import sys, json, os
+
+        log_path = sys.argv[1] if len(sys.argv) > 1 else None
+
+        def log_received(message):
+            if log_path is None:
+                return
+            with open(log_path, "a") as f:
+                f.write(json.dumps(message) + "\n")
 
         def read_message():
             content_length = None
@@ -43,6 +53,7 @@ public class StdioLanguageServerClientTests : IAsyncLifetime
 
             method = message.get("method")
             msg_id = message.get("id")
+            log_received(message)
 
             if method == "initialize":
                 write_message({"jsonrpc": "2.0", "id": msg_id, "result": {"capabilities": {}}})
@@ -84,6 +95,7 @@ public class StdioLanguageServerClientTests : IAsyncLifetime
         """;
 
     private readonly string _scriptPath = Path.Combine(Path.GetTempPath(), $"fake-lsp-server-{Guid.NewGuid()}.py");
+    private readonly string _receivedMessagesLogPath = Path.Combine(Path.GetTempPath(), $"fake-lsp-server-{Guid.NewGuid()}.log");
     private readonly StdioLanguageServerClient _client;
 
     public StdioLanguageServerClientTests()
@@ -91,7 +103,10 @@ public class StdioLanguageServerClientTests : IAsyncLifetime
         File.WriteAllText(_scriptPath, FakeLspServerScript);
         File.SetUnixFileMode(_scriptPath, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
 
-        var options = new LspOptions(_scriptPath, string.Empty);
+        // The arguments field doubles as a place to hand the fake server a path to record every
+        // request/notification it receives to, so tests can assert on outgoing message shape
+        // (R2.4/R5.1) without the fake server needing its own JSON-RPC client to talk back.
+        var options = new LanguageServerOptions("csharp", _scriptPath, _receivedMessagesLogPath);
         _client = new StdioLanguageServerClient(() => Task.FromResult(options));
     }
 
@@ -105,6 +120,37 @@ public class StdioLanguageServerClientTests : IAsyncLifetime
         {
             File.Delete(_scriptPath);
         }
+
+        if (File.Exists(_receivedMessagesLogPath))
+        {
+            File.Delete(_receivedMessagesLogPath);
+        }
+    }
+
+    // Finds the first message of the given method from the fake server's received-messages log,
+    // waiting briefly since the server writes it asynchronously relative to the client's send.
+    private async Task<JObject> WaitForReceivedMessageAsync(string method)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+
+        while (DateTime.UtcNow < deadline)
+        {
+            if (File.Exists(_receivedMessagesLogPath))
+            {
+                foreach (var line in await File.ReadAllLinesAsync(_receivedMessagesLogPath))
+                {
+                    var message = JObject.Parse(line);
+                    if (message["method"]?.ToString() == method)
+                    {
+                        return message;
+                    }
+                }
+            }
+
+            await Task.Delay(50);
+        }
+
+        throw new TimeoutException($"The fake language server never received a '{method}' message.");
     }
 
     [Fact]
@@ -116,7 +162,7 @@ public class StdioLanguageServerClientTests : IAsyncLifetime
     [Fact]
     public async Task IsAvailableAsync_ExecutableMissing_ReturnsFalse()
     {
-        var client = new StdioLanguageServerClient(() => Task.FromResult(new LspOptions("/no/such/lsp-binary", string.Empty)));
+        var client = new StdioLanguageServerClient(() => Task.FromResult(new LanguageServerOptions("csharp", "/no/such/lsp-binary", string.Empty)));
 
         Assert.False(await client.IsAvailableAsync());
     }
@@ -172,7 +218,7 @@ public class StdioLanguageServerClientTests : IAsyncLifetime
         _client.DiagnosticsPublished += (path, diagnostics) => tcs.TrySetResult((path, diagnostics));
 
         await _client.StartAsync(Path.GetTempPath());
-        await _client.NotifyDocumentOpenedAsync(filePath, "class Foo {}");
+        await _client.NotifyDocumentOpenedAsync(filePath, "class Foo {}", "csharp");
 
         var (publishedPath, diagnostics) = await tcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -180,5 +226,32 @@ public class StdioLanguageServerClientTests : IAsyncLifetime
         var diagnostic = Assert.Single(diagnostics);
         Assert.Equal("fake diagnostic", diagnostic.Message);
         Assert.Equal(LspDiagnosticSeverity.Error, diagnostic.Severity);
+    }
+
+    [Fact]
+    public async Task StartAsync_SendsInitializeRequestDeclaringDiagnosticsDefinitionAndReferencesCapabilities()
+    {
+        await _client.StartAsync(Path.GetTempPath());
+
+        var initializeMessage = await WaitForReceivedMessageAsync("initialize");
+
+        var textDocumentCapabilities = initializeMessage["params"]?["capabilities"]?["textDocument"];
+        Assert.NotNull(textDocumentCapabilities);
+        Assert.NotNull(textDocumentCapabilities!["publishDiagnostics"]);
+        Assert.NotNull(textDocumentCapabilities!["definition"]);
+        Assert.NotNull(textDocumentCapabilities!["references"]);
+    }
+
+    [Fact]
+    public async Task NotifyDocumentOpenedAsync_SendsTheCallerSuppliedLanguageIdNotAHardcodedOne()
+    {
+        var filePath = Path.Combine(Path.GetTempPath(), "fake-lsp-doc.tsx");
+
+        await _client.StartAsync(Path.GetTempPath());
+        await _client.NotifyDocumentOpenedAsync(filePath, "const x = 1;", "typescriptreact");
+
+        var didOpenMessage = await WaitForReceivedMessageAsync("textDocument/didOpen");
+
+        Assert.Equal("typescriptreact", didOpenMessage["params"]?["textDocument"]?["languageId"]?.ToString());
     }
 }

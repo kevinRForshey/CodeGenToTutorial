@@ -12,7 +12,7 @@ public class ExplorerViewModelTests : IDisposable
     private readonly FakeLlmRunner _llmRunner = new();
     private readonly FakeFileChangeApplyService _fileChangeApplyService = new();
     private readonly FakeDialogService _dialogService = new();
-    private readonly FakeLanguageServerClient _languageServerClient = new();
+    private readonly FakeLanguageServerSessionManager _languageServerSessionManager = new();
     private readonly string _workingDirectory;
 
     public ExplorerViewModelTests()
@@ -28,7 +28,7 @@ public class ExplorerViewModelTests : IDisposable
         }
     }
 
-    private ExplorerViewModel CreateSut() => new(_localSettingsService, _promptResultStore, _llmRunner, _fileChangeApplyService, _dialogService, _languageServerClient);
+    private ExplorerViewModel CreateSut() => new(_localSettingsService, _promptResultStore, _llmRunner, _fileChangeApplyService, _dialogService, _languageServerSessionManager);
 
     private async Task SetSavedWorkingDirectoryAsync(string path) =>
         await _localSettingsService.SaveSettingAsync(WorkingDirectorySettingsKeys.WorkingDirectory, path);

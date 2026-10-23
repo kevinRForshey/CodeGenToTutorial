@@ -2568,6 +2568,83 @@ a language server to track there.
 
 ---
 
+### EPIC 18 — Multi-language code intelligence (Python, TypeScript/JavaScript/JSX) *(P2)*
+
+*Why: Epic 17 shipped C#-only code intelligence by deliberate scope decision ("no speculative
+multi-language support built ahead of a second real use case"). This is that second use case:
+extend the same diagnostics/go-to-definition/find-references trio to Python and to
+TypeScript/JavaScript/JSX (one server, `typescript-language-server`, handles all four of those
+extensions - "React" is not a distinct LSP target). Syntax highlighting needs no work at all -
+confirmed by directly probing `TextMateSharp.Grammars`' `RegistryOptions.GetLanguageByExtension`,
+which already resolves `.py`/`.ts`/`.tsx`/`.js`/`.jsx` correctly; the gap is entirely semantic.*
+
+Full requirements, design, and task breakdown: [`specs/multi-language-support/`](specs/multi-language-support/requirements.md).
+
+**F18.1 — Per-language server configuration and routing** — Not started
+- [ ] T18.1.1 Replace the single global `LspOptions` with a per-language collection
+  (`LanguageServerOptions`), with built-in defaults for `csharp`→`csharp-ls`,
+  `python`→`pyright-langserver --stdio`, `typescript`→`typescript-language-server --stdio`, each
+  independently overridable in Settings. See `specs/multi-language-support/design.md`.
+- [ ] T18.1.2 Fix `StdioLanguageServerClient.NotifyDocumentOpenedAsync`'s hardcoded
+  `"languageId": "csharp"` to send the language actually detected for the open file.
+- [ ] T18.1.3 Add a project-type detector (`*.csproj`/`*.sln`, `pyproject.toml`/`setup.py`/
+  `requirements.txt`, `package.json`) so only relevant servers are attempted per working
+  directory, with a per-language force-enable escape hatch in Settings.
+
+**F18.2 — Concurrent multi-server lifecycle** — Not started
+- [ ] T18.2.1 New `ILanguageServerSessionManager` owning N `ILanguageServerClient` instances keyed
+  by language, so a polyglot working directory (e.g. a Python backend + TypeScript frontend) gets
+  intelligence in both languages at once, with one language's start failure never affecting
+  another's.
+
+**F18.3 — Settings UI** — Not started
+- [ ] T18.3.1 Replace the single flat executable-path/arguments field pair in Settings' "Code
+  intelligence" section with one row per configured language.
+
+**F18.4 — Tests** — Not started
+- [ ] T18.4.1 `ProjectTypeDetectorTests`, `LanguageServerSessionManagerTests`, and extended
+  `StdioLanguageServerClientTests` per `specs/multi-language-support/design.md`'s testing section.
+
+---
+
+### EPIC 19 — Editor autocomplete (LSP symbol/member completion) *(P2)*
+
+*Why: Epic 15's "autocomplete" is LLM-guessed ghost text, not real symbol completion - there is no
+`textDocument/completion` call anywhere in this codebase, and `initialize` advertises an empty
+`capabilities` object so no server would even offer it. AvaloniaEdit already ships a complete,
+reusable completion-popup toolkit (`CodeCompletion.CompletionWindow`/`CompletionList`/
+`ICompletionData`, confirmed by inspecting the installed package directly) - this is a
+materially cheaper build than Epic 15's ghost text or Epic 13's diff rendering, both of which had
+no existing AvaloniaEdit primitive to anchor on.*
+
+Full requirements, design, and task breakdown: [`specs/editor-autocomplete/`](specs/editor-autocomplete/requirements.md).
+Scoped to Explorer's `CodeEditor` only, same boundary Epic 17 already drew (Tutorial's proposal
+editor has no stable on-disk file identity for a language server to track).
+
+**F19.1 — Completion request plumbing** — Not started
+- [ ] T19.1.1 Add `GetCompletionAsync` to `ILanguageServerClient`/`StdioLanguageServerClient`
+  (`textDocument/completion`, parsing either the bare-array or `CompletionList` response shape)
+  and advertise `capabilities.textDocument.completion` in `initialize` - shared handshake change
+  with Epic 18's T18.1.2 area, whichever epic lands first should make it.
+
+**F19.2 — Completion dropdown UI** — Not started
+- [ ] T19.2.1 Wire AvaloniaEdit's own `CompletionWindow` to `.`-trigger-character typing and a
+  Ctrl+Space manual-invoke shortcut on `CodeEditor`, accepting with Tab/Enter/click and dismissing
+  with Escape or caret movement - using the control's built-in list/filter/anchoring behavior
+  rather than a new bespoke popup.
+
+**F19.3 — Coexistence with Epic 15's ghost text** — Not started
+- [ ] T19.3.1 Suspend ghost-text triggering while a completion dropdown is open, and dismiss any
+  visible ghost-text suggestion the instant a dropdown opens, so the two completion mechanisms
+  never compete for the same keystroke or screen space.
+
+**F19.4 — Tests** — Not started
+- [ ] T19.4.1 Extended `StdioLanguageServerClientTests` (both response shapes, capability
+  advertisement), `CodeEditorCompletionData` unit tests, and a ghost-text/completion coexistence
+  gating test, per `specs/editor-autocomplete/design.md`'s testing section.
+
+---
+
 ## 4. Suggested execution order
 
 1. **Epic 1** — one codebase, or everything after this costs double.
@@ -2601,3 +2678,24 @@ a language server to track there.
 17. **Epic 14 (F14.2)** — relevance ranking, shipped as lexical TF-IDF rather than true semantic
     (embedding) search, sidestepping the embeddings-provider/API-key decision entirely. ✅ Done
     2026-10-23.
+
+18. **Epic 18** — multi-language code intelligence (Python, TypeScript/JavaScript/JSX). Extends
+    Epic 17's single-language C# work to the second real use case it was waiting for. Full spec:
+    `specs/multi-language-support/`. ✅ Done 2026-10-23: per-language `LanguageServerOptions`
+    replacing the old single global `LspOptions`, `ProjectTypeDetector` (marker-file scan, depth
+    0-1) gating which servers even start, `LanguageIdResolver` splitting "LSP languageId for this
+    file" from "which configured process handles it" (one `typescript-language-server` instance
+    serves typescript/typescriptreact/javascript/javascriptreact alike), and
+    `LanguageServerSessionManager` replacing the single `ILanguageServerClient` consumer in
+    `ExplorerViewModel`/DI with per-language isolation (one language's start failure never blocks
+    another) and a same-working-directory no-op guard. Settings' "Code intelligence" section
+    reworked into a per-language repeated row. Solution builds clean, 794/794 tests pass (22 new:
+    `ProjectTypeDetectorTests`, `LanguageServerSessionManagerTests`, 2 extended
+    `StdioLanguageServerClientTests` cases). Not manually verified against real
+    `pyright-langserver`/`typescript-language-server`/`csharp-ls` processes across C#-only/
+    Python-only/TypeScript-only/polyglot repos (no X server in this sandbox, same limitation noted
+    on earlier UI-touching tasks, and these executables aren't installed here regardless).
+19. **Epic 19** — editor autocomplete (real LSP completion, distinct from Epic 15's LLM ghost
+    text). Builds on AvaloniaEdit's existing `CompletionWindow`, and shares an `initialize`
+    capability-advertisement change with Epic 18 - either can land first. Full spec:
+    `specs/editor-autocomplete/`.

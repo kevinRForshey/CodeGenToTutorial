@@ -24,7 +24,12 @@ public interface ILanguageServerClient
 
     Task StopAsync();
 
-    Task NotifyDocumentOpenedAsync(string filePath, string text);
+    // Epic 18: languageId is the LSP languageId for this specific file (e.g. "typescriptreact"
+    // for a .tsx file) - not necessarily the same string as whichever configured
+    // LanguageServerOptions/process is handling it (one typescript-language-server process
+    // handles typescript/typescriptreact/javascript/javascriptreact alike; see
+    // LanguageIdResolver). Callers resolve it via LanguageIdResolver.Resolve, not hardcoded.
+    Task NotifyDocumentOpenedAsync(string filePath, string text, string languageId);
 
     // Full-document sync (T17.2.1's simplest correct option) - text is the entire current content,
     // not an incremental edit.
