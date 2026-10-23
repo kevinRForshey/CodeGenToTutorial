@@ -113,6 +113,22 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
     [ObservableProperty]
     private string? selectedAttachedPath;
 
+    // T14.1.1: the prompt TextBox's `@`-mention popup content, driven by MentionTriggerDetector
+    // (code-behind, since it needs Text/CaretIndex) calling UpdateMentionSuggestions below. Empty
+    // means the popup is closed - there's no separate "is it open" flag to fall out of sync with
+    // this list.
+    public ObservableCollection<string> MentionSuggestions { get; } = new();
+
+    public bool HasMentionSuggestions => MentionSuggestions.Count > 0;
+
+    // T14.1.1: built lazily from WorkingDirectoryPath (same FileTreeBuilder walk Explorer uses, so
+    // gitignored/`.git` entries never show up as mention candidates) and cached across keystrokes -
+    // invalidated only when WorkingDirectoryPath itself changes (see OnWorkingDirectoryPathChanged),
+    // not on every suggestion request, since re-walking the tree per keystroke would make typing
+    // feel laggy on a large repo.
+    private FileTreeEntry? _cachedMentionFileTree;
+    private string? _cachedMentionFileTreeWorkingDirectory;
+
     // T6.2.3: live "Xs" readout ticking while a run is in progress, and a post-run cost/token
     // summary once the CLI's final result line has been parsed.
     [ObservableProperty]
@@ -185,6 +201,7 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
         AttachedPaths.CollectionChanged += (_, _) => UpdateEstimatedTokenCountDisplay();
         RecentWorkingDirectories.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasRecentWorkingDirectories));
         ToolActivityLog.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasToolActivity));
+        MentionSuggestions.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasMentionSuggestions));
     }
 
     // T9.2.3: async void because INavigationAware.OnNavigatedTo returns void - wrapped so a
@@ -325,6 +342,47 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
     }
 
     private Task SaveAttachedPathsAsync() => _localSettingsService.SaveSettingAsync(ContextPathsSettingsKey, AttachedPaths.ToList());
+
+    // T14.1.1: called by the view's code-behind on every keystroke once MentionTriggerDetector
+    // says the caret is inside an `@mention` - a null/blank WorkingDirectoryPath (nothing to
+    // search) or a missing directory (stale/typo'd path) just closes the popup rather than
+    // throwing, since there's no set of candidate files to show either way.
+    public void UpdateMentionSuggestions(string query)
+    {
+        if (string.IsNullOrWhiteSpace(WorkingDirectoryPath) || !Directory.Exists(WorkingDirectoryPath))
+        {
+            MentionSuggestions.Clear();
+            return;
+        }
+
+        if (_cachedMentionFileTree is null || _cachedMentionFileTreeWorkingDirectory != WorkingDirectoryPath)
+        {
+            _cachedMentionFileTree = FileTreeBuilder.Build(WorkingDirectoryPath);
+            _cachedMentionFileTreeWorkingDirectory = WorkingDirectoryPath;
+        }
+
+        var matches = FileMentionMatcher.FindMatches(_cachedMentionFileTree, query);
+
+        MentionSuggestions.Clear();
+        foreach (var match in matches)
+        {
+            MentionSuggestions.Add(match);
+        }
+    }
+
+    public void CloseMentionPopup() => MentionSuggestions.Clear();
+
+    // T14.1.2: a faster entry point into the same attachment mechanism AddContextFilesAsync already
+    // uses (dedup + persist), not a new one - the relative path (what the mention popup shows and
+    // what gets inserted into the prompt text) is resolved against WorkingDirectoryPath to get the
+    // absolute path AttachedPaths actually stores.
+    public void AttachMentionedFile(string relativePath)
+    {
+        var fullPath = Path.GetFullPath(Path.Combine(WorkingDirectoryPath, relativePath));
+        AddAttachedPaths([fullPath]);
+        _ = SaveAttachedPathsAsync();
+        CloseMentionPopup();
+    }
 
     [RelayCommand(CanExecute = nameof(CanRunPrompt))]
     private async Task RunPromptAsync()
@@ -609,6 +667,7 @@ public partial class PromptViewModel : ObservableRecipient, INavigationAware
         _lastSessionId = null;
         HasPreviousSession = false;
         ContinuePreviousConversation = false;
+        _cachedMentionFileTree = null;
         UpdateEstimatedTokenCountDisplay();
     }
 

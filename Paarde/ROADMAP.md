@@ -2266,17 +2266,40 @@ re-indexing on file changes) - split into a cheap first slice (filename-based `@
 no embeddings) and a second slice (actual semantic ranking) so the first ships without a new external
 dependency.*
 
-**F14.1 — `@file` mention picker (no embeddings)**
-- [ ] T14.1.1 The prompt `TextBox` in `PromptView` gains an `@`-triggered autocomplete popup (a new
+**F14.1 — `@file` mention picker (no embeddings)** — ✅ Done 2026-10-22
+- [x] T14.1.1 The prompt `TextBox` in `PromptView` gains an `@`-triggered autocomplete popup (a new
   small attached behavior; the prompt box today is a plain `TextBox`, not `CodeEditor`, so this likely
   means a lightweight popup `ListBox` positioned under the caret rather than reusing AvaloniaEdit's
   `CompletionWindow`) listing files from `FileTreeBuilder`'s existing gitignore-aware walk (same one
-  Explorer already uses, T8.1.1) filtered by the typed prefix.
-- [ ] T14.1.2 Selecting a result inserts a relative-path token and attaches that file the same way
+  Explorer already uses, T8.1.1) filtered by the typed prefix. Done as: `MentionTriggerDetector`
+  (`Paarde.Core/Helpers`) is a pure `(text, caretIndex) -> MentionTrigger?` scan - it walks backward
+  from the caret for an unescaped `@` that starts the current word, bailing out the moment it crosses
+  whitespace, so `email@domain` mid-word and an already-finished `@foo ` mention both correctly report
+  no active trigger. `PromptView.axaml.cs` calls it on every `TextChanged`/caret move and feeds the
+  query into `PromptViewModel.UpdateMentionSuggestions`, which lazily builds (and caches, invalidated
+  on `WorkingDirectoryPath` change) a `FileTreeBuilder.Build` tree and filters it via the new
+  `FileMentionMatcher.FindMatches` (`Paarde.Core/Helpers`) - a case-insensitive substring match against
+  each file's relative path, capped at 20 results. The popup itself is an Avalonia `Popup` anchored to
+  `PromptTextBox` (`Placement="Bottom"`) containing a `ListBox` bound to
+  `PromptViewModel.MentionSuggestions`, open whenever that list is non-empty
+  (`HasMentionSuggestions`). **Known simplification, flagged rather than silently done:** the popup is
+  anchored to the TextBox itself, not the exact caret pixel position the roadmap text suggested -
+  getting real caret-relative placement right needs visual tuning this sandbox's missing X server
+  (`XOpenDisplay failed`, no Xvfb) can't verify, so the simpler, still-functional anchor was chosen
+  instead. Up/Down move the highlighted suggestion, Enter/Tab accept the highlighted (or first) one,
+  Escape closes the popup - verified only via unit tests + code review, same caveat as every other
+  Avalonia-touching task in this roadmap.
+- [x] T14.1.2 Selecting a result inserts a relative-path token and attaches that file the same way
   `AddContextFilesAsync` already does (reuses `BuildContextFilesBlock`) - a faster entry point into the
-  existing attachment mechanism, not a new one.
-- [ ] T14.1.3 `@symbol` mentions (`@ClassName`/`@MethodName`) need a symbol index and are out of scope
-  here without Epic 17's LSP integration; file-level `@mention` ships first.
+  existing attachment mechanism, not a new one. Done as: `PromptView.InsertMention` replaces the typed
+  `@query` span (using the `MentionTrigger.TriggerStart` captured at the last keystroke) with
+  `@relative/path ` in the TextBox, then calls the new `PromptViewModel.AttachMentionedFile`, which
+  resolves the relative path against `WorkingDirectoryPath` to an absolute path and runs it through the
+  same `AddAttachedPaths`/`SaveAttachedPathsAsync` pair `AddContextFilesAsync` already uses - so
+  `BuildContextFilesBlock` picks it up identically regardless of which entry point attached it.
+- [x] T14.1.3 `@symbol` mentions (`@ClassName`/`@MethodName`) need a symbol index and are out of scope
+  here without Epic 17's LSP integration; file-level `@mention` ships first. Confirmed still out of
+  scope - nothing here attempts symbol-level matching.
 
 **F14.2 — Relevance ranking (semantic, second slice)**
 - [ ] T14.2.1 New `ICodebaseIndexService`: chunks each non-ignored file (same `GitIgnoreMatcher`/
@@ -2292,8 +2315,17 @@ dependency.*
   attachment list - never silently auto-injected context.
 
 **F14.3 — Tests**
-- [ ] T14.3.1 `@mention` popup filtering against a fake file tree; selecting an entry attaches the
-  right relative path.
+- [x] T14.3.1 `@mention` popup filtering against a fake file tree; selecting an entry attaches the
+  right relative path. Done as: `FileMentionMatcherTests` builds an in-memory `FileTreeEntry` tree (no
+  temp directories needed, unlike `FileTreeBuilderTests`) and covers empty-query/all-files,
+  filename-match, directory-prefix-match, case-insensitivity, no-match, and the `maxResults` cap.
+  `MentionTriggerDetectorTests` covers the trigger-scanning edge cases (start-of-text, mid-word
+  rejection, whitespace-closed mention, caret-before-the-`@`, mid-query caret). `PromptViewModelTests`
+  adds the ViewModel-level glue against a real temp working directory:
+  `UpdateMentionSuggestions_MatchingQuery_PopulatesMentionSuggestions`,
+  `UpdateMentionSuggestions_NoWorkingDirectory_LeavesMentionSuggestionsEmpty`,
+  `CloseMentionPopup_ClearsMentionSuggestions`, and
+  `AttachMentionedFile_ResolvesTheRelativePathAgainstWorkingDirectoryAndAttachesIt`.
 - [ ] T14.3.2 `ICodebaseIndexService` chunking/invalidation logic (pure, no real embedding calls) -
   embedding-call correctness itself isn't something to unit test against a live API.
 

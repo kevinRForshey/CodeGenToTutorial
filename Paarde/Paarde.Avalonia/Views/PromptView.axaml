@@ -55,7 +55,30 @@
                      Watermark="Enter the prompt you want to send to Claude Code..."
                      AcceptsReturn="True"
                      TextWrapping="Wrap"
-                     ScrollViewer.VerticalScrollBarVisibility="Auto" />
+                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                     TextChanged="OnPromptTextBoxTextChanged"
+                     KeyDown="OnPromptTextBoxKeyDown" />
+
+            <!-- T14.1.1: a lightweight popup rather than reusing AvaloniaEdit's CompletionWindow,
+                 since the prompt box is a plain TextBox, not a CodeEditor. Anchored to the TextBox
+                 itself (not the exact caret position) - this sandbox has no X server to visually
+                 verify caret-relative placement against, and the simpler anchor is just as
+                 functional. -->
+            <Popup Name="MentionPopup"
+                   PlacementTarget="PromptTextBox"
+                   Placement="Bottom"
+                   IsLightDismissEnabled="True"
+                   IsOpen="{Binding HasMentionSuggestions}">
+                <Border Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                        BorderBrush="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                        BorderThickness="1"
+                        MaxHeight="160"
+                        MinWidth="240">
+                    <ListBox Name="MentionListBox"
+                             ItemsSource="{Binding MentionSuggestions}"
+                             DoubleTapped="OnMentionSuggestionDoubleTapped" />
+                </Border>
+            </Popup>
         </StackPanel>
 
         <StackPanel Grid.Row="4" Margin="0,8,0,0" Orientation="Horizontal" Spacing="8">

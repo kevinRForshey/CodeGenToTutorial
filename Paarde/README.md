@@ -107,7 +107,9 @@ Prompt page's working directory to one you've used before) lists.
   working directory. This is the folder it reads from and writes to. The **Recent...** dropdown
   next to it switches straight to a previously-used working directory without leaving this page.
 - **Context files** — optionally attach specific files or a whole folder as extra context for the
-  model, beyond what's in the working directory.
+  model, beyond what's in the working directory. You can also attach a file by typing `@` followed
+  by part of its name directly in the prompt text box — a popup lists matching files (gitignore-aware)
+  for you to pick from.
 - **Prompt text** — describe what you want built, fixed, or changed, in plain English. A live
   estimated token count is shown above the box.
 - **Preset** — a short instruction nudge appended ahead of your prompt: `General`, `Feature`,

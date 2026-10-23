@@ -622,6 +622,89 @@ public class PromptViewModelTests
     }
 
     [Fact]
+    public void UpdateMentionSuggestions_MatchingQuery_PopulatesMentionSuggestions()
+    {
+        var workingDirectory = Directory.CreateTempSubdirectory("PaardeTests_").FullName;
+
+        try
+        {
+            File.WriteAllText(Path.Combine(workingDirectory, "Foo.cs"), "class Foo {}");
+            File.WriteAllText(Path.Combine(workingDirectory, "Bar.cs"), "class Bar {}");
+
+            var sut = CreateSut();
+            sut.WorkingDirectoryPath = workingDirectory;
+
+            sut.UpdateMentionSuggestions("Foo");
+
+            Assert.Equal(["Foo.cs"], sut.MentionSuggestions);
+            Assert.True(sut.HasMentionSuggestions);
+        }
+        finally
+        {
+            Directory.Delete(workingDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void UpdateMentionSuggestions_NoWorkingDirectory_LeavesMentionSuggestionsEmpty()
+    {
+        var sut = CreateSut();
+
+        sut.UpdateMentionSuggestions("Foo");
+
+        Assert.Empty(sut.MentionSuggestions);
+        Assert.False(sut.HasMentionSuggestions);
+    }
+
+    [Fact]
+    public void CloseMentionPopup_ClearsMentionSuggestions()
+    {
+        var workingDirectory = Directory.CreateTempSubdirectory("PaardeTests_").FullName;
+
+        try
+        {
+            File.WriteAllText(Path.Combine(workingDirectory, "Foo.cs"), "class Foo {}");
+
+            var sut = CreateSut();
+            sut.WorkingDirectoryPath = workingDirectory;
+            sut.UpdateMentionSuggestions("Foo");
+
+            sut.CloseMentionPopup();
+
+            Assert.Empty(sut.MentionSuggestions);
+        }
+        finally
+        {
+            Directory.Delete(workingDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task AttachMentionedFile_ResolvesTheRelativePathAgainstWorkingDirectoryAndAttachesIt()
+    {
+        var workingDirectory = Directory.CreateTempSubdirectory("PaardeTests_").FullName;
+
+        try
+        {
+            File.WriteAllText(Path.Combine(workingDirectory, "Foo.cs"), "class Foo {}");
+
+            var sut = CreateSut();
+            sut.WorkingDirectoryPath = workingDirectory;
+            sut.UpdateMentionSuggestions("Foo");
+
+            sut.AttachMentionedFile("Foo.cs");
+            await Task.Yield();
+
+            Assert.Equal([Path.Combine(workingDirectory, "Foo.cs")], sut.AttachedPaths);
+            Assert.Empty(sut.MentionSuggestions);
+        }
+        finally
+        {
+            Directory.Delete(workingDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task EstimatedTokenCountDisplay_MatchesTheExactPromptThatWouldBeSent()
     {
         var sut = CreateSut();
