@@ -25,8 +25,10 @@
             <Button Name="RedoButton" Content="Redo" Click="OnRedoButtonClick"
                      ToolTip.Tip="Redo the last undone edit (Ctrl+Y)." />
             <Button Content="Revert to proposed" Command="{Binding RevertToProposedCommand}"
+                     Classes="danger"
                      ToolTip.Tip="Discard your edits and go back to what Claude proposed." />
             <Button Content="Revert to original" Command="{Binding RevertToOriginalCommand}"
+                     Classes="danger"
                      ToolTip.Tip="Discard your edits and the proposed change, going back to the file on disk." />
             <TextBlock Text="Edited" IsVisible="{Binding IsDirty}" VerticalAlignment="Center" FontStyle="Italic" Opacity="0.7" />
         </StackPanel>
