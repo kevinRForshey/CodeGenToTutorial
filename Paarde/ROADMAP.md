@@ -2439,7 +2439,7 @@ context-switching to an external terminal window.*
 
 ---
 
-### EPIC 17 — LSP-backed code intelligence *(P3)*
+### EPIC 17 — LSP-backed code intelligence *(P3)* — ✅ Done 2026-10-23
 
 *Why: `CodeEditor` today is AvaloniaEdit + TextMate syntax coloring - real syntax highlighting, zero
 semantic understanding. Go-to-definition, find-references, and live diagnostics all need an actual
@@ -2448,28 +2448,90 @@ lowest priority: `CodeEditor` is a preview/light-edit surface (Explorer's F10.2,
 review), not this app's primary authoring surface, so the payoff-per-effort is weaker than for a tool
 where the editor *is* the product.*
 
-**F17.1 — A language server client**
-- [ ] T17.1.1 For C#/.NET specifically (this repo's own stack): OmniSharp or `csharp-ls` over stdio,
+Scoped to Explorer's `CodeEditor` only, not Tutorial's proposal editor - Tutorial's editor shows
+unsaved/proposed diffs rather than real on-disk project files, so there's no stable file identity for
+a language server to track there.
+
+**F17.1 — A language server client** — ✅ Done 2026-10-23
+- [x] T17.1.1 For C#/.NET specifically (this repo's own stack): OmniSharp or `csharp-ls` over stdio,
   speaking LSP; a generic `ILanguageServerClient` abstraction (mirroring `ILlmRunner`'s
   provider-agnostic shape) so other languages could plug in later, but **only one implementation ships
-  in this epic** - no speculative multi-language support built ahead of a second real use case.
-- [ ] T17.1.2 Diagnostics: subscribe to `textDocument/publishDiagnostics`, render as squiggly
+  in this epic** - no speculative multi-language support built ahead of a second real use case. Done
+  as: `ILanguageServerClient` (mirrors `ILlmRunner`'s `IsAvailableAsync` preflight shape, plus explicit
+  `StartAsync`/`StopAsync` lifecycle and a `DiagnosticsPublished` push event, since one implementation
+  is a long-lived process rather than one-shot-per-call) and `StdioLanguageServerClient`, targeting
+  `csharp-ls` (simpler/more-standard LSP surface than OmniSharp). Speaks raw JSON-RPC 2.0 over stdio,
+  framed with LSP's `Content-Length: N\r\n\r\n` header - distinct enough from `ClaudeCliRunner`'s
+  NDJSON and `ProcessCommandRunner`'s plain-text line streaming that it reads stdout as raw bytes
+  (`ReadContentLengthAsync`/`ReadHeaderLineAsync`/`ReadExactAsync`) rather than using
+  `Process.OutputDataReceived`'s line-based callback. Requests are correlated to responses via an
+  incrementing id and a `Dictionary<int, TaskCompletionSource<JToken?>>`; full `initialize` →
+  `initialized` → ... → `shutdown` → `exit` handshake. `LspOptions`/`LspSettingsKeys`/
+  `LspOptionsProvider` (executable path + arguments, defaulting to `csharp-ls`) follow the exact
+  settings-provider seam `ClaudeCliOptions`/`ClaudeCliSettingsKeys`/`ClaudeCliOptionsProvider` already
+  established, surfaced in Settings under a new "Code intelligence" section. Registered as a DI
+  **singleton** (`App.axaml.cs`) rather than transient like every other process runner here - Explorer
+  only ever has one active working directory at a time, so one long-lived session is simpler than a
+  keyed multi-session manager.
+- [x] T17.1.2 Diagnostics: subscribe to `textDocument/publishDiagnostics`, render as squiggly
   underlines via another `IBackgroundRenderer` (same family as Epics 13/15's renderers) plus a tooltip
-  with the message.
-- [ ] T17.1.3 Go-to-definition/find-references: `textDocument/definition`/`textDocument/references`
+  with the message. Done as: `DiagnosticsRenderer` (straight underline, not a true squiggle glyph -
+  the severity color already conveys the distinction a squiggle would) following
+  `BracketHighlightRenderer`/`DiffBackgroundRenderer`'s self-registering `IBackgroundRenderer`
+  convention; `CodeEditor.Diagnostics` feeds it and also drives a hover tooltip
+  (`Avalonia.Controls.ToolTip.SetTip`/`SetIsOpen`, force-closed/reopened on message change rather than
+  relying on Avalonia's hover-delay auto-refresh) via `TextEditor.GetPositionFromPoint`, which already
+  handles the point-to-document-offset conversion (scroll offset included) that a manual
+  `TextView`-level conversion would otherwise need. `ExplorerViewModel.Diagnostics` is populated from
+  `ILanguageServerClient.DiagnosticsPublished`, marshaled to the UI thread and filtered to whichever
+  file is currently open.
+- [x] T17.1.3 Go-to-definition/find-references: `textDocument/definition`/`textDocument/references`
   requests on a keybind/context-menu action, opening results through Explorer's existing file-open
-  path (T8.1.3) rather than a new navigation surface.
+  path (T8.1.3) rather than a new navigation surface. Done as: F12 (go to definition, jumps straight to
+  the first result) / Shift+F12 (find references, lists every result - unlike a definition, there's no
+  single "right" one to prefer) on `CodeEditor`, raising `GoToDefinitionRequested`/
+  `FindReferencesRequested` with the caret's `LspPosition`. `ExplorerViewModel.NavigateToLocation`
+  reuses the existing `SelectedNode` → `LoadNode` flow (including its unsaved-edits guard) for
+  cross-file jumps via a new `FileTreeNodeViewModel.FindByPath` helper; the caret position itself is
+  applied through a `TakePendingCaretTarget()` pull method mirroring
+  `TutorialViewModel.TakePendingStepTarget()`'s "consume once, after the target content has already
+  loaded" pattern - `ExplorerView.axaml.cs` applies it from `Editor.TextChanged` (cross-file case) and
+  directly after each await (same-file case, where `TextChanged` never fires). Find-references renders
+  through a minimal `Flyout`/`ListBox` attached to `Editor`, not a new results-panel control.
 
-**F17.2 — Lifecycle**
-- [ ] T17.2.1 Start one server process per working directory (keyed the same way other
+**F17.2 — Lifecycle** — ✅ Done 2026-10-23
+- [x] T17.2.1 Start one server process per working directory (keyed the same way other
   per-working-directory state already is, e.g. `WorkingDirectorySettingsKeys`), torn down on app exit
   or working-directory switch - needs explicit process-lifetime ownership, unlike the CLI runner's
-  one-process-per-prompt shape.
+  one-process-per-prompt shape. Done as: `ExplorerViewModel.OnNavigatedTo` calls `StartAsync` (a no-op
+  if already running against the same path); `App.axaml.cs`'s `desktop.Exit` handler now stops the
+  server before the process-wide `Environment.Exit(0)` that follows it, which would otherwise orphan
+  an unmanaged child process. The server process itself is **not** torn down on navigating away from
+  Explorer (only app exit) - `ExplorerViewModel` is `AddTransient` (a fresh instance per navigation to
+  the page), so `OnNavigatedFrom` only unsubscribes that instance's `DiagnosticsPublished` handler, to
+  avoid an accumulating-handler leak across repeated navigations, confirmed by tracing
+  `NavigationService`/`FrameExtensions` - `ExplorerView`'s parameterless constructor resolves a new
+  `ExplorerViewModel` from DI on every `Frame.Navigate`. `LoadNode` sends `didOpen`/`didClose` as the
+  tree selection changes; `OnSelectedFileContentChanged` sends `didChange` (full-document sync, not
+  incremental - the simplest correct option, and this app has no existing incremental-diff plumbing
+  that would make incremental sync cheap to add). All three are fire-and-forget (`_ = ...Async(...)`):
+  `StdioLanguageServerClient`'s own notification methods already no-op safely when the server isn't
+  running, and an unexpected exception lands in the app's existing global
+  `TaskScheduler.UnobservedTaskException` handler rather than needing per-call awaiting.
 
-**F17.3 — Tests**
-- [ ] T17.3.1 `ILanguageServerClient` contract tests against a fake/stub server (JSON-RPC framing,
+**F17.3 — Tests** — ✅ Done 2026-10-23
+- [x] T17.3.1 `ILanguageServerClient` contract tests against a fake/stub server (JSON-RPC framing,
   request/response correlation) - not against a real OmniSharp process in CI, which would be slow and
-  environment-fragile.
+  environment-fragile. Done as: `StdioLanguageServerClientTests`, standing a small Python script in
+  for a real LSP server (same "fake external process" approach `ClaudeCliRunnerTests` already takes
+  with a shell script standing in for the `claude` CLI) - covers `IsAvailableAsync` (present/missing
+  executable), start/stop lifecycle (`IsRunning`), `textDocument/definition`'s single-object result
+  shape and `textDocument/references`'s array result shape (`ParseLocations`' two branches), and a
+  `textDocument/publishDiagnostics` push correctly raising `DiagnosticsPublished` for the right file
+  path. `FakeLanguageServerClient` (`Paarde.Avalonia.Tests/Fakes`) added alongside for
+  `ExplorerViewModelTests`' constructor, which now also takes `ILanguageServerClient`. Not visually
+  verified (the diagnostics underline/tooltip, F12 keybind, and references flyout) - no X server in
+  this sandbox, same caveat as every other Avalonia-touching task in this roadmap.
 
 ---
 
@@ -2500,7 +2562,8 @@ where the editor *is* the product.*
     new safety-critical path.
 15. **Epic 15** — inline ghost-text autocomplete. ✅ Done 2026-10-23.
 16. **Epic 17** — LSP-backed code intelligence. Largest and most speculative; lowest priority given
-    `CodeEditor` is a review/light-edit surface here, not the app's primary authoring surface.
+    `CodeEditor` is a review/light-edit surface here, not the app's primary authoring surface. ✅ Done
+    2026-10-23.
 
 **Epic 14** (F14.2 semantic ranking) is deferred, not currently planned — F14.1 (`@file` mention,
 no embeddings) already shipped; the remainder is on hold pending a decision on an embeddings

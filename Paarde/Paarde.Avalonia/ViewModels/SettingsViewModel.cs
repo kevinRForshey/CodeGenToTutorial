@@ -53,6 +53,15 @@ public partial class SettingsViewModel : ObservableRecipient, INavigationAware
     [ObservableProperty]
     private string testCommand = "dotnet test";
 
+    // Epic 17 (T17.1.1): the LSP server Explorer's go-to-definition/find-references/diagnostics
+    // shell out to - same executable-path/arguments split as ClaudeCliExecutablePath/Arguments
+    // above, since this is also a configurable external process.
+    [ObservableProperty]
+    private string lspExecutablePath = LspOptions.Default.ExecutablePath;
+
+    [ObservableProperty]
+    private string lspArguments = LspOptions.Default.Arguments;
+
     // T6.3.2/T6.3.3: which ILlmRunner implementation LlmRunnerSelector should delegate to.
     [ObservableProperty]
     private LlmRunnerKind selectedRunnerKind = LlmRunnerKind.ClaudeCli;
@@ -143,6 +152,12 @@ public partial class SettingsViewModel : ObservableRecipient, INavigationAware
             BuildCommand = await _localSettingsService.ReadSettingAsync<string>(BuildTestSettingsKeys.BuildCommand) ?? BuildCommand;
             TestCommand = await _localSettingsService.ReadSettingAsync<string>(BuildTestSettingsKeys.TestCommand) ?? TestCommand;
 
+            var savedLspExecutablePath = await _localSettingsService.ReadSettingAsync<string>(LspSettingsKeys.ExecutablePath);
+            LspExecutablePath = string.IsNullOrWhiteSpace(savedLspExecutablePath) ? LspOptions.Default.ExecutablePath : savedLspExecutablePath;
+
+            var savedLspArguments = await _localSettingsService.ReadSettingAsync<string>(LspSettingsKeys.Arguments);
+            LspArguments = string.IsNullOrWhiteSpace(savedLspArguments) ? LspOptions.Default.Arguments : savedLspArguments;
+
             PromptTemplateOverride = await _localSettingsService.ReadSettingAsync<string>(PromptTemplateSettingsKeys.Override) ?? string.Empty;
 
             var savedRunnerKind = await _localSettingsService.ReadSettingAsync<string>(LlmRunnerSettingsKeys.SelectedRunner);
@@ -177,6 +192,10 @@ public partial class SettingsViewModel : ObservableRecipient, INavigationAware
     partial void OnBuildCommandChanged(string value) => _localSettingsService.SaveSettingAsync(BuildTestSettingsKeys.BuildCommand, value);
 
     partial void OnTestCommandChanged(string value) => _localSettingsService.SaveSettingAsync(BuildTestSettingsKeys.TestCommand, value);
+
+    partial void OnLspExecutablePathChanged(string value) => _localSettingsService.SaveSettingAsync(LspSettingsKeys.ExecutablePath, value);
+
+    partial void OnLspArgumentsChanged(string value) => _localSettingsService.SaveSettingAsync(LspSettingsKeys.Arguments, value);
 
     partial void OnSelectedRunnerKindChanged(LlmRunnerKind value) => _localSettingsService.SaveSettingAsync(LlmRunnerSettingsKeys.SelectedRunner, value.ToString());
 

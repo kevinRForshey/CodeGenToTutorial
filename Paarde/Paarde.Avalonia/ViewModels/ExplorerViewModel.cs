@@ -1,9 +1,12 @@
+using Avalonia.Threading;
+
 using Paarde.Avalonia.Contracts.Services;
 using Paarde.Avalonia.Contracts.ViewModels;
 using Paarde.Avalonia.Services;
 using Paarde.Avalonia.Strings;
 using Paarde.Core.Contracts.Services;
 using Paarde.Core.Helpers;
+using Paarde.Core.Models;
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -24,7 +27,14 @@ public partial class ExplorerViewModel : ObservableObject, INavigationAware, ICo
     private readonly ILlmRunner _llmRunner;
     private readonly IFileChangeApplyService _fileChangeApplyService;
     private readonly IDialogService _dialogService;
+    private readonly ILanguageServerClient _languageServerClient;
     private readonly ILogger<ExplorerViewModel> _logger;
+
+    // Epic 17, T17.1.3: set by NavigateToLocation, consumed once by ExplorerView.axaml.cs's
+    // Editor.TextChanged handler - same "take once, after the target content has already loaded"
+    // pull pattern TutorialViewModel.TakePendingStepTarget() already established, needed because a
+    // cross-file jump only reflects into Editor.Text after SelectedFileContent's binding runs.
+    private LspPosition? _pendingCaretTarget;
 
     // T10.2.1: what's actually on disk as of the last successful load/save, compared against
     // SelectedFileContent to derive IsFileDirty - same IsDirty-via-divergence shape
@@ -79,12 +89,19 @@ public partial class ExplorerViewModel : ObservableObject, INavigationAware, ICo
     [ObservableProperty]
     private bool isFileDirty;
 
+    // Epic 17, T17.1.2: the active file's diagnostics, pushed by the language server and filtered
+    // in OnDiagnosticsPublished to whichever file is actually open right now - null (not empty)
+    // distinguishes "no diagnostics received yet for this file" from "server reported zero".
+    [ObservableProperty]
+    private IReadOnlyList<LspDiagnostic>? diagnostics;
+
     public ExplorerViewModel(
         ILocalSettingsService localSettingsService,
         IPromptResultStore promptResultStore,
         ILlmRunner llmRunner,
         IFileChangeApplyService fileChangeApplyService,
         IDialogService dialogService,
+        ILanguageServerClient languageServerClient,
         ILogger<ExplorerViewModel>? logger = null)
     {
         _promptResultStore = promptResultStore;
@@ -92,7 +109,10 @@ public partial class ExplorerViewModel : ObservableObject, INavigationAware, ICo
         _llmRunner = llmRunner;
         _fileChangeApplyService = fileChangeApplyService;
         _dialogService = dialogService;
+        _languageServerClient = languageServerClient;
         _logger = logger ?? NullLogger<ExplorerViewModel>.Instance;
+
+        _languageServerClient.DiagnosticsPublished += OnDiagnosticsPublished;
     }
 
     // T10.2.5: IConfirmNavigationAway - checked by NavigationService.OnNavigating before leaving
@@ -160,6 +180,15 @@ public partial class ExplorerViewModel : ObservableObject, INavigationAware, ICo
         // described whatever's selected now.
         FileOverview = string.Empty;
 
+        // Epic 17, T17.2.1: tells the server the previously open file is gone before (potentially)
+        // opening a new one - a no-op if nothing was open or the server isn't running.
+        if (!string.IsNullOrEmpty(SelectedFilePath))
+        {
+            _ = _languageServerClient.NotifyDocumentClosedAsync(SelectedFilePath);
+        }
+
+        Diagnostics = null;
+
         if (value is null || value.IsDirectory)
         {
             SelectedFilePath = string.Empty;
@@ -171,11 +200,21 @@ public partial class ExplorerViewModel : ObservableObject, INavigationAware, ICo
         SelectedFilePath = value.FullPath;
         _originalFileContentOnDisk = FileContentReader.ReadOrEmpty(value.FullPath);
         SelectedFileContent = _originalFileContentOnDisk;
+
+        _ = _languageServerClient.NotifyDocumentOpenedAsync(SelectedFilePath, SelectedFileContent);
     }
 
     partial void OnSelectedFilePathChanged(string value) => ExplainSelectedFileCommand.NotifyCanExecuteChanged();
 
-    partial void OnSelectedFileContentChanged(string value) => IsFileDirty = value != _originalFileContentOnDisk;
+    partial void OnSelectedFileContentChanged(string value)
+    {
+        IsFileDirty = value != _originalFileContentOnDisk;
+
+        if (!string.IsNullOrEmpty(SelectedFilePath))
+        {
+            _ = _languageServerClient.NotifyDocumentChangedAsync(SelectedFilePath, value);
+        }
+    }
 
     partial void OnIsLoadingOverviewChanged(bool value) => ExplainSelectedFileCommand.NotifyCanExecuteChanged();
 
@@ -327,6 +366,13 @@ public partial class ExplorerViewModel : ObservableObject, INavigationAware, ICo
         {
             WorkingDirectoryPath = await _localSettingsService.ReadSettingAsync<string>(WorkingDirectorySettingsKeys.WorkingDirectory) ?? string.Empty;
             RefreshTree();
+
+            // Epic 17, T17.2.1: lifecycle tied to Explorer's working directory - a no-op if the
+            // configured server isn't installed, or if it's already running against this same path.
+            if (!string.IsNullOrWhiteSpace(WorkingDirectoryPath) && Directory.Exists(WorkingDirectoryPath) && await _languageServerClient.IsAvailableAsync())
+            {
+                await _languageServerClient.StartAsync(WorkingDirectoryPath);
+            }
         }
         catch (Exception ex)
         {
@@ -334,8 +380,95 @@ public partial class ExplorerViewModel : ObservableObject, INavigationAware, ICo
         }
     }
 
-    public void OnNavigatedFrom()
+    // Epic 17, T17.2.1: ExplorerViewModel is AddTransient (App.axaml.cs) - a fresh instance is
+    // constructed on every navigation to this page, but DiagnosticsPublished is raised by the
+    // singleton ILanguageServerClient, so the subscription taken in the constructor must be
+    // unhooked here or it accumulates one stale handler per visit to this page. The server process
+    // itself keeps running (teardown is app-exit only, per the approved scope) - only the event
+    // subscription is page-navigation-scoped.
+    public void OnNavigatedFrom() => _languageServerClient.DiagnosticsPublished -= OnDiagnosticsPublished;
+
+    // Epic 17, T17.1.2: fires on the server's notification-read background thread - marshaled to
+    // the UI thread before touching Diagnostics, same caveat ILlmRunner's onTextDelta callbacks
+    // already carry. Filtered to whichever file is open right now; a push for any other file is
+    // silently dropped since nothing in this VM surfaces anything but the active file's diagnostics.
+    private void OnDiagnosticsPublished(string filePath, IReadOnlyList<LspDiagnostic> publishedDiagnostics) =>
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (string.Equals(filePath, SelectedFilePath, StringComparison.Ordinal))
+            {
+                Diagnostics = publishedDiagnostics;
+            }
+        });
+
+    // Epic 17, T17.1.3: go-to-definition - navigates straight to the first result, same "don't
+    // build a disambiguation UI for the common single-result case" scope decision FindReferencesAsync
+    // below explains for its own (genuinely multi-result) case.
+    public async Task GoToDefinitionAsync(LspPosition position)
     {
+        if (string.IsNullOrEmpty(SelectedFilePath))
+        {
+            return;
+        }
+
+        try
+        {
+            var locations = await _languageServerClient.GetDefinitionAsync(SelectedFilePath, position);
+            if (locations.Count > 0)
+            {
+                NavigateToLocation(locations[0]);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Go-to-definition failed for {FilePath}.", SelectedFilePath);
+        }
+    }
+
+    // Epic 17, T17.1.3: find-references - returns every result for ExplorerView's minimal flyout to
+    // list, rather than jumping straight to one, since references (unlike a definition) are
+    // routinely more than one and there's no single "right" result to prefer.
+    public async Task<IReadOnlyList<LspLocation>> FindReferencesAsync(LspPosition position)
+    {
+        if (string.IsNullOrEmpty(SelectedFilePath))
+        {
+            return Array.Empty<LspLocation>();
+        }
+
+        try
+        {
+            return await _languageServerClient.GetReferencesAsync(SelectedFilePath, position);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Find-references failed for {FilePath}.", SelectedFilePath);
+            return Array.Empty<LspLocation>();
+        }
+    }
+
+    // Epic 17, T17.1.3: jumps to location, switching the tree selection first if it's in a
+    // different file (reusing the existing SelectedNode -> LoadNode flow, including its dirty-file
+    // guard) before leaving the caret position for ExplorerView to apply via TakePendingCaretTarget.
+    public void NavigateToLocation(LspLocation location)
+    {
+        _pendingCaretTarget = location.Position;
+
+        if (string.Equals(location.FilePath, SelectedFilePath, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        if (Root is not null && FileTreeNodeViewModel.FindByPath(Root, location.FilePath) is { } node)
+        {
+            SelectedNode = node;
+        }
+    }
+
+    public LspPosition? TakePendingCaretTarget()
+    {
+        var target = _pendingCaretTarget;
+        _pendingCaretTarget = null;
+        return target;
     }
 
     [RelayCommand]

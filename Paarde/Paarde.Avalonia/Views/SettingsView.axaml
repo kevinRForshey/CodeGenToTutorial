@@ -101,6 +101,22 @@
             <TextBox Text="{Binding TestCommand}" Watermark="dotnet test" />
         </StackPanel>
 
+        <TextBlock Margin="0,16,0,0" Text="Code intelligence" FontSize="20" FontWeight="SemiBold" />
+
+        <StackPanel Margin="0,8,0,0" Spacing="4">
+            <TextBlock Text="Language server" FontSize="12" Opacity="0.7" />
+            <TextBlock Text="Powers Explorer's diagnostics, go-to-definition, and find-references. Must speak the Language Server Protocol over stdio (e.g. csharp-ls)."
+                       FontSize="12"
+                       Opacity="0.7"
+                       TextWrapping="Wrap" />
+            <TextBox Text="{Binding LspExecutablePath}" Watermark="csharp-ls" />
+        </StackPanel>
+
+        <StackPanel Margin="0,8,0,0" Spacing="4">
+            <TextBlock Text="Language server arguments" FontSize="12" Opacity="0.7" />
+            <TextBox Text="{Binding LspArguments}" Watermark="" />
+        </StackPanel>
+
         <TextBlock Margin="0,16,0,0" Text="Prompt template" FontSize="20" FontWeight="SemiBold" />
 
         <StackPanel Margin="0,8,0,0" Spacing="4">

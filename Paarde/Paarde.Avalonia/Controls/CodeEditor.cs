@@ -2,6 +2,7 @@ using System;
 using System.IO;
 
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
@@ -26,6 +27,14 @@ public sealed class GhostTextRequestedEventArgs(string textBeforeCaret, string t
     public string TextBeforeCaret { get; } = textBeforeCaret;
 
     public string TextAfterCaret { get; } = textAfterCaret;
+}
+
+// Epic 17, T17.1.3: raised by CodeEditor on F12/Shift+F12, carrying just the caret's LSP position -
+// shared by both GoToDefinitionRequested and FindReferencesRequested since neither needs anything
+// beyond where the caret was when the key was pressed.
+public sealed class CodeNavigationRequestedEventArgs(LspPosition position) : EventArgs
+{
+    public LspPosition Position { get; } = position;
 }
 
 // Thin wrapper around AvaloniaEdit's TextEditor that wires up the three things a code viewer
@@ -54,10 +63,18 @@ public class CodeEditor : TextEditor
     public static readonly StyledProperty<string?> GhostTextSuggestionProperty =
         AvaloniaProperty.Register<CodeEditor, string?>(nameof(GhostTextSuggestion));
 
+    // Epic 17, T17.1.2: null (not set) for every CodeEditor host except Explorer's - same
+    // opt-in-by-binding convention DiffLines/DiffHunks above already use for their own
+    // Explorer/Tutorial split.
+    public static readonly StyledProperty<IReadOnlyList<LspDiagnostic>?> DiagnosticsProperty =
+        AvaloniaProperty.Register<CodeEditor, IReadOnlyList<LspDiagnostic>?>(nameof(Diagnostics));
+
     private readonly TextMate.Installation _textMateInstallation;
     private readonly BracketHighlightRenderer _bracketHighlightRenderer;
     private readonly DiffBackgroundRenderer _diffBackgroundRenderer;
     private readonly DiffHunkGutterMargin _diffHunkGutterMargin;
+    private readonly DiagnosticsRenderer _diagnosticsRenderer;
+    private LspDiagnostic? _shownDiagnosticTooltip;
 
     private readonly GhostTextRenderer _ghostTextRenderer;
     private readonly GhostTextSuggestionState _ghostTextSuggestionState = new();
@@ -96,6 +113,12 @@ public class CodeEditor : TextEditor
         set => SetValue(GhostTextSuggestionProperty, value);
     }
 
+    public IReadOnlyList<LspDiagnostic>? Diagnostics
+    {
+        get => GetValue(DiagnosticsProperty);
+        set => SetValue(DiagnosticsProperty, value);
+    }
+
     // T13.1.3: raised when the gutter's Accept/Reject button for a hunk is clicked; the host
     // (TutorialDetailControl) is the one that knows which ProposedFileChangeViewModel owns that
     // hunk's selection, so this control just forwards which DiffHunk and which action.
@@ -107,12 +130,20 @@ public class CodeEditor : TextEditor
     // answer back.
     public event EventHandler<GhostTextRequestedEventArgs>? GhostTextRequested;
 
+    // Epic 17, T17.1.3: the host ViewModel is the one that knows how to ask ILanguageServerClient
+    // and what to do with the result (jump the tree selection, show a references flyout), so this
+    // control just forwards where the caret was.
+    public event EventHandler<CodeNavigationRequestedEventArgs>? GoToDefinitionRequested;
+
+    public event EventHandler<CodeNavigationRequestedEventArgs>? FindReferencesRequested;
+
     static CodeEditor()
     {
         FilePathProperty.Changed.AddClassHandler<CodeEditor>((editor, _) => editor.ApplyGrammarForFilePath());
         DiffLinesProperty.Changed.AddClassHandler<CodeEditor>((editor, _) => editor._diffBackgroundRenderer.UpdateDiffLines(editor.DiffLines));
         DiffHunksProperty.Changed.AddClassHandler<CodeEditor>((editor, _) => editor._diffHunkGutterMargin.UpdateHunks(editor.DiffHunks));
         GhostTextSuggestionProperty.Changed.AddClassHandler<CodeEditor>((editor, _) => editor.OnGhostTextSuggestionChanged());
+        DiagnosticsProperty.Changed.AddClassHandler<CodeEditor>((editor, _) => editor._diagnosticsRenderer.UpdateDiagnostics(editor.Diagnostics));
     }
 
     public CodeEditor()
@@ -134,6 +165,11 @@ public class CodeEditor : TextEditor
         _ghostTextTimer.Tick += (_, _) => OnGhostTextTimerTick();
         _ghostTextTimer.Start();
         TextChanged += (_, _) => OnCodeEditorTextChanged();
+
+        _diagnosticsRenderer = new DiagnosticsRenderer(TextArea.TextView);
+        PointerMoved += OnPointerMovedForDiagnostics;
+        PointerExited += (_, _) => HideDiagnosticTooltip();
+        KeyDown += OnCodeEditorKeyDownForNavigation;
 
         // Tunnel runs top-down before TextArea's own OnKeyDown override (which unconditionally
         // handles Tab when Options.AcceptsTab is set) reaches it, so this gets first look at Tab
@@ -280,6 +316,81 @@ public class CodeEditor : TextEditor
         _ghostTextSuggestionState.Dismiss();
         _ghostTextRenderer.Clear();
         _ghostTextDebouncer.Cancel();
+    }
+
+    // Epic 17, T17.1.2: GetPositionFromPoint (inherited from TextEditor) already translates a
+    // point relative to this control into document coordinates, scroll offset included - no manual
+    // ScrollOffset adjustment needed here.
+    private void OnPointerMovedForDiagnostics(object? sender, PointerEventArgs e)
+    {
+        if (Document is null || GetPositionFromPoint(e.GetPosition(this)) is not { } position)
+        {
+            HideDiagnosticTooltip();
+            return;
+        }
+
+        var offset = Document.GetOffset(position.Location);
+        var diagnostic = _diagnosticsRenderer.FindAt(Document, offset);
+        if (diagnostic is null)
+        {
+            HideDiagnosticTooltip();
+            return;
+        }
+
+        if (diagnostic.Equals(_shownDiagnosticTooltip))
+        {
+            return;
+        }
+
+        _shownDiagnosticTooltip = diagnostic;
+
+        // Forcing a close/reopen (rather than just updating Tip while a tooltip is already shown)
+        // guarantees the new message actually (re)displays - Avalonia's own hover-delay behavior
+        // doesn't reliably refresh on content changes alone.
+        ToolTip.SetIsOpen(this, false);
+        ToolTip.SetTip(this, diagnostic.Message);
+        ToolTip.SetIsOpen(this, true);
+    }
+
+    private void HideDiagnosticTooltip()
+    {
+        if (_shownDiagnosticTooltip is null)
+        {
+            return;
+        }
+
+        _shownDiagnosticTooltip = null;
+        ToolTip.SetIsOpen(this, false);
+    }
+
+    // Epic 17, T17.1.3: F12 (go to definition) / Shift+F12 (find references) - the same keybinds
+    // most LSP-backed editors (VS Code, Visual Studio) already use for these, so no settings/
+    // customization is needed for day one.
+    private void OnCodeEditorKeyDownForNavigation(object? sender, KeyEventArgs e)
+    {
+        if (Document is null || e.Key != Key.F12)
+        {
+            return;
+        }
+
+        var position = ToLspPosition(CaretOffset);
+
+        if (e.KeyModifiers == KeyModifiers.Shift)
+        {
+            FindReferencesRequested?.Invoke(this, new CodeNavigationRequestedEventArgs(position));
+            e.Handled = true;
+        }
+        else if (e.KeyModifiers == KeyModifiers.None)
+        {
+            GoToDefinitionRequested?.Invoke(this, new CodeNavigationRequestedEventArgs(position));
+            e.Handled = true;
+        }
+    }
+
+    private LspPosition ToLspPosition(int offset)
+    {
+        var location = Document!.GetLocation(offset);
+        return new LspPosition(location.Line - 1, location.Column - 1);
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
