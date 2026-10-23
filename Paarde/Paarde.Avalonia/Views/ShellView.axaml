@@ -29,6 +29,11 @@
                     <ui:SymbolIconSource Symbol="Folder" />
                 </ui:NavigationViewItem.IconSource>
             </ui:NavigationViewItem>
+            <ui:NavigationViewItem Content="Terminal" helpers:NavigationHelper.NavigateTo="Paarde.Avalonia.ViewModels.TerminalViewModel">
+                <ui:NavigationViewItem.IconSource>
+                    <ui:SymbolIconSource Symbol="Play" />
+                </ui:NavigationViewItem.IconSource>
+            </ui:NavigationViewItem>
             <ui:NavigationViewItem Content="Diffs" helpers:NavigationHelper.NavigateTo="Paarde.Avalonia.ViewModels.DiffsViewModel">
                 <ui:NavigationViewItem.IconSource>
                     <ui:SymbolIconSource Symbol="Code" />

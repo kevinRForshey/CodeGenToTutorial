@@ -2372,22 +2372,41 @@ out to `git` for status/staging, and Epic 12 shells out for build/test - an embe
 generalized, user-driven version of the same capability: run anything, see raw output, without
 context-switching to an external terminal window.*
 
-**F16.1 — A real terminal, not a command-output log**
-- [ ] T16.1.1 Avalonia has no first-party terminal/PTY control; a true PTY (wrapping `Pty.Net`/
+**F16.1 — A real terminal, not a command-output log** — ✅ Done 2026-10-22
+- [x] T16.1.1 Avalonia has no first-party terminal/PTY control; a true PTY (wrapping `Pty.Net`/
   `ConPTY` bindings through a custom control rendering raw ANSI output) is meaningfully more work than
   every other control in this app, all of which are built on existing Avalonia/AvaloniaEdit pieces.
   **Recommend the scoped-down version first**: a "run a command, stream its output" panel (plain
   stdout/stderr text, no PTY, no interactive programs like `vim`/`htop`) - most of the value here
-  (`dotnet test`, `git log`, `npm install`) doesn't need a real PTY.
-- [ ] T16.1.2 New `TerminalViewModel`/`TerminalView` page (added to `PageService`/`ShellView`'s nav,
+  (`dotnet test`, `git log`, `npm install`) doesn't need a real PTY. Done as: exactly the scoped-down
+  panel, no PTY.
+- [x] T16.1.2 New `TerminalViewModel`/`TerminalView` page (added to `PageService`/`ShellView`'s nav,
   same registration pattern every other page follows), reusing Epic 12's `ProcessCommandRunner`
-  generalized to an arbitrary command string instead of just the configured build/test commands.
-- [ ] T16.1.3 Streamed output (append-as-it-runs, not wait-for-exit) the same way `ClaudeCliRunner`
-  already streams CLI stdout - same `Process`/async-read pattern, different command.
+  generalized to an arbitrary command string instead of just the configured build/test commands. Done
+  as: `ProcessCommandRunner` now also implements a new `ITerminalCommandRunner` (its existing
+  `IBuildTestRunner` member is unchanged - a buffered, no-callback `RunAsync` overload - the new
+  interface adds a second overload that takes an `onOutputLine` callback), registered alongside
+  `TerminalViewModel`/`TerminalView` in `App.axaml.cs`/`PageService` the same way every other page is.
+  A "Terminal" item was added to `ShellView`'s `NavigationView` (`Symbol="Play"` - FluentAvalonia has
+  no dedicated terminal/console glyph).
+- [x] T16.1.3 Streamed output (append-as-it-runs, not wait-for-exit) the same way `ClaudeCliRunner`
+  already streams CLI stdout - same `Process`/async-read pattern, different command. Done as:
+  `ProcessCommandRunner`'s `OutputDataReceived`/`ErrorDataReceived` handlers now also invoke
+  `onOutputLine` per line (in addition to the existing buffering), and `TerminalViewModel` marshals
+  each line onto the UI thread via `Dispatcher.UIThread.Post` and appends it to `OutputText` - same
+  marshaling requirement as `PromptViewModel.OnTextDelta`. Not visually verified (this sandbox has no
+  X server), same caveat as every other Avalonia-touching task in this roadmap.
 
-**F16.2 — Tests**
-- [ ] T16.2.1 `TerminalViewModelTests`: running a command streams output incrementally and records
-  exit code; a long-running command can be cancelled.
+**F16.2 — Tests** — ✅ Done 2026-10-22
+- [x] T16.2.1 `TerminalViewModelTests`: running a command streams output incrementally and records
+  exit code; a long-running command can be cancelled. Done as: `TerminalViewModelTests` covers working
+  directory load, command/working-directory pass-through, success/failure/cancellation status
+  messages, and the Cancel/Clear commands' `CanExecute` state - the actual line-by-line `OutputText`
+  append isn't exercised here since nothing pumps `Dispatcher.UIThread` in this plain xunit host (same
+  limitation `PromptViewModelTests` already notes for `OnTextDelta`/`OnToolActivity`).
+  `ProcessCommandRunnerTests` separately covers the new streaming `RunAsync` overload end-to-end
+  against real shell commands (per-line callback invocation, stderr lines included, cancellation
+  still kills the child process).
 
 ---
 

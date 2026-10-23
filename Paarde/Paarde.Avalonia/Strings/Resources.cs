@@ -102,6 +102,11 @@ public static class Resources
         ["Explorer_SaveConflict"] = "{0} changed on disk since it was opened. Reselect it in the tree to reload it, then try saving again.",
         ["Explorer_SaveSucceeded"] = "Saved {0}.",
         ["Explorer_SaveFailed"] = "Failed to save {0}: {1}",
+        ["Terminal_NoWorkingDirectory"] = "No working directory selected yet. Pick one on the Prompt page.",
+        ["Terminal_CommandSucceeded"] = "Command finished ({0:F1}s).",
+        ["Terminal_CommandFailed"] = "Command exited with code {0} ({1:F1}s).",
+        ["Terminal_CommandCancelled"] = "Cancelled.",
+        ["Terminal_CommandRunError"] = "Failed to run the command: {0}",
     };
 
     public static string Resolve(this string resourceKey) =>
