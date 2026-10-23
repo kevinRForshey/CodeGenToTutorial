@@ -35,7 +35,7 @@ public class ClaudeCliRunner : ILlmRunner
         return ExecutablePathResolver.ExistsOnPath(options.ExecutablePath);
     }
 
-    public async Task<LlmRunResult> RunPromptAsync(string prompt, string? workingDirectory = null, Action<string>? onTextDelta = null, string? resumeSessionId = null, CancellationToken cancellationToken = default)
+    public async Task<LlmRunResult> RunPromptAsync(string prompt, string? workingDirectory = null, Action<string>? onTextDelta = null, Action<string>? onToolActivity = null, string? resumeSessionId = null, CancellationToken cancellationToken = default)
     {
         var options = await _optionsProvider();
 
@@ -43,7 +43,15 @@ public class ClaudeCliRunner : ILlmRunner
         // session_id, rather than starting a fresh conversation - this is what makes a follow-up
         // prompt carry the prior turn's context.
         var resumeArguments = string.IsNullOrWhiteSpace(resumeSessionId) ? Enumerable.Empty<string>() : new[] { "--resume", resumeSessionId };
-        var arguments = options.Arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries).Concat(resumeArguments).Concat(StreamingArguments);
+
+        // Epic 11 (F11.1.2): "default" (not "bypassPermissions") because the CLI itself should still
+        // own enforcing the allow-list - Paarde isn't re-implementing permission checking here, just
+        // asking the CLI to let its own agent loop read/search the repo.
+        var agentToolsArguments = options.AgentToolsEnabled
+            ? new[] { "--allowedTools", "Read", "Grep", "Glob", "--permission-mode", "default" }
+            : Enumerable.Empty<string>();
+
+        var arguments = options.Arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries).Concat(resumeArguments).Concat(agentToolsArguments).Concat(StreamingArguments);
 
         // On Windows this is routed through cmd.exe so PATH resolution picks up the claude.cmd shim installed
         // by npm; other platforms can invoke the executable directly. The prompt is written to stdin rather
@@ -83,6 +91,14 @@ public class ClaudeCliRunner : ILlmRunner
 
         var assistantText = new StringBuilder();
         var standardError = new StringBuilder();
+
+        // Epic 11 (F11.2.1): a tool_use content block's name arrives on content_block_start, but
+        // its input only finishes streaming in (via input_json_delta) by content_block_stop - so
+        // these track in-progress blocks by index the same way AnthropicApiRunner.ParseStreamAsync
+        // does, keyed only for blocks that are actually tool_use (text blocks are still just
+        // appended to assistantText directly, unchanged from before this).
+        var toolNamesByIndex = new Dictionary<int, string>();
+        var toolInputJsonByIndex = new Dictionary<int, StringBuilder>();
         double? totalCostUsd = null;
         long? durationMs = null;
         int? inputTokens = null;
@@ -116,13 +132,60 @@ public class ClaudeCliRunner : ILlmRunner
                 case "stream_event":
                     var streamEvent = line["event"] as JObject;
 
-                    if (streamEvent?["type"]?.ToString() == "content_block_delta" &&
-                        streamEvent["delta"] is JObject delta &&
-                        delta["type"]?.ToString() == "text_delta")
+                    switch (streamEvent?["type"]?.ToString())
                     {
-                        var text = delta["text"]?.ToString() ?? string.Empty;
-                        assistantText.Append(text);
-                        onTextDelta?.Invoke(text);
+                        case "content_block_start":
+                            if (streamEvent["content_block"] is JObject { } startBlock && startBlock["type"]?.ToString() == "tool_use")
+                            {
+                                var startIndex = streamEvent["index"]?.ToObject<int>() ?? 0;
+                                toolNamesByIndex[startIndex] = startBlock["name"]?.ToString() ?? "tool";
+                                toolInputJsonByIndex[startIndex] = new StringBuilder();
+                            }
+
+                            break;
+
+                        case "content_block_delta":
+                            if (streamEvent["delta"] is JObject delta)
+                            {
+                                if (delta["type"]?.ToString() == "text_delta")
+                                {
+                                    var text = delta["text"]?.ToString() ?? string.Empty;
+                                    assistantText.Append(text);
+                                    onTextDelta?.Invoke(text);
+                                }
+                                else if (delta["type"]?.ToString() == "input_json_delta")
+                                {
+                                    var deltaIndex = streamEvent["index"]?.ToObject<int>() ?? 0;
+
+                                    if (toolInputJsonByIndex.TryGetValue(deltaIndex, out var builder))
+                                    {
+                                        builder.Append(delta["partial_json"]?.ToString() ?? string.Empty);
+                                    }
+                                }
+                            }
+
+                            break;
+
+                        case "content_block_stop":
+                            var stopIndex = streamEvent["index"]?.ToObject<int>() ?? 0;
+
+                            if (toolNamesByIndex.TryGetValue(stopIndex, out var toolName))
+                            {
+                                var json = toolInputJsonByIndex[stopIndex].ToString();
+                                JObject? toolInput = null;
+
+                                try
+                                {
+                                    toolInput = string.IsNullOrWhiteSpace(json) ? new JObject() : JObject.Parse(json);
+                                }
+                                catch (Newtonsoft.Json.JsonException)
+                                {
+                                }
+
+                                onToolActivity?.Invoke(ToolActivityDescriber.Describe(toolName, toolInput));
+                            }
+
+                            break;
                     }
 
                     break;
@@ -169,11 +232,22 @@ public class ClaudeCliRunner : ILlmRunner
             throw;
         }
 
+        var errorMessage = standardError.ToString().TrimEnd();
+
+        // T11.1.4: a CLI build too old to recognize --allowedTools/--permission-mode fails with its
+        // own argument-parsing error (e.g. "error: unknown option '--allowedTools'") rather than
+        // anything that names the actual problem - only worth checking for when this run is the one
+        // that added those flags, since an unrelated argument-parsing failure shouldn't be relabeled.
+        if (process.ExitCode != 0 && options.AgentToolsEnabled && LooksLikeUnrecognizedAgentToolsFlag(errorMessage))
+        {
+            errorMessage = "This Claude Code CLI build doesn't recognize --allowedTools/--permission-mode, used because \"Enable read-only agent tools\" is turned on in Settings. Upgrade the CLI (npm install -g @anthropic-ai/claude-code) or turn that setting off.";
+        }
+
         return new LlmRunResult
         {
             Success = process.ExitCode == 0,
             Output = assistantText.ToString().TrimEnd(),
-            ErrorMessage = standardError.ToString().TrimEnd(),
+            ErrorMessage = errorMessage,
             ExitCode = process.ExitCode,
             TotalCostUsd = totalCostUsd,
             DurationMs = durationMs,
@@ -182,4 +256,8 @@ public class ClaudeCliRunner : ILlmRunner
             SessionId = sessionId,
         };
     }
+
+    private static bool LooksLikeUnrecognizedAgentToolsFlag(string stderr) =>
+        stderr.Contains("unknown option", StringComparison.OrdinalIgnoreCase) &&
+        (stderr.Contains("--allowedTools", StringComparison.OrdinalIgnoreCase) || stderr.Contains("--permission-mode", StringComparison.OrdinalIgnoreCase));
 }

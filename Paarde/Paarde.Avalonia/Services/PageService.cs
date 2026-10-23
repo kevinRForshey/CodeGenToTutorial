@@ -20,6 +20,7 @@ public class PageService : IPageService
         Configure<TutorialViewModel, TutorialView>();
         Configure<HistoryViewModel, HistoryView>();
         Configure<ExplorerViewModel, ExplorerView>();
+        Configure<TerminalViewModel, TerminalView>();
         Configure<SettingsViewModel, SettingsView>();
     }
 

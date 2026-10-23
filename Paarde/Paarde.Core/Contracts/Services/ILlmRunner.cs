@@ -13,10 +13,15 @@ public interface ILlmRunner
     // in - on a background thread for ClaudeCliRunner, so callers that touch UI state must marshal
     // themselves.
     //
+    // onToolActivity (Epic 11, F11.2), if given, is invoked with a short human-readable description
+    // ("Reading `Foo.cs`") each time a read-only tool call completes - same background-thread
+    // caveat as onTextDelta. Only ever fires when AgentToolsEnabled is on for whichever runner is
+    // active; otherwise no tool is ever requested, so this is simply never called.
+    //
     // resumeSessionId (T7.3.1), if given, asks the runner to continue that earlier conversation
     // (the SessionId an earlier LlmRunResult returned) instead of starting a fresh one, so a
     // follow-up prompt carries the prior turn's context.
-    Task<LlmRunResult> RunPromptAsync(string prompt, string? workingDirectory = null, Action<string>? onTextDelta = null, string? resumeSessionId = null, CancellationToken cancellationToken = default);
+    Task<LlmRunResult> RunPromptAsync(string prompt, string? workingDirectory = null, Action<string>? onTextDelta = null, Action<string>? onToolActivity = null, string? resumeSessionId = null, CancellationToken cancellationToken = default);
 
     // Cheap preflight: lets callers report an unavailable runner with actionable guidance instead
     // of surfacing whatever exception the underlying call happens to throw.

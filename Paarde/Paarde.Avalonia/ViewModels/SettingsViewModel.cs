@@ -37,6 +37,22 @@ public partial class SettingsViewModel : ObservableRecipient, INavigationAware
     [ObservableProperty]
     private string claudeCliArguments = ClaudeCliOptions.Default.Arguments;
 
+    // Epic 11 (F11.1.1): off by default - this changes what the model can *do* mid-run (read/grep/
+    // glob the project), not just how it's invoked, so it shouldn't turn on silently. Shared by
+    // whichever ILlmRunner is selected (T11.1.2/T11.1.3).
+    [ObservableProperty]
+    private bool agentToolsEnabled;
+
+    // Epic 12 (F12.1.2): the commands run after an apply, if non-blank, to check the result still
+    // builds/passes its tests. Blank means "skip" rather than falling back to some default command
+    // name - not every working directory is a .NET project, and a wrong guess shelling out to a
+    // nonexistent command would be a worse default than doing nothing.
+    [ObservableProperty]
+    private string buildCommand = "dotnet build";
+
+    [ObservableProperty]
+    private string testCommand = "dotnet test";
+
     // T6.3.2/T6.3.3: which ILlmRunner implementation LlmRunnerSelector should delegate to.
     [ObservableProperty]
     private LlmRunnerKind selectedRunnerKind = LlmRunnerKind.ClaudeCli;
@@ -52,6 +68,19 @@ public partial class SettingsViewModel : ObservableRecipient, INavigationAware
     public IReadOnlyList<LlmRunnerKind> AvailableRunnerKinds { get; } = Enum.GetValues<LlmRunnerKind>();
 
     public IReadOnlyList<AnthropicModelInfo> AvailableModels { get; } = AnthropicModelCatalog.Models;
+
+    // AnthropicApiModel is persisted as a bare model id (string), but the model picker's ComboBox
+    // needs an actual AvailableModels item to bind SelectedItem to - combining Avalonia's
+    // SelectedValue/SelectedValueBinding with DisplayMemberBinding throws an InvalidCastException
+    // (the selection box ends up applying the item template to the raw string id instead of the
+    // matched item), so this wraps the string property as the AnthropicModelInfo the ComboBox
+    // actually binds to. OnAnthropicApiModelChanged below keeps it in sync when the id changes from
+    // elsewhere (e.g. OnNavigatedTo restoring a saved value).
+    public AnthropicModelInfo? SelectedAnthropicModel
+    {
+        get => AvailableModels.FirstOrDefault(model => model.Id == AnthropicApiModel);
+        set => AnthropicApiModel = value?.Id ?? AnthropicModelCatalog.DefaultModelId;
+    }
 
     // T5.3.2: blank means "use DefaultPromptTemplate" - PromptViewModel applies that same fallback
     // when it reads this setting fresh on every run.
@@ -106,6 +135,14 @@ public partial class SettingsViewModel : ObservableRecipient, INavigationAware
             var savedArguments = await _localSettingsService.ReadSettingAsync<string>(ClaudeCliSettingsKeys.Arguments);
             ClaudeCliArguments = string.IsNullOrWhiteSpace(savedArguments) ? ClaudeCliOptions.Default.Arguments : savedArguments;
 
+            AgentToolsEnabled = await _localSettingsService.ReadSettingAsync<bool?>(ClaudeCliSettingsKeys.AgentToolsEnabled) ?? false;
+
+            // Unlike ClaudeCliArguments above, a saved-but-blank value here is a deliberate "skip" -
+            // not "nothing saved yet" - so it's read as-is rather than falling back to the "dotnet
+            // build"/"dotnet test" field defaults.
+            BuildCommand = await _localSettingsService.ReadSettingAsync<string>(BuildTestSettingsKeys.BuildCommand) ?? BuildCommand;
+            TestCommand = await _localSettingsService.ReadSettingAsync<string>(BuildTestSettingsKeys.TestCommand) ?? TestCommand;
+
             PromptTemplateOverride = await _localSettingsService.ReadSettingAsync<string>(PromptTemplateSettingsKeys.Override) ?? string.Empty;
 
             var savedRunnerKind = await _localSettingsService.ReadSettingAsync<string>(LlmRunnerSettingsKeys.SelectedRunner);
@@ -135,11 +172,21 @@ public partial class SettingsViewModel : ObservableRecipient, INavigationAware
 
     partial void OnClaudeCliArgumentsChanged(string value) => _localSettingsService.SaveSettingAsync(ClaudeCliSettingsKeys.Arguments, value);
 
+    partial void OnAgentToolsEnabledChanged(bool value) => _localSettingsService.SaveSettingAsync(ClaudeCliSettingsKeys.AgentToolsEnabled, value);
+
+    partial void OnBuildCommandChanged(string value) => _localSettingsService.SaveSettingAsync(BuildTestSettingsKeys.BuildCommand, value);
+
+    partial void OnTestCommandChanged(string value) => _localSettingsService.SaveSettingAsync(BuildTestSettingsKeys.TestCommand, value);
+
     partial void OnSelectedRunnerKindChanged(LlmRunnerKind value) => _localSettingsService.SaveSettingAsync(LlmRunnerSettingsKeys.SelectedRunner, value.ToString());
 
     partial void OnAnthropicApiKeyChanged(string value) => _secureStorageService.SaveAsync(AnthropicApiSettingsKeys.ApiKey, value);
 
-    partial void OnAnthropicApiModelChanged(string value) => _localSettingsService.SaveSettingAsync(AnthropicApiSettingsKeys.Model, value);
+    partial void OnAnthropicApiModelChanged(string value)
+    {
+        _localSettingsService.SaveSettingAsync(AnthropicApiSettingsKeys.Model, value);
+        OnPropertyChanged(nameof(SelectedAnthropicModel));
+    }
 
     partial void OnPromptTemplateOverrideChanged(string value)
     {

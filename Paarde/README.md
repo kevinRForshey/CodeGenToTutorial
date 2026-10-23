@@ -107,7 +107,9 @@ Prompt page's working directory to one you've used before) lists.
   working directory. This is the folder it reads from and writes to. The **Recent...** dropdown
   next to it switches straight to a previously-used working directory without leaving this page.
 - **Context files** — optionally attach specific files or a whole folder as extra context for the
-  model, beyond what's in the working directory.
+  model, beyond what's in the working directory. You can also attach a file by typing `@` followed
+  by part of its name directly in the prompt text box — a popup lists matching files (gitignore-aware)
+  for you to pick from.
 - **Prompt text** — describe what you want built, fixed, or changed, in plain English. A live
   estimated token count is shown above the box.
 - **Preset** — a short instruction nudge appended ahead of your prompt: `General`, `Feature`,
@@ -120,6 +122,9 @@ Prompt page's working directory to one you've used before) lists.
 - Click **Send to Claude Code** to run it. A progress ring, elapsed time, and a running character
   count show that a response is streaming in; once it completes you're told how many files are ready
   to review. **Cancel** stops an in-flight run.
+- **Tool activity** — if **Enable read-only agent tools** is on (Settings page), a small collapsible
+  list appears under the progress indicator as Claude reads, greps, or globs the project mid-run
+  (e.g. "Reading `Foo.cs`"). Hidden when the setting is off or no tool has been used yet.
 
 ### 3. Explorer page
 
@@ -168,17 +173,53 @@ This is where you actually decide what to keep:
 - **Export as Markdown** / **Export as HTML** save the overview and every file's steps as a
   self-contained document you can share or archive outside the app.
 
-### 6. History page
+### 6. Terminal page
+
+Run an arbitrary shell command against your project without leaving the app — the same
+shell-out-and-capture mechanism Epic 12's build/test feedback loop uses, generalized to whatever
+command you type.
+
+- **What it is** — a scoped-down "run a command, stream its output" panel, not a full interactive
+  terminal. It routes your command through a real shell (`/bin/sh -c` on Linux/macOS, `cmd.exe /c`
+  on Windows) in the working directory last picked on the Prompt page, so `&&`-chains, pipes, and
+  PATH resolution all work the way they would in an actual shell.
+- **How to use it** — type a command (e.g. `dotnet test`, `git log`, `npm install`) and click
+  **Run**. Output streams into the pane below as the command produces it, not just once it exits.
+  **Cancel** stops an in-flight command (and kills the underlying process, not just the UI's wait
+  for it). **Clear** empties the output pane without affecting anything running.
+- **Limits** — this is deliberately not a real terminal/PTY:
+  - **No input.** There's no way to type back to the running process, so anything that needs
+    interactive input will hang or fail — `vim`, `htop`, pagers like `less`/`more`, `git commit`
+    without `-m` (which tries to open an editor), a password prompt, a Python REPL, an `npm init`
+    wizard, and so on.
+  - **No ANSI/escape-code rendering.** Output is shown as plain text, so color codes, progress
+    bars, or cursor-movement sequences will show as raw escape characters rather than rendering.
+  - **No state carries over between runs.** Each **Run** starts a brand-new shell process, so a
+    `cd` or an exported environment variable from one command is gone by the next — there's no
+    persistent session the way a real terminal window has.
+
+  Real, interactive terminal use still belongs in an external terminal window for now; a true PTY
+  (wrapping `Pty.Net`/ConPTY) is a larger, separate piece of work than this scoped-down version.
+
+### 7. History page
 
 Every run is persisted automatically. Select a past session from the list to see its files; use
 **Fork** to reload that run's prompt and working directory onto the Prompt page for editing, or
 **Re-run** to send it again immediately.
 
-### 7. Settings page
+### 8. Settings page
 
 - **Theme** — Light, Dark, or Default (follow the OS).
 - **Claude Code CLI** — override the executable path and arguments if `claude` isn't on your `PATH`
   or you need custom flags.
+- **Enable read-only agent tools** — lets Claude read files, search (grep), and list files (glob) in
+  your project itself while it's generating a response, instead of only seeing whatever context you
+  attached or Paarde inlined. It still can't write files or run commands — those stay off. Off by
+  default, since this changes what the model can *do* mid-run, not just how it's invoked; check this
+  box on the Settings page to turn it on. It applies to whichever LLM runner (Claude Code CLI or
+  Anthropic API) is currently selected above it. Using it with the Claude Code CLI runner requires a
+  CLI build that supports `--allowedTools`/`--permission-mode` — run `claude --version`, and if
+  turning this on causes an error, upgrade with `npm install -g @anthropic-ai/claude-code`.
 - **Prompt template** — view or override the instruction preamble sent ahead of every prompt;
   **Reset to default** restores the built-in template.
 

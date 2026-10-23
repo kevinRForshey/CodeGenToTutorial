@@ -622,6 +622,89 @@ public class PromptViewModelTests
     }
 
     [Fact]
+    public void UpdateMentionSuggestions_MatchingQuery_PopulatesMentionSuggestions()
+    {
+        var workingDirectory = Directory.CreateTempSubdirectory("PaardeTests_").FullName;
+
+        try
+        {
+            File.WriteAllText(Path.Combine(workingDirectory, "Foo.cs"), "class Foo {}");
+            File.WriteAllText(Path.Combine(workingDirectory, "Bar.cs"), "class Bar {}");
+
+            var sut = CreateSut();
+            sut.WorkingDirectoryPath = workingDirectory;
+
+            sut.UpdateMentionSuggestions("Foo");
+
+            Assert.Equal(["Foo.cs"], sut.MentionSuggestions);
+            Assert.True(sut.HasMentionSuggestions);
+        }
+        finally
+        {
+            Directory.Delete(workingDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void UpdateMentionSuggestions_NoWorkingDirectory_LeavesMentionSuggestionsEmpty()
+    {
+        var sut = CreateSut();
+
+        sut.UpdateMentionSuggestions("Foo");
+
+        Assert.Empty(sut.MentionSuggestions);
+        Assert.False(sut.HasMentionSuggestions);
+    }
+
+    [Fact]
+    public void CloseMentionPopup_ClearsMentionSuggestions()
+    {
+        var workingDirectory = Directory.CreateTempSubdirectory("PaardeTests_").FullName;
+
+        try
+        {
+            File.WriteAllText(Path.Combine(workingDirectory, "Foo.cs"), "class Foo {}");
+
+            var sut = CreateSut();
+            sut.WorkingDirectoryPath = workingDirectory;
+            sut.UpdateMentionSuggestions("Foo");
+
+            sut.CloseMentionPopup();
+
+            Assert.Empty(sut.MentionSuggestions);
+        }
+        finally
+        {
+            Directory.Delete(workingDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task AttachMentionedFile_ResolvesTheRelativePathAgainstWorkingDirectoryAndAttachesIt()
+    {
+        var workingDirectory = Directory.CreateTempSubdirectory("PaardeTests_").FullName;
+
+        try
+        {
+            File.WriteAllText(Path.Combine(workingDirectory, "Foo.cs"), "class Foo {}");
+
+            var sut = CreateSut();
+            sut.WorkingDirectoryPath = workingDirectory;
+            sut.UpdateMentionSuggestions("Foo");
+
+            sut.AttachMentionedFile("Foo.cs");
+            await Task.Yield();
+
+            Assert.Equal([Path.Combine(workingDirectory, "Foo.cs")], sut.AttachedPaths);
+            Assert.Empty(sut.MentionSuggestions);
+        }
+        finally
+        {
+            Directory.Delete(workingDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task EstimatedTokenCountDisplay_MatchesTheExactPromptThatWouldBeSent()
     {
         var sut = CreateSut();
@@ -872,6 +955,47 @@ public class PromptViewModelTests
 
         Assert.Equal(1, _promptResultStore.SetResultCallCount);
         Assert.Single(_promptResultStore.Files);
+    }
+
+    [Fact]
+    public void ToolActivityLog_DefaultsToEmpty()
+    {
+        var sut = CreateSut();
+
+        Assert.False(sut.HasToolActivity);
+        Assert.Empty(sut.ToolActivityLog);
+    }
+
+    [Fact]
+    public void HasToolActivity_ReflectsWhetherToolActivityLogHasEntries()
+    {
+        var sut = CreateSut();
+
+        sut.ToolActivityLog.Add("Reading `Foo.cs`");
+
+        Assert.True(sut.HasToolActivity);
+
+        sut.ToolActivityLog.Clear();
+
+        Assert.False(sut.HasToolActivity);
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_PriorToolActivityLogEntries_ClearsThemAtTheStartOfTheRun()
+    {
+        // Epic 11 (F11.2.2): onToolActivity dispatches through Dispatcher.UIThread.Post, same as
+        // OnTextDelta above - not exercised here since nothing pumps the dispatcher in this plain
+        // xunit host (see RunPromptAsync_StreamedTextDeltas_DoNotReparseOrStoreUntilTheRunFinishes'
+        // own comment), so this only verifies the synchronous Clear() at the start of a run, not a
+        // tool call actually appending to the log mid-run.
+        var sut = CreateSut();
+        sut.PromptText = "Do something";
+        sut.ToolActivityLog.Add("Stale entry from a previous run");
+        _llmRunner.ResultToReturn = new LlmRunResult { Success = true, Output = "done" };
+
+        await sut.RunPromptCommand.ExecuteAsync(null);
+
+        Assert.Empty(sut.ToolActivityLog);
     }
 
     [Fact]

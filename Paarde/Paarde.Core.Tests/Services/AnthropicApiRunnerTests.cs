@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Net;
 using System.Text;
 
@@ -16,9 +17,13 @@ public class AnthropicApiRunnerTests
     private const string StreamedResponse = """
         data: {"type":"message_start","message":{"usage":{"input_tokens":10}}}
 
-        data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Hello"}}
+        data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}
 
-        data: {"type":"content_block_delta","delta":{"type":"text_delta","text":", world"}}
+        data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}
+
+        data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":", world"}}
+
+        data: {"type":"content_block_stop","index":0}
 
         data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}
 
@@ -32,18 +37,31 @@ public class AnthropicApiRunnerTests
 
         public string? LastRequestBody { get; private set; }
 
+        // Epic 11 (F11.1.3/F11.3.2): a tool-use round trip makes more than one call per
+        // RunPromptAsync - this records each request body in order, so a test can assert on, say,
+        // the second request's tool_result content without the first call's body overwriting it.
+        public List<string> RequestBodies { get; } = new();
+
         public HttpStatusCode StatusCodeToReturn { get; set; } = HttpStatusCode.OK;
 
         public string ResponseBodyToReturn { get; set; } = StreamedResponse;
+
+        // When non-empty, each call dequeues the next response instead of always returning
+        // ResponseBodyToReturn - lets a test drive a multi-turn tool-use loop, one scripted
+        // response per turn.
+        public Queue<string> ResponseBodyQueue { get; } = new();
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             LastRequest = request;
             LastRequestBody = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
+            RequestBodies.Add(LastRequestBody ?? string.Empty);
+
+            var responseBody = ResponseBodyQueue.Count > 0 ? ResponseBodyQueue.Dequeue() : ResponseBodyToReturn;
 
             return new HttpResponseMessage(StatusCodeToReturn)
             {
-                Content = new StringContent(ResponseBodyToReturn, Encoding.UTF8, "text/event-stream"),
+                Content = new StringContent(responseBody, Encoding.UTF8, "text/event-stream"),
             };
         }
     }
@@ -129,7 +147,11 @@ public class AnthropicApiRunnerTests
     public async Task RunPromptAsync_MaxTokensStopReason_ReturnsFailureButKeepsThePartialOutput()
     {
         _handler.ResponseBodyToReturn = """
-            data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Truncated"}}
+            data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}
+
+            data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Truncated"}}
+
+            data: {"type":"content_block_stop","index":0}
 
             data: {"type":"message_delta","delta":{"stop_reason":"max_tokens"},"usage":{"output_tokens":8192}}
 
@@ -180,6 +202,168 @@ public class AnthropicApiRunnerTests
         var messages = (JArray)JObject.Parse(_handler.LastRequestBody!)["messages"]!;
         Assert.Single(messages);
         Assert.NotEqual("never-seen-before", result.SessionId);
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_AgentToolsDisabled_DoesNotSendToolsToTheApi()
+    {
+        var runner = CreateRunner();
+
+        await runner.RunPromptAsync("prompt");
+
+        var body = JObject.Parse(_handler.LastRequestBody!);
+        Assert.Null(body["tools"]);
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_AgentToolsEnabled_SendsToolsToTheApi()
+    {
+        var runner = CreateRunner(new AnthropicApiOptions("test-api-key", "claude-sonnet-5", AgentToolsEnabled: true));
+
+        await runner.RunPromptAsync("prompt");
+
+        var body = JObject.Parse(_handler.LastRequestBody!);
+        var toolNames = ((JArray)body["tools"]!).Select(tool => tool["name"]!.ToString()).ToList();
+        Assert.Contains("read_file", toolNames);
+        Assert.Contains("grep", toolNames);
+        Assert.Contains("glob", toolNames);
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_ModelRequestsReadFile_ExecutesItAndSendsTheToolResultBackThenReturnsTheFollowUpAnswer()
+    {
+        using var workingDirectory = new TempDirectory();
+        File.WriteAllText(Path.Combine(workingDirectory.Path, "foo.txt"), "file contents");
+
+        const string ToolUseResponse = """
+            data: {"type":"message_start","message":{"usage":{"input_tokens":10}}}
+
+            data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"read_file","input":{}}}
+
+            data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"path\":\"foo.txt\"}"}}
+
+            data: {"type":"content_block_stop","index":0}
+
+            data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":5}}
+
+            data: {"type":"message_stop"}
+
+            """;
+        _handler.ResponseBodyQueue.Enqueue(ToolUseResponse);
+        _handler.ResponseBodyQueue.Enqueue(StreamedResponse);
+        var runner = CreateRunner(new AnthropicApiOptions("test-api-key", "claude-sonnet-5", AgentToolsEnabled: true));
+
+        var result = await runner.RunPromptAsync("prompt", workingDirectory.Path);
+
+        Assert.True(result.Success);
+        Assert.Equal("Hello, world", result.Output);
+        Assert.Equal(2, _handler.RequestBodies.Count);
+
+        var secondRequestMessages = (JArray)JObject.Parse(_handler.RequestBodies[1])["messages"]!;
+        var toolResultMessage = secondRequestMessages[2];
+        Assert.Equal("user", toolResultMessage["role"]!.ToString());
+        var toolResult = toolResultMessage["content"]![0]!;
+        Assert.Equal("toolu_1", toolResult["tool_use_id"]!.ToString());
+        Assert.Equal("file contents", toolResult["content"]!.ToString());
+        Assert.False(toolResult["is_error"]!.ToObject<bool>());
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_ModelRequestsReadFile_InvokesOnToolActivityWithADescription()
+    {
+        using var workingDirectory = new TempDirectory();
+        File.WriteAllText(Path.Combine(workingDirectory.Path, "foo.txt"), "file contents");
+
+        const string ToolUseResponse = """
+            data: {"type":"message_start","message":{"usage":{"input_tokens":10}}}
+
+            data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"read_file","input":{}}}
+
+            data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"path\":\"foo.txt\"}"}}
+
+            data: {"type":"content_block_stop","index":0}
+
+            data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":5}}
+
+            data: {"type":"message_stop"}
+
+            """;
+        _handler.ResponseBodyQueue.Enqueue(ToolUseResponse);
+        _handler.ResponseBodyQueue.Enqueue(StreamedResponse);
+        var runner = CreateRunner(new AnthropicApiOptions("test-api-key", "claude-sonnet-5", AgentToolsEnabled: true));
+        var toolActivities = new List<string>();
+
+        await runner.RunPromptAsync("prompt", workingDirectory.Path, onToolActivity: toolActivities.Add);
+
+        Assert.Equal(new[] { "Reading `foo.txt`" }, toolActivities);
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_ModelRequestsReadFileOutsideTheWorkingDirectory_RejectsItAsAToolErrorInsteadOfThrowing()
+    {
+        using var workingDirectory = new TempDirectory();
+
+        const string ToolUseResponse = """
+            data: {"type":"message_start","message":{"usage":{"input_tokens":10}}}
+
+            data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"read_file","input":{}}}
+
+            data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"path\":\"../outside.txt\"}"}}
+
+            data: {"type":"content_block_stop","index":0}
+
+            data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":5}}
+
+            data: {"type":"message_stop"}
+
+            """;
+        _handler.ResponseBodyQueue.Enqueue(ToolUseResponse);
+        _handler.ResponseBodyQueue.Enqueue(StreamedResponse);
+        var runner = CreateRunner(new AnthropicApiOptions("test-api-key", "claude-sonnet-5", AgentToolsEnabled: true));
+
+        var result = await runner.RunPromptAsync("prompt", workingDirectory.Path);
+
+        Assert.True(result.Success);
+
+        var secondRequestMessages = (JArray)JObject.Parse(_handler.RequestBodies[1])["messages"]!;
+        var toolResult = secondRequestMessages[2]["content"]![0]!;
+        Assert.True(toolResult["is_error"]!.ToObject<bool>());
+        Assert.Contains("Refusing to write outside the project folder", toolResult["content"]!.ToString());
+    }
+
+    [Fact]
+    public async Task RunPromptAsync_ModelKeepsRequestingToolsPastTheIterationCap_ReturnsFailure()
+    {
+        using var workingDirectory = new TempDirectory();
+
+        const string ToolUseResponse = """
+            data: {"type":"message_start","message":{"usage":{"input_tokens":10}}}
+
+            data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"glob","input":{}}}
+
+            data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"pattern\":\"*.txt\"}"}}
+
+            data: {"type":"content_block_stop","index":0}
+
+            data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":5}}
+
+            data: {"type":"message_stop"}
+
+            """;
+        _handler.ResponseBodyToReturn = ToolUseResponse;
+        var runner = CreateRunner(new AnthropicApiOptions("test-api-key", "claude-sonnet-5", AgentToolsEnabled: true));
+
+        var result = await runner.RunPromptAsync("prompt", workingDirectory.Path);
+
+        Assert.False(result.Success);
+        Assert.Contains("Stopped after", result.ErrorMessage);
+    }
+
+    private sealed class TempDirectory : IDisposable
+    {
+        public string Path { get; } = Directory.CreateTempSubdirectory("PaardeTests_").FullName;
+
+        public void Dispose() => Directory.Delete(Path, recursive: true);
     }
 
     [Fact]

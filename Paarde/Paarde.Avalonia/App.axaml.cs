@@ -120,6 +120,8 @@ public partial class App : Application
             });
 
             services.AddTransient<IGitStatusService, GitStatusService>();
+            services.AddTransient<IBuildTestRunner, ProcessCommandRunner>();
+            services.AddTransient<ITerminalCommandRunner, ProcessCommandRunner>();
             services.AddTransient<IApplyOrchestrationService, ApplyOrchestrationService>();
             services.AddTransient<INavigationViewService, NavigationViewService>();
             services.AddTransient<IDialogService, DialogService>();
@@ -139,6 +141,8 @@ public partial class App : Application
             services.AddTransient<HistoryView>();
             services.AddTransient<ExplorerViewModel>();
             services.AddTransient<ExplorerView>();
+            services.AddTransient<TerminalViewModel>();
+            services.AddTransient<TerminalView>();
             services.AddTransient<DiffsViewModel>();
             services.AddTransient<DiffsView>();
             services.AddTransient<PromptViewModel>();

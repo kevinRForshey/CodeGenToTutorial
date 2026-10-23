@@ -6,6 +6,7 @@ using Avalonia.Interactivity;
 using Avalonia.VisualTree;
 
 using Paarde.Avalonia.Contracts.Services;
+using Paarde.Avalonia.Controls;
 using Paarde.Avalonia.ViewModels;
 using Paarde.Core.Contracts.Services;
 using Paarde.Core.ViewModels;
@@ -46,6 +47,19 @@ public partial class TutorialDetailControl : UserControl
         // Undo()/Redo() themselves) is the hook used to keep the buttons' enabled state in sync.
         Editor.TextChanged += (_, _) => RefreshUndoRedoButtons();
         RefreshUndoRedoButtons();
+
+        Editor.DiffHunkActionRequested += OnDiffHunkActionRequested;
+    }
+
+    // T13.1.3/T13.2.2: the gutter's Accept/Reject buttons are an alternate entry point into the
+    // same per-step selection the checkboxes in StepsItemsControl below already drive - this just
+    // forwards to it rather than introducing a second selection model.
+    private void OnDiffHunkActionRequested(object? sender, DiffHunkAcceptRejectEventArgs e)
+    {
+        if (DataContext is ProposedFileChangeViewModel proposedFileChange)
+        {
+            proposedFileChange.SetDiffHunkSelection(e.Hunk, e.Accept);
+        }
     }
 
     private void RefreshUndoRedoButtons()

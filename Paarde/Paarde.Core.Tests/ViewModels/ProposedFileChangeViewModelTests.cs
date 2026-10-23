@@ -229,6 +229,39 @@ public class ProposedFileChangeViewModelTests
     }
 
     [Fact]
+    public void SetDiffHunkSelection_MatchingStep_FlipsItsIsSelected()
+    {
+        var hunk = new ProposedHunk("Add line2", string.Empty, "line2", new HunkLocation(1, 1));
+
+        var file = new ProposedFileChangeViewModel("a.txt", "line1\nline2", "line1")
+        {
+            Hunks = new[] { hunk },
+        };
+        Assert.True(hunk.IsSelected);
+        var diffHunk = Assert.Single(hunk.MatchedDiffHunks);
+
+        file.SetDiffHunkSelection(diffHunk, isSelected: false);
+
+        Assert.False(hunk.IsSelected);
+    }
+
+    [Fact]
+    public void SetDiffHunkSelection_UnmatchedDiffHunk_IsANoOp()
+    {
+        var hunk = new ProposedHunk("Add line2", string.Empty, "line2", new HunkLocation(1, 1));
+
+        var file = new ProposedFileChangeViewModel("a.txt", "line1\nline2", "line1")
+        {
+            Hunks = new[] { hunk },
+        };
+        var unrelatedDiffHunk = new DiffHunk(1, 0, 1, 0, Array.Empty<DiffLine>(), 0, 0);
+
+        file.SetDiffHunkSelection(unrelatedDiffHunk, isSelected: false);
+
+        Assert.True(hunk.IsSelected);
+    }
+
+    [Fact]
     public void IsSelected_NoHunks_DefaultsToTrue()
     {
         var file = new ProposedFileChangeViewModel("a.txt", "proposed", "original");

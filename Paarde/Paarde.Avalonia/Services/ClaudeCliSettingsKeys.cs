@@ -8,4 +8,8 @@ public static class ClaudeCliSettingsKeys
     public const string ExecutablePath = "ClaudeCliExecutablePath";
 
     public const string Arguments = "ClaudeCliArguments";
+
+    // Epic 11 (F11.1.1): shared between both ILlmRunner implementations - one toggle controls
+    // whether either runner offers the model read-only tools, regardless of which is selected.
+    public const string AgentToolsEnabled = "ClaudeCliAgentToolsEnabled";
 }

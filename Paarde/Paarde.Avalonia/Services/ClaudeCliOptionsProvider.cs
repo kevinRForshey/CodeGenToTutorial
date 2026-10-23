@@ -21,9 +21,11 @@ public class ClaudeCliOptionsProvider
     {
         var executablePath = await _localSettingsService.ReadSettingAsync<string>(ClaudeCliSettingsKeys.ExecutablePath);
         var arguments = await _localSettingsService.ReadSettingAsync<string>(ClaudeCliSettingsKeys.Arguments);
+        var agentToolsEnabled = await _localSettingsService.ReadSettingAsync<bool?>(ClaudeCliSettingsKeys.AgentToolsEnabled) ?? false;
 
         return new ClaudeCliOptions(
             string.IsNullOrWhiteSpace(executablePath) ? ClaudeCliOptions.Default.ExecutablePath : executablePath,
-            string.IsNullOrWhiteSpace(arguments) ? ClaudeCliOptions.Default.Arguments : arguments);
+            string.IsNullOrWhiteSpace(arguments) ? ClaudeCliOptions.Default.Arguments : arguments,
+            agentToolsEnabled);
     }
 }

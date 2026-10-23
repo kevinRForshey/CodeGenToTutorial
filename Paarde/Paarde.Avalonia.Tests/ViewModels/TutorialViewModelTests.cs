@@ -1,4 +1,5 @@
 using Paarde.Avalonia.Models;
+using Paarde.Avalonia.Services;
 using Paarde.Avalonia.Tests.Fakes;
 using Paarde.Avalonia.ViewModels;
 using Paarde.Core.Models;
@@ -17,8 +18,9 @@ public class TutorialViewModelTests
     private readonly PromptTemplateProvider _promptTemplateProvider = new();
     private readonly FakeFileSavePickerService _fileSavePickerService = new();
     private readonly FakeLocalSettingsService _localSettingsService = new();
+    private readonly FakeBuildTestRunner _buildTestRunner = new();
 
-    private TutorialViewModel CreateSut() => new(_promptResultStore, _applyOrchestrationService, _applyHistoryLog, _dialogService, _llmRunner, _promptTemplateProvider, _fileSavePickerService, _localSettingsService);
+    private TutorialViewModel CreateSut() => new(_promptResultStore, _applyOrchestrationService, _applyHistoryLog, _dialogService, _llmRunner, _promptTemplateProvider, _fileSavePickerService, _localSettingsService, _buildTestRunner);
 
     [Fact]
     public void OnNavigatedTo_TutorialOverviewPresent_PopulatesTutorialAndHasTutorialOverview()
@@ -219,6 +221,244 @@ public class TutorialViewModelTests
         await sut.ApplySelectedCommand.ExecuteAsync(null);
 
         Assert.False(_applyOrchestrationService.LastStageAppliedFiles);
+    }
+
+    [Fact]
+    public async Task ApplySelectedAsync_NoBuildOrTestCommandConfigured_DoesNotRunEither()
+    {
+        _applyOrchestrationService.PreviewToReturn = new ApplyPreview(1, 1);
+        _dialogService.ConfirmResultToReturn = true;
+        _applyOrchestrationService.ApplySelectedResultToReturn = new ApplyBatchResult(
+            [new FileApplyResult("a.txt", FileApplyOutcome.Applied)]);
+        var sut = CreateSut();
+
+        await sut.ApplySelectedCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, _buildTestRunner.RunAsyncCallCount);
+    }
+
+    [Fact]
+    public async Task ApplySelectedAsync_NothingActuallyApplied_DoesNotRunBuildOrTestEvenIfConfigured()
+    {
+        await _localSettingsService.SaveSettingAsync(BuildTestSettingsKeys.BuildCommand, "dotnet build");
+        _applyOrchestrationService.PreviewToReturn = new ApplyPreview(1, 1);
+        _dialogService.ConfirmResultToReturn = true;
+        _applyOrchestrationService.ApplySelectedResultToReturn = new ApplyBatchResult(
+            [new FileApplyResult("a.txt", FileApplyOutcome.Failed)]);
+        var sut = CreateSut();
+
+        await sut.ApplySelectedCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, _buildTestRunner.RunAsyncCallCount);
+    }
+
+    [Fact]
+    public async Task ApplySelectedAsync_BuildCommandConfigured_RunsItInTheWorkingDirectory()
+    {
+        _promptResultStore.SetResult("tutorial", [], "/tmp/project");
+        await _localSettingsService.SaveSettingAsync(BuildTestSettingsKeys.BuildCommand, "dotnet build");
+        _applyOrchestrationService.PreviewToReturn = new ApplyPreview(1, 1);
+        _dialogService.ConfirmResultToReturn = true;
+        _applyOrchestrationService.ApplySelectedResultToReturn = new ApplyBatchResult(
+            [new FileApplyResult("a.txt", FileApplyOutcome.Applied)]);
+        _buildTestRunner.ResultsToReturn.Enqueue(new CommandResult(0, "build ok", string.Empty, TimeSpan.FromSeconds(1)));
+        var sut = CreateSut();
+
+        await sut.ApplySelectedCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, _buildTestRunner.RunAsyncCallCount);
+        Assert.Equal("dotnet build", _buildTestRunner.CommandsRun[0]);
+        Assert.Contains("succeeded", sut.ApplyStatusMessage.ToLowerInvariant());
+    }
+
+    [Fact]
+    public async Task ApplySelectedAsync_BuildCommandFails_MessageReportsFailureAndSkipsTest()
+    {
+        await _localSettingsService.SaveSettingAsync(BuildTestSettingsKeys.BuildCommand, "dotnet build");
+        await _localSettingsService.SaveSettingAsync(BuildTestSettingsKeys.TestCommand, "dotnet test");
+        _applyOrchestrationService.PreviewToReturn = new ApplyPreview(1, 1);
+        _dialogService.ConfirmResultToReturn = true;
+        _applyOrchestrationService.ApplySelectedResultToReturn = new ApplyBatchResult(
+            [new FileApplyResult("a.txt", FileApplyOutcome.Applied)]);
+        _buildTestRunner.ResultsToReturn.Enqueue(new CommandResult(1, string.Empty, "it broke", TimeSpan.FromSeconds(1)));
+        var sut = CreateSut();
+
+        await sut.ApplySelectedCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, _buildTestRunner.RunAsyncCallCount);
+        Assert.Contains("it broke", sut.ApplyStatusMessage);
+        Assert.Contains("skipped", sut.ApplyStatusMessage.ToLowerInvariant());
+    }
+
+    [Fact]
+    public async Task ApplySelectedAsync_BlankBuildCommandButTestCommandConfigured_SkipsBuildAndRunsTest()
+    {
+        await _localSettingsService.SaveSettingAsync(BuildTestSettingsKeys.BuildCommand, string.Empty);
+        await _localSettingsService.SaveSettingAsync(BuildTestSettingsKeys.TestCommand, "dotnet test");
+        _applyOrchestrationService.PreviewToReturn = new ApplyPreview(1, 1);
+        _dialogService.ConfirmResultToReturn = true;
+        _applyOrchestrationService.ApplySelectedResultToReturn = new ApplyBatchResult(
+            [new FileApplyResult("a.txt", FileApplyOutcome.Applied)]);
+        _buildTestRunner.ResultsToReturn.Enqueue(new CommandResult(0, "tests ok", string.Empty, TimeSpan.FromSeconds(2)));
+        var sut = CreateSut();
+
+        await sut.ApplySelectedCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, _buildTestRunner.RunAsyncCallCount);
+        Assert.Equal("dotnet test", _buildTestRunner.CommandsRun[0]);
+        Assert.Contains("passed", sut.ApplyStatusMessage.ToLowerInvariant());
+    }
+
+    [Fact]
+    public async Task ApplySelectedAsync_TestCommandFails_MessageReportsFailure()
+    {
+        await _localSettingsService.SaveSettingAsync(BuildTestSettingsKeys.BuildCommand, "dotnet build");
+        await _localSettingsService.SaveSettingAsync(BuildTestSettingsKeys.TestCommand, "dotnet test");
+        _applyOrchestrationService.PreviewToReturn = new ApplyPreview(1, 1);
+        _dialogService.ConfirmResultToReturn = true;
+        _applyOrchestrationService.ApplySelectedResultToReturn = new ApplyBatchResult(
+            [new FileApplyResult("a.txt", FileApplyOutcome.Applied)]);
+        _buildTestRunner.ResultsToReturn.Enqueue(new CommandResult(0, "build ok", string.Empty, TimeSpan.FromSeconds(1)));
+        _buildTestRunner.ResultsToReturn.Enqueue(new CommandResult(1, string.Empty, "test failure detail", TimeSpan.FromSeconds(3)));
+        var sut = CreateSut();
+
+        await sut.ApplySelectedCommand.ExecuteAsync(null);
+
+        Assert.Equal(2, _buildTestRunner.RunAsyncCallCount);
+        Assert.Contains("test failure detail", sut.ApplyStatusMessage);
+    }
+
+    [Fact]
+    public async Task ApplySelectedAsync_BuildCommandTimesOut_ReportsTimeoutAndSkipsTest()
+    {
+        await _localSettingsService.SaveSettingAsync(BuildTestSettingsKeys.BuildCommand, "dotnet build");
+        await _localSettingsService.SaveSettingAsync(BuildTestSettingsKeys.TestCommand, "dotnet test");
+        _applyOrchestrationService.PreviewToReturn = new ApplyPreview(1, 1);
+        _dialogService.ConfirmResultToReturn = true;
+        _applyOrchestrationService.ApplySelectedResultToReturn = new ApplyBatchResult(
+            [new FileApplyResult("a.txt", FileApplyOutcome.Applied)]);
+        _buildTestRunner.ThrowOperationCanceledOnNextRun = true;
+        var sut = CreateSut();
+
+        await sut.ApplySelectedCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, _buildTestRunner.RunAsyncCallCount);
+        Assert.Contains("timed out", sut.ApplyStatusMessage.ToLowerInvariant());
+        Assert.Contains("skipped", sut.ApplyStatusMessage.ToLowerInvariant());
+    }
+
+    [Fact]
+    public async Task ApplySelectedAsync_BuildFails_SendErrorsToClaudeCommandBecomesAvailable()
+    {
+        await _localSettingsService.SaveSettingAsync(BuildTestSettingsKeys.BuildCommand, "dotnet build");
+        _applyOrchestrationService.PreviewToReturn = new ApplyPreview(1, 1);
+        _dialogService.ConfirmResultToReturn = true;
+        _applyOrchestrationService.ApplySelectedResultToReturn = new ApplyBatchResult(
+            [new FileApplyResult("a.txt", FileApplyOutcome.Applied)]);
+        _buildTestRunner.ResultsToReturn.Enqueue(new CommandResult(1, string.Empty, "it broke", TimeSpan.FromSeconds(1)));
+        var sut = CreateSut();
+
+        Assert.False(sut.HasPendingBuildTestFailure);
+
+        await sut.ApplySelectedCommand.ExecuteAsync(null);
+
+        Assert.True(sut.HasPendingBuildTestFailure);
+        Assert.True(sut.SendBuildTestErrorsToClaudeCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task ApplySelectedAsync_BuildSucceeds_SendErrorsToClaudeCommandStaysUnavailable()
+    {
+        await _localSettingsService.SaveSettingAsync(BuildTestSettingsKeys.BuildCommand, "dotnet build");
+        _applyOrchestrationService.PreviewToReturn = new ApplyPreview(1, 1);
+        _dialogService.ConfirmResultToReturn = true;
+        _applyOrchestrationService.ApplySelectedResultToReturn = new ApplyBatchResult(
+            [new FileApplyResult("a.txt", FileApplyOutcome.Applied)]);
+        _buildTestRunner.ResultsToReturn.Enqueue(new CommandResult(0, "ok", string.Empty, TimeSpan.FromSeconds(1)));
+        var sut = CreateSut();
+
+        await sut.ApplySelectedCommand.ExecuteAsync(null);
+
+        Assert.False(sut.HasPendingBuildTestFailure);
+        Assert.False(sut.SendBuildTestErrorsToClaudeCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task SendBuildTestErrorsToClaudeAsync_Success_ReplacesTheFailingFileAndClearsThePendingFailure()
+    {
+        _promptResultStore.SetResult("tutorial", [new ProposedFileChangeViewModel("a.txt", "proposed", "original")], "/tmp", "session-1");
+        await _localSettingsService.SaveSettingAsync(BuildTestSettingsKeys.BuildCommand, "dotnet build");
+        _applyOrchestrationService.PreviewToReturn = new ApplyPreview(1, 1);
+        _dialogService.ConfirmResultToReturn = true;
+        _applyOrchestrationService.ApplySelectedResultToReturn = new ApplyBatchResult(
+            [new FileApplyResult("a.txt", FileApplyOutcome.Applied)]);
+        _buildTestRunner.ResultsToReturn.Enqueue(new CommandResult(1, string.Empty, "it broke", TimeSpan.FromSeconds(1)));
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+        await sut.ApplySelectedCommand.ExecuteAsync(null);
+
+        _llmRunner.ResultToReturn = new LlmRunResult
+        {
+            Success = true,
+            Output = """{"responseType": "development", "tutorial": "Fixed.", "files": [{"path": "a.txt", "content": "fixed content", "steps": []}]}""",
+        };
+
+        await sut.SendBuildTestErrorsToClaudeCommand.ExecuteAsync(null);
+
+        Assert.Single(sut.Files);
+        Assert.Equal("fixed content", sut.Files[0].ProposedContent);
+        Assert.Equal("fixed content", _promptResultStore.Files[0].ProposedContent);
+        Assert.Contains("it broke", _llmRunner.LastPrompt);
+        Assert.Equal("session-1", _llmRunner.LastResumeSessionId);
+        Assert.False(sut.HasPendingBuildTestFailure);
+        Assert.Contains("1", sut.SendBuildTestErrorsStatusMessage);
+    }
+
+    [Fact]
+    public async Task SendBuildTestErrorsToClaudeAsync_ResponseHasNewFile_AddsItToFilesAndTheStore()
+    {
+        _promptResultStore.SetResult("tutorial", [new ProposedFileChangeViewModel("a.txt", "proposed", "original")], "/tmp", "session-1");
+        await _localSettingsService.SaveSettingAsync(BuildTestSettingsKeys.BuildCommand, "dotnet build");
+        _applyOrchestrationService.PreviewToReturn = new ApplyPreview(1, 1);
+        _dialogService.ConfirmResultToReturn = true;
+        _applyOrchestrationService.ApplySelectedResultToReturn = new ApplyBatchResult(
+            [new FileApplyResult("a.txt", FileApplyOutcome.Applied)]);
+        _buildTestRunner.ResultsToReturn.Enqueue(new CommandResult(1, string.Empty, "it broke", TimeSpan.FromSeconds(1)));
+        var sut = CreateSut();
+        sut.OnNavigatedTo(null!);
+        await sut.ApplySelectedCommand.ExecuteAsync(null);
+
+        _llmRunner.ResultToReturn = new LlmRunResult
+        {
+            Success = true,
+            Output = """{"responseType": "development", "tutorial": "Fixed.", "files": [{"path": "b.txt", "content": "new file content", "steps": []}]}""",
+        };
+
+        await sut.SendBuildTestErrorsToClaudeCommand.ExecuteAsync(null);
+
+        Assert.Equal(2, sut.Files.Count);
+        Assert.Equal(2, _promptResultStore.Files.Count);
+        Assert.Contains(sut.Files, f => f.FilePath == "b.txt" && f.ProposedContent == "new file content");
+    }
+
+    [Fact]
+    public async Task SendBuildTestErrorsToClaudeAsync_RunFails_ReportsTheErrorAndKeepsThePendingFailure()
+    {
+        await _localSettingsService.SaveSettingAsync(BuildTestSettingsKeys.BuildCommand, "dotnet build");
+        _applyOrchestrationService.PreviewToReturn = new ApplyPreview(1, 1);
+        _dialogService.ConfirmResultToReturn = true;
+        _applyOrchestrationService.ApplySelectedResultToReturn = new ApplyBatchResult(
+            [new FileApplyResult("a.txt", FileApplyOutcome.Applied)]);
+        _buildTestRunner.ResultsToReturn.Enqueue(new CommandResult(1, string.Empty, "it broke", TimeSpan.FromSeconds(1)));
+        var sut = CreateSut();
+        await sut.ApplySelectedCommand.ExecuteAsync(null);
+
+        _llmRunner.ResultToReturn = new LlmRunResult { Success = false, ErrorMessage = "boom" };
+
+        await sut.SendBuildTestErrorsToClaudeCommand.ExecuteAsync(null);
+
+        Assert.True(sut.HasPendingBuildTestFailure);
+        Assert.Contains("boom", sut.SendBuildTestErrorsStatusMessage);
     }
 
     [Fact]

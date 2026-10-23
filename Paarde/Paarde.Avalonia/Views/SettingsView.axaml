@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:styling="using:Avalonia.Styling"
              xmlns:vm="using:Paarde.Avalonia.ViewModels"
+             xmlns:models="using:Paarde.Core.Models"
              x:Class="Paarde.Avalonia.Views.SettingsView"
              x:DataType="vm:SettingsViewModel">
 
@@ -53,6 +54,12 @@
             <TextBox Text="{Binding ClaudeCliArguments}" Watermark="-p" />
         </StackPanel>
 
+        <StackPanel Margin="0,8,0,0" Spacing="4">
+            <CheckBox Content="Enable read-only agent tools" IsChecked="{Binding AgentToolsEnabled, Mode=TwoWay}"
+                      ToolTip.Tip="Lets the model read files, grep, and glob the project itself while generating a response, instead of only seeing the context Paarde inlined. Doesn't let it write or run commands. Requires a Claude Code CLI build that supports --allowedTools/--permission-mode (run `claude --version`; upgrade with `npm install -g @anthropic-ai/claude-code` if enabling this fails)." />
+            <TextBlock Text="Applies to whichever runner above is selected." FontSize="12" Opacity="0.7" TextWrapping="Wrap" />
+        </StackPanel>
+
         <TextBlock Margin="0,16,0,0" Text="Anthropic API" FontSize="20" FontWeight="SemiBold" />
 
         <StackPanel Margin="0,8,0,0" Spacing="4">
@@ -63,11 +70,35 @@
         <StackPanel Margin="0,8,0,0" Spacing="4">
             <TextBlock Text="Model" FontSize="12" Opacity="0.7" />
             <ComboBox ItemsSource="{Binding AvailableModels}"
-                      SelectedValue="{Binding AnthropicApiModel}"
-                      SelectedValueBinding="{Binding Id}"
-                      DisplayMemberBinding="{Binding DisplayName}"
+                      SelectedItem="{Binding SelectedAnthropicModel, Mode=TwoWay}"
                       HorizontalAlignment="Left"
-                      MinWidth="220" />
+                      MinWidth="220">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate x:DataType="models:AnthropicModelInfo">
+                        <TextBlock Text="{Binding DisplayName}" />
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+        </StackPanel>
+
+        <TextBlock Margin="0,16,0,0" Text="Build &amp; test" FontSize="20" FontWeight="SemiBold" />
+
+        <StackPanel Margin="0,8,0,0" Spacing="4">
+            <TextBlock Text="Build command" FontSize="12" Opacity="0.7" />
+            <TextBlock Text="Run after applying changes to check the result still builds. Leave blank to skip."
+                       FontSize="12"
+                       Opacity="0.7"
+                       TextWrapping="Wrap" />
+            <TextBox Text="{Binding BuildCommand}" Watermark="dotnet build" />
+        </StackPanel>
+
+        <StackPanel Margin="0,8,0,0" Spacing="4">
+            <TextBlock Text="Test command" FontSize="12" Opacity="0.7" />
+            <TextBlock Text="Run after a successful build. Leave blank to skip."
+                       FontSize="12"
+                       Opacity="0.7"
+                       TextWrapping="Wrap" />
+            <TextBox Text="{Binding TestCommand}" Watermark="dotnet test" />
         </StackPanel>
 
         <TextBlock Margin="0,16,0,0" Text="Prompt template" FontSize="20" FontWeight="SemiBold" />

@@ -3,6 +3,7 @@ using System.Collections.ObjectModel;
 using Paarde.Avalonia.Contracts.Services;
 using Paarde.Avalonia.Contracts.ViewModels;
 using Paarde.Avalonia.Models;
+using Paarde.Avalonia.Services;
 using Paarde.Avalonia.Strings;
 using Paarde.Core.Contracts.Services;
 using Paarde.Core.Helpers;
@@ -29,6 +30,7 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
     private readonly IPromptTemplateProvider _promptTemplateProvider;
     private readonly IFileSavePickerService _fileSavePickerService;
     private readonly ILocalSettingsService _localSettingsService;
+    private readonly IBuildTestRunner _buildTestRunner;
     private readonly ILogger<TutorialViewModel> _logger;
 
     // T8.4.5: the step TutorialDetailControl should scroll to once it's materialized for the file a
@@ -93,7 +95,7 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
     // show before the first apply of the session.
     public bool HasApplyHistory => ApplyHistoryEntries.Count > 0;
 
-    public TutorialViewModel(IPromptResultStore promptResultStore, IApplyOrchestrationService applyOrchestrationService, IApplyHistoryLog applyHistoryLog, IDialogService dialogService, ILlmRunner llmRunner, IPromptTemplateProvider promptTemplateProvider, IFileSavePickerService fileSavePickerService, ILocalSettingsService localSettingsService, ILogger<TutorialViewModel>? logger = null)
+    public TutorialViewModel(IPromptResultStore promptResultStore, IApplyOrchestrationService applyOrchestrationService, IApplyHistoryLog applyHistoryLog, IDialogService dialogService, ILlmRunner llmRunner, IPromptTemplateProvider promptTemplateProvider, IFileSavePickerService fileSavePickerService, ILocalSettingsService localSettingsService, IBuildTestRunner buildTestRunner, ILogger<TutorialViewModel>? logger = null)
     {
         _promptResultStore = promptResultStore;
         _applyOrchestrationService = applyOrchestrationService;
@@ -103,6 +105,7 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
         _promptTemplateProvider = promptTemplateProvider;
         _fileSavePickerService = fileSavePickerService;
         _localSettingsService = localSettingsService;
+        _buildTestRunner = buildTestRunner;
         _logger = logger ?? NullLogger<TutorialViewModel>.Instance;
 
         // ObservableCollection<T> raises PropertyChanged("Count") on its own, but HasNoFiles/
@@ -317,6 +320,15 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
             messageParts.Add("Tutorial_ApplySelectedResultStaged".Resolve());
         }
 
+        // F12.2: only worth checking the build/test commands configured on the Settings page if
+        // something actually changed on disk - skipped entirely (rather than just skipping the
+        // confirm dialog) on a no-op apply, same as the dirty-files/protected-paths checks above
+        // never run for a batch with nothing selected.
+        if (result.AppliedCount > 0)
+        {
+            await RunConfiguredBuildAndTestAsync(messageParts);
+        }
+
         ApplyStatusMessage = string.Join(" ", messageParts);
         RefreshApplyHistoryEntries();
 
@@ -325,6 +337,200 @@ public partial class TutorialViewModel : ObservableRecipient, INavigationAware, 
             ApplyStatusMessage,
             "Tutorial_ApplySelectedResultClose".Resolve());
     }
+
+    // T12.1.3: a hung build/test command must not hang the whole apply flow - mirrors the safety
+    // property (not the UI) of Prompt_RunTimedOut's CLI-run timeout, but fixed rather than a second
+    // Settings-configurable value: unlike a long-running agentic CLI turn, a build or test command
+    // that's still running after this long is realistically stuck, not just slow.
+    private const int BuildTestTimeoutSeconds = 300;
+
+    // F12.2: runs the Settings-page-configured build/test commands (F12.1.2) against the working
+    // directory right after an apply, appending their outcome to the same messageParts list
+    // ApplySelectedAsync is already building up. A blank command (saved-but-blank, not merely
+    // unset - see SettingsViewModel's own comment on this) skips that step entirely; the test
+    // command additionally only runs if the build step was skipped or succeeded, since a test run
+    // against code that doesn't build isn't a meaningful signal.
+    private async Task RunConfiguredBuildAndTestAsync(List<string> messageParts)
+    {
+        ClearPendingBuildTestFailure();
+
+        var buildCommand = await _localSettingsService.ReadSettingAsync<string>(BuildTestSettingsKeys.BuildCommand);
+        var buildFailed = false;
+
+        if (!string.IsNullOrWhiteSpace(buildCommand))
+        {
+            var buildResult = await RunWithTimeoutAsync(buildCommand);
+            buildFailed = buildResult is null || !buildResult.Succeeded;
+
+            if (buildResult is null)
+            {
+                messageParts.Add(string.Format("Tutorial_ApplySelectedBuildTimedOut".Resolve(), BuildTestTimeoutSeconds));
+                SetPendingBuildTestFailure(buildCommand, string.Format("Tutorial_ApplySelectedBuildTimedOut".Resolve(), BuildTestTimeoutSeconds));
+            }
+            else if (buildResult.Succeeded)
+            {
+                messageParts.Add(string.Format("Tutorial_ApplySelectedBuildSucceeded".Resolve(), buildResult.Duration.TotalSeconds));
+            }
+            else
+            {
+                var output = FirstNonBlank(buildResult.StandardError, buildResult.StandardOutput);
+                messageParts.Add(string.Format("Tutorial_ApplySelectedBuildFailed".Resolve(), buildResult.ExitCode, output));
+                SetPendingBuildTestFailure(buildCommand, output);
+            }
+        }
+
+        var testCommand = await _localSettingsService.ReadSettingAsync<string>(BuildTestSettingsKeys.TestCommand);
+
+        if (string.IsNullOrWhiteSpace(testCommand))
+        {
+            return;
+        }
+
+        if (buildFailed)
+        {
+            messageParts.Add("Tutorial_ApplySelectedTestSkippedBuildFailed".Resolve());
+            return;
+        }
+
+        var testResult = await RunWithTimeoutAsync(testCommand);
+
+        if (testResult is null)
+        {
+            messageParts.Add(string.Format("Tutorial_ApplySelectedTestTimedOut".Resolve(), BuildTestTimeoutSeconds));
+            SetPendingBuildTestFailure(testCommand, string.Format("Tutorial_ApplySelectedTestTimedOut".Resolve(), BuildTestTimeoutSeconds));
+        }
+        else if (testResult.Succeeded)
+        {
+            messageParts.Add(string.Format("Tutorial_ApplySelectedTestSucceeded".Resolve(), testResult.Duration.TotalSeconds));
+        }
+        else
+        {
+            var output = FirstNonBlank(testResult.StandardError, testResult.StandardOutput);
+            messageParts.Add(string.Format("Tutorial_ApplySelectedTestFailed".Resolve(), testResult.ExitCode, output));
+            SetPendingBuildTestFailure(testCommand, output);
+        }
+    }
+
+    // Null means "timed out" - RunAsync's own contract (see IBuildTestRunner) only throws
+    // OperationCanceledException for a cancellation/timeout, never for an ordinary command failure,
+    // so that's the only exception worth catching here.
+    private async Task<CommandResult?> RunWithTimeoutAsync(string command)
+    {
+        using var timeoutCancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds(BuildTestTimeoutSeconds));
+
+        try
+        {
+            return await _buildTestRunner.RunAsync(command, _promptResultStore.WorkingDirectoryPath, timeoutCancellationTokenSource.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return null;
+        }
+    }
+
+    private static string FirstNonBlank(string preferred, string fallback) => string.IsNullOrWhiteSpace(preferred) ? fallback : preferred;
+
+    // T12.2.2: lets SendBuildTestErrorsToClaudeCommand act on the most recent build/test failure -
+    // cleared at the start of every RunConfiguredBuildAndTestAsync call so a stale failure from an
+    // earlier apply never lingers once a newer one has run (whether or not that newer run failed
+    // too; a fresh SetPendingBuildTestFailure call right after this one re-populates it if it did).
+    private string? _pendingBuildTestFailureCommand;
+    private string? _pendingBuildTestFailureOutput;
+
+    public bool HasPendingBuildTestFailure => _pendingBuildTestFailureOutput is not null;
+
+    private void SetPendingBuildTestFailure(string command, string output)
+    {
+        _pendingBuildTestFailureCommand = command;
+        _pendingBuildTestFailureOutput = output;
+        OnPropertyChanged(nameof(HasPendingBuildTestFailure));
+        SendBuildTestErrorsToClaudeCommand.NotifyCanExecuteChanged();
+    }
+
+    private void ClearPendingBuildTestFailure()
+    {
+        _pendingBuildTestFailureCommand = null;
+        _pendingBuildTestFailureOutput = null;
+        OnPropertyChanged(nameof(HasPendingBuildTestFailure));
+        SendBuildTestErrorsToClaudeCommand.NotifyCanExecuteChanged();
+    }
+
+    [ObservableProperty]
+    private bool isSendingBuildTestErrorsToClaude;
+
+    [ObservableProperty]
+    private string sendBuildTestErrorsStatusMessage = string.Empty;
+
+    partial void OnIsSendingBuildTestErrorsToClaudeChanged(bool value) => SendBuildTestErrorsToClaudeCommand.NotifyCanExecuteChanged();
+
+    // T12.2.2/T12.2.3: builds a follow-up prompt from the captured build/test failure and resumes
+    // the same CLI conversation (T7.3.1), the same resumeSessionId approach RefineSelectedFileAsync
+    // already uses - Claude already has the original instruction/tutorial in that conversation's
+    // history, so this only needs to describe what broke, not restate the whole original ask. Any
+    // corrected files it returns flow through StructuredResponseParser and merge into Files the
+    // same way a normal run's response does - no second, unreviewed write path (T12.2.3).
+    [RelayCommand(CanExecute = nameof(CanSendBuildTestErrorsToClaude))]
+    private async Task SendBuildTestErrorsToClaudeAsync()
+    {
+        var command = _pendingBuildTestFailureCommand!;
+        var output = _pendingBuildTestFailureOutput!;
+
+        IsSendingBuildTestErrorsToClaude = true;
+        SendBuildTestErrorsStatusMessage = "Tutorial_SendBuildTestErrorsRunning".Resolve();
+
+        try
+        {
+            var prompt = _promptTemplateProvider.GetTutorialInstructionPrompt() +
+                $"\n\nRunning `{command}` in the working directory failed with this output:\n{output}" +
+                "\n\nFix the problem and respond with the corrected file(s) in the same JSON format." +
+                $"\n\nThe working directory is: {_promptResultStore.WorkingDirectoryPath}";
+
+            var result = await _llmRunner.RunPromptAsync(prompt, _promptResultStore.WorkingDirectoryPath, resumeSessionId: _promptResultStore.SessionId);
+
+            if (!result.Success)
+            {
+                SendBuildTestErrorsStatusMessage = string.Format("Tutorial_SendBuildTestErrorsFailed".Resolve(), result.ErrorMessage);
+                return;
+            }
+
+            var parseResult = StructuredResponseParser.Parse(result.Output, _promptResultStore.WorkingDirectoryPath);
+
+            if (parseResult.UsedFallback || parseResult.Response.Files.Count == 0)
+            {
+                SendBuildTestErrorsStatusMessage = "Tutorial_SendBuildTestErrorsNoFiles".Resolve();
+                return;
+            }
+
+            foreach (var correctedFile in parseResult.Response.Files)
+            {
+                // Content-mode files come back with OriginalContent unset - see
+                // ClaudeJsonResponseParser.MapContentModeFile - same re-diff RefineSelectedFileAsync
+                // already does for the same reason.
+                correctedFile.RefreshOriginalContent(_promptResultStore.WorkingDirectoryPath);
+
+                var existingFile = Files.FirstOrDefault(f => f.FilePath == correctedFile.FilePath);
+
+                if (existingFile is not null)
+                {
+                    ReplaceFile(existingFile, correctedFile);
+                }
+                else
+                {
+                    Files.Add(correctedFile);
+                    _promptResultStore.Files.Add(correctedFile);
+                }
+            }
+
+            ClearPendingBuildTestFailure();
+            SendBuildTestErrorsStatusMessage = string.Format("Tutorial_SendBuildTestErrorsSucceeded".Resolve(), parseResult.Response.Files.Count);
+        }
+        finally
+        {
+            IsSendingBuildTestErrorsToClaude = false;
+        }
+    }
+
+    private bool CanSendBuildTestErrorsToClaude() => HasPendingBuildTestFailure && !IsSendingBuildTestErrorsToClaude;
 
     // T4.2.2: reverts the files touched by the most recent ApplySelected batch to their content
     // from immediately before that batch, confirming first since it overwrites whatever's on disk
